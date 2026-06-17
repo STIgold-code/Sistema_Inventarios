@@ -1,0 +1,25 @@
+node_modules/
+dist/
+.next/
+build/
+coverage/
+*.log
+.DS_Store
+
+# Prisma
+apps/api/prisma/migrations/dev.db*
+
+# Env — NO commitear secretos en el repo de GitHub.
+# En producción las variables reales se configuran en Railway.
+.env
+.env.local
+.env.*.local
+apps/web/.env
+
+# Artefactos de pruebas / screenshots
+.playwright-mcp/
+*.png
+!apps/web/public/**/*.png
+
+# Cache de skills (Claude Code)
+.atl/

@@ -1,0 +1,33 @@
+{
+  "name": "sistema-inventarios",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.30.3",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "db:generate": "pnpm --filter @bm/api db:generate",
+    "db:migrate": "pnpm --filter @bm/api db:migrate",
+    "db:seed": "pnpm --filter @bm/api db:seed"
+  },
+  "devDependencies": {
+    "typescript": "5.7.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@prisma/client",
+      "@prisma/engines",
+      "bcrypt",
+      "esbuild",
+      "prisma",
+      "sharp",
+      "unrs-resolver"
+    ]
+  }
+}
