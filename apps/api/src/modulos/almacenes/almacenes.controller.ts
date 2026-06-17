@@ -30,7 +30,7 @@ export class AlmacenesController {
   }
 
   @Post("sucursales")
-  @Permisos("inventario.movimiento.crear")
+  @Permisos("almacen.administrar")
   crearSucursal(@UsuarioActual() usuario: UsuarioRequest, @Body() dto: CrearSucursalDto) {
     return this.almacenes.crearSucursal(usuario.empresaId, dto);
   }
@@ -42,7 +42,7 @@ export class AlmacenesController {
   }
 
   @Post()
-  @Permisos("inventario.movimiento.crear")
+  @Permisos("almacen.administrar")
   crear(@UsuarioActual() usuario: UsuarioRequest, @Body() dto: CrearAlmacenDto) {
     return this.almacenes.crearAlmacen(usuario.empresaId, {
       sucursalId: BigInt(dto.sucursalId),

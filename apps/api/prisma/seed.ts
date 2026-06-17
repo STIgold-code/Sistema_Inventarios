@@ -42,6 +42,7 @@ const PERMISOS: ReadonlyArray<{ codigo: string; nombre: string }> = [
   { codigo: "venta.gestionar", nombre: "Gestionar ventas" },
   { codigo: "reporte.ver", nombre: "Ver reportes" },
   { codigo: "activo.gestionar", nombre: "Gestionar activos fijos" },
+  { codigo: "almacen.administrar", nombre: "Administrar almacenes y sucursales" },
 ];
 
 async function main(): Promise<void> {

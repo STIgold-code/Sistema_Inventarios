@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { MovimientoService } from "../inventario/movimientos/movimiento.service.js";
@@ -58,6 +58,13 @@ export class ImportadorService {
     dryRun: boolean,
   ): Promise<ResultadoImportacion> {
     const empresaId = usuario.empresaId;
+    // Aislamiento por empresa: el almacen destino debe pertenecer al tenant.
+    const almacen = await this.prisma.almacen.findFirst({
+      where: { id: almacenId, empresaId },
+    });
+    if (!almacen) {
+      throw new NotFoundException("Almacén no encontrado.");
+    }
     const resultado: ResultadoImportacion = {
       dryRun,
       creados: 0,

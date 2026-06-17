@@ -29,6 +29,16 @@ export class TrasladosService {
     if (dto.almacenOrigenId === dto.almacenDestinoId) {
       throw new BadRequestException("El origen y el destino deben ser distintos.");
     }
+    // Aislamiento por empresa: ambos almacenes deben pertenecer al tenant.
+    const almacenes = await this.prisma.almacen.count({
+      where: {
+        empresaId: usuario.empresaId,
+        id: { in: [dto.almacenOrigenId, dto.almacenDestinoId] },
+      },
+    });
+    if (almacenes !== 2) {
+      throw new NotFoundException("Almacén no encontrado.");
+    }
     const traslado = await this.prisma.traslado.create({
       data: {
         empresaId: usuario.empresaId,
