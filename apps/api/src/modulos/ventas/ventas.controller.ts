@@ -1,0 +1,57 @@
+import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
+import { JwtGuard } from "../../auth/jwt.guard.js";
+import { PermisosGuard } from "../../auth/permisos.guard.js";
+import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
+import { UsuarioActual } from "../../comun/decoradores/usuario-actual.decorator.js";
+import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
+import { VentasService } from "./ventas.service.js";
+import { CrearOrdenVentaDto, DespacharDto } from "./dto/ventas.dto.js";
+
+@Controller("ventas")
+@UseGuards(JwtGuard, PermisosGuard)
+export class VentasController {
+  constructor(private readonly ventas: VentasService) {}
+
+  @Get("ordenes")
+  @Permisos("venta.gestionar")
+  listar(@UsuarioActual() usuario: UsuarioRequest) {
+    return this.ventas.listarOrdenes(usuario.empresaId);
+  }
+
+  @Post("ordenes")
+  @Permisos("venta.gestionar")
+  crear(@UsuarioActual() usuario: UsuarioRequest, @Body() dto: CrearOrdenVentaDto) {
+    return this.ventas.crearOrdenVenta(usuario, {
+      almacenId: BigInt(dto.almacenId),
+      numero: dto.numero,
+      cliente: dto.cliente,
+      observaciones: dto.observaciones,
+      lineas: dto.lineas.map((l) => ({
+        skuId: BigInt(l.skuId),
+        cantidad: l.cantidad,
+        precioUnitario: l.precioUnitario,
+      })),
+    });
+  }
+
+  @Post("despachos")
+  @Permisos("venta.gestionar")
+  despachar(@UsuarioActual() usuario: UsuarioRequest, @Body() dto: DespacharDto) {
+    return this.ventas.despachar(usuario, {
+      ordenVentaId: BigInt(dto.ordenVentaId),
+      tipoDocumentoSunat: dto.tipoDocumentoSunat,
+      serieComprobante: dto.serieComprobante,
+      numeroComprobante: dto.numeroComprobante,
+      lineas: dto.lineas.map((l) => ({
+        ordenVentaLineaId: BigInt(l.ordenVentaLineaId),
+        cantidad: l.cantidad,
+      })),
+    });
+  }
+
+  @Post("ordenes/:id/anular")
+  @Permisos("venta.gestionar")
+  anular(@UsuarioActual() usuario: UsuarioRequest, @Param("id") id: string) {
+    return this.ventas.anular(usuario, BigInt(id));
+  }
+}
