@@ -1,0 +1,730 @@
+// Sistema de Inventarios BM Ingenieros
+// Decision central: el kardex es un LEDGER INMUTABLE (append-only).
+// El stock actual es una PROYECCION cacheada (ItemStock).
+// La valuacion usa CAPAS DE COSTO. Cumple SUNAT (Formato 12.1 / 13.1).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================================================================
+// ENUMS DE DOMINIO (espejo de @bm/tipos/dominio)
+// ===========================================================================
+
+enum TipoMovimiento {
+  ENTRADA_COMPRA
+  ENTRADA_AJUSTE
+  ENTRADA_TRANSFERENCIA
+  ENTRADA_DEVOLUCION
+  ENTRADA_INICIAL
+  SALIDA_VENTA
+  SALIDA_AJUSTE
+  SALIDA_TRANSFERENCIA
+  SALIDA_MERMA
+}
+
+enum SignoMovimiento {
+  ENTRADA
+  SALIDA
+}
+
+enum TipoDocumentoOrigen {
+  ORDEN_COMPRA
+  RECEPCION
+  VENTA
+  AJUSTE
+  TRANSFERENCIA
+  CONTEO_FISICO
+  INICIAL
+}
+
+enum EstadoLote {
+  ACTIVO
+  AGOTADO
+  BLOQUEADO
+  VENCIDO
+}
+
+enum MetodoDepreciacion {
+  LINEAL
+  ACELERADA
+}
+
+enum EstadoActivo {
+  OPERATIVO
+  EN_REPARACION
+  BAJA
+  EXTRAVIADO
+}
+
+// ===========================================================================
+// NUCLEO ORGANIZACIONAL
+// ===========================================================================
+
+model Empresa {
+  id          BigInt   @id @default(autoincrement())
+  ruc         String   @unique @db.VarChar(11)
+  razonSocial String   @map("razon_social")
+  nombre      String
+  activa      Boolean  @default(true)
+  creadoEn    DateTime @default(now()) @map("creado_en")
+
+  sucursales Sucursal[]
+  familias   Familia[]
+  unidades   Unidad[]
+  productos  Producto[]
+  usuarios   Usuario[]
+  roles      Rol[]
+
+  @@map("empresa")
+}
+
+model Sucursal {
+  id        BigInt @id @default(autoincrement())
+  empresaId BigInt @map("empresa_id")
+  codigo    String
+  nombre    String
+
+  empresa   Empresa      @relation(fields: [empresaId], references: [id])
+  almacenes Almacen[]
+  activos   ActivoFijo[]
+
+  @@unique([empresaId, codigo])
+  @@index([empresaId])
+  @@map("sucursal")
+}
+
+model Almacen {
+  id         BigInt @id @default(autoincrement())
+  empresaId  BigInt @map("empresa_id")
+  sucursalId BigInt @map("sucursal_id")
+  codigo     String
+  nombre     String
+
+  sucursal    Sucursal    @relation(fields: [sucursalId], references: [id])
+  ubicaciones Ubicacion[]
+
+  @@unique([empresaId, codigo])
+  @@index([empresaId, sucursalId])
+  @@map("almacen")
+}
+
+model Ubicacion {
+  id          BigInt  @id @default(autoincrement())
+  empresaId   BigInt  @map("empresa_id")
+  almacenId   BigInt  @map("almacen_id")
+  codigo      String
+  descripcion String?
+
+  almacen Almacen @relation(fields: [almacenId], references: [id])
+
+  @@unique([almacenId, codigo])
+  @@index([empresaId, almacenId])
+  @@map("ubicacion")
+}
+
+// ===========================================================================
+// CATALOGO: Familia, Unidad, Producto, Sku
+// ===========================================================================
+
+model Familia {
+  id        BigInt @id @default(autoincrement())
+  empresaId BigInt @map("empresa_id")
+  codigo    String // "001", "004" (los 3 primeros digitos del codigo parlante)
+  nombre    String
+
+  empresa   Empresa    @relation(fields: [empresaId], references: [id])
+  productos Producto[]
+
+  @@unique([empresaId, codigo])
+  @@index([empresaId])
+  @@map("familia")
+}
+
+model Unidad {
+  id        BigInt @id @default(autoincrement())
+  empresaId BigInt @map("empresa_id")
+  codigo    String // Tabla 6 SUNAT: KGM, MTR, NIU...
+  nombre    String
+
+  empresa Empresa @relation(fields: [empresaId], references: [id])
+  skus    Sku[]
+
+  @@unique([empresaId, codigo])
+  @@map("unidad")
+}
+
+model Producto {
+  id          BigInt   @id @default(autoincrement())
+  empresaId   BigInt   @map("empresa_id")
+  familiaId   BigInt   @map("familia_id")
+  nombre      String
+  descripcion String?
+  activo      Boolean  @default(true)
+  creadoEn    DateTime @default(now()) @map("creado_en")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id])
+  familia Familia @relation(fields: [familiaId], references: [id])
+  skus    Sku[]
+
+  @@index([empresaId, familiaId])
+  @@map("producto")
+}
+
+model Sku {
+  id         BigInt @id @default(autoincrement())
+  empresaId  BigInt @map("empresa_id")
+  productoId BigInt @map("producto_id")
+
+  // Codigo parlante historico de 14 digitos (identificador legible de Excel).
+  codigoParlante String  @map("codigo_parlante") @db.VarChar(14)
+  // Codigo UNSPSC de 16 digitos para el PLE SUNAT. SEPARADO del parlante.
+  codigoUnspsc   String? @map("codigo_unspsc") @db.VarChar(16)
+  codigoBarras   String? @map("codigo_barras")
+
+  unidadId BigInt  @map("unidad_id")
+  nombre   String?
+
+  // SUNAT
+  tipoExistencia  String @default("01") @map("tipo_existencia") @db.VarChar(2) // Tabla 5
+  metodoValuacion String @default("2") @map("metodo_valuacion") @db.VarChar(2) // Tabla 14 (2 = PROMEDIO)
+
+  stockMinimo         Decimal? @map("stock_minimo") @db.Decimal(20, 8)
+  controlaLote        Boolean  @default(false) @map("controla_lote")
+  controlaSerie       Boolean  @default(false) @map("controla_serie")
+  controlaVencimiento Boolean  @default(false) @map("controla_vencimiento")
+  activo              Boolean  @default(true)
+  creadoEn            DateTime @default(now()) @map("creado_en")
+
+  producto    Producto          @relation(fields: [productoId], references: [id])
+  unidad      Unidad            @relation(fields: [unidadId], references: [id])
+  lotes       Lote[]
+  items       ItemStock[]
+  movimientos MovimientoStock[]
+  capas       CapaCosto[]
+
+  @@unique([empresaId, codigoParlante])
+  @@index([empresaId, productoId])
+  @@map("sku")
+}
+
+// ===========================================================================
+// STOCK: Lote y posicion fisica (ItemStock = proyeccion cacheada)
+// ===========================================================================
+
+model Lote {
+  id               BigInt     @id @default(autoincrement())
+  empresaId        BigInt     @map("empresa_id")
+  skuId            BigInt     @map("sku_id")
+  codigo           String
+  fechaVencimiento DateTime?  @map("fecha_vencimiento")
+  estado           EstadoLote @default(ACTIVO)
+
+  sku Sku @relation(fields: [skuId], references: [id])
+
+  @@unique([empresaId, skuId, codigo])
+  @@index([empresaId, skuId, fechaVencimiento])
+  @@map("lote")
+}
+
+/// Proyeccion del stock por posicion fisica. Cacheada, NO es la fuente de verdad.
+model ItemStock {
+  id          BigInt  @id @default(autoincrement())
+  empresaId   BigInt  @map("empresa_id")
+  skuId       BigInt  @map("sku_id")
+  almacenId   BigInt  @map("almacen_id")
+  ubicacionId BigInt? @map("ubicacion_id")
+  loteId      BigInt? @map("lote_id")
+  serie       String?
+
+  cantidadDisponible   Decimal @default(0) @map("cantidad_disponible") @db.Decimal(20, 8)
+  cantidadComprometida Decimal @default(0) @map("cantidad_comprometida") @db.Decimal(20, 8)
+  costoPromedio        Decimal @default(0) @map("costo_promedio") @db.Decimal(20, 8)
+  version              Int     @default(0)
+
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  sku         Sku               @relation(fields: [skuId], references: [id])
+  movimientos MovimientoStock[]
+
+  @@unique([empresaId, skuId, almacenId, ubicacionId, loteId, serie], name: "posicion")
+  @@index([empresaId, skuId, almacenId])
+  @@map("item_stock")
+}
+
+// ===========================================================================
+// LEDGER INMUTABLE (kardex) — con campos SUNAT para Formato 12.1 / 13.1
+// ===========================================================================
+
+model MovimientoStock {
+  id          BigInt @id @default(autoincrement())
+  empresaId   BigInt @map("empresa_id")
+  skuId       BigInt @map("sku_id")
+  almacenId   BigInt @map("almacen_id")
+  itemStockId BigInt @map("item_stock_id")
+  loteId      BigInt? @map("lote_id")
+
+  tipo  TipoMovimiento
+  signo SignoMovimiento
+
+  cantidad      Decimal @db.Decimal(20, 8)
+  costoUnitario Decimal @map("costo_unitario") @db.Decimal(20, 8)
+  costoTotal    Decimal @map("costo_total") @db.Decimal(20, 2)
+
+  // Saldo resultante (snapshot que SUNAT exige guardar en cada movimiento).
+  saldoCantidad      Decimal @map("saldo_cantidad") @db.Decimal(20, 8)
+  saldoCostoUnitario Decimal @map("saldo_costo_unitario") @db.Decimal(20, 8)
+  saldoCostoTotal    Decimal @map("saldo_costo_total") @db.Decimal(20, 2)
+
+  // Documento origen (polimorfico ligero)
+  documentoTipo TipoDocumentoOrigen @map("documento_tipo")
+  documentoId   BigInt?             @map("documento_id")
+
+  // --- Campos SUNAT (Formato 12.1 / 13.1) ---
+  periodo                 String  @db.VarChar(6) // AAAAMM
+  fechaEmisionDocumento   DateTime @map("fecha_emision_documento")
+  cuo                     String  @db.VarChar(40) // Codigo Unico de Operacion (= Libro Diario)
+  numeroCorrelativo       String  @map("numero_correlativo")
+  secuencia               BigInt  // entero monotonico para desempate del kardex
+  indicadorEstado         String  @default("1") @map("indicador_estado") @db.VarChar(1)
+  tipoDocumentoSunat      String  @map("tipo_documento_sunat") @db.VarChar(2) // Tabla 10
+  serieComprobante        String  @default("0") @map("serie_comprobante")
+  numeroComprobante       String  @default("0") @map("numero_comprobante")
+  tipoOperacionSunat      String  @map("tipo_operacion_sunat") @db.VarChar(2) // Tabla 12
+
+  usuarioId       BigInt   @map("usuario_id")
+  fechaMovimiento DateTime @default(now()) @map("fecha_movimiento")
+  observaciones   String?
+
+  sku       Sku       @relation(fields: [skuId], references: [id])
+  itemStock ItemStock @relation(fields: [itemStockId], references: [id])
+  usuario   Usuario   @relation(fields: [usuarioId], references: [id])
+  consumos  ConsumoCapa[]
+  capaCreada CapaCosto?
+
+  @@index([empresaId, skuId, fechaMovimiento, secuencia])
+  @@index([empresaId, almacenId, fechaMovimiento])
+  @@index([empresaId, periodo])
+  @@index([documentoTipo, documentoId])
+  @@map("movimiento_stock")
+}
+
+// ===========================================================================
+// CAPAS DE COSTO (FIFO) y su consumo
+// ===========================================================================
+
+/// Una capa por cada ENTRADA. Las salidas consumen capas en orden FIFO.
+model CapaCosto {
+  id                  BigInt  @id @default(autoincrement())
+  empresaId           BigInt  @map("empresa_id")
+  skuId               BigInt  @map("sku_id")
+  almacenId           BigInt  @map("almacen_id")
+  loteId              BigInt? @map("lote_id")
+  movimientoEntradaId BigInt  @unique @map("movimiento_entrada_id")
+
+  cantidadInicial  Decimal  @map("cantidad_inicial") @db.Decimal(20, 8)
+  cantidadRestante Decimal  @map("cantidad_restante") @db.Decimal(20, 8)
+  costoUnitario    Decimal  @map("costo_unitario") @db.Decimal(20, 8)
+  fechaIngreso     DateTime @default(now()) @map("fecha_ingreso")
+  agotada          Boolean  @default(false)
+
+  sku               Sku             @relation(fields: [skuId], references: [id])
+  movimientoEntrada MovimientoStock @relation(fields: [movimientoEntradaId], references: [id])
+  consumos          ConsumoCapa[]
+
+  @@index([empresaId, skuId, almacenId, agotada, fechaIngreso])
+  @@map("capa_costo")
+}
+
+/// Detalle de consumo de capas por cada salida (auditoria del costeo FIFO).
+model ConsumoCapa {
+  id                 BigInt  @id @default(autoincrement())
+  empresaId          BigInt  @map("empresa_id")
+  movimientoSalidaId BigInt  @map("movimiento_salida_id")
+  capaCostoId        BigInt  @map("capa_costo_id")
+  cantidad           Decimal @db.Decimal(20, 8)
+  costoUnitario      Decimal @map("costo_unitario") @db.Decimal(20, 8)
+
+  movimientoSalida MovimientoStock @relation(fields: [movimientoSalidaId], references: [id])
+  capaCosto        CapaCosto       @relation(fields: [capaCostoId], references: [id])
+
+  @@index([movimientoSalidaId])
+  @@index([capaCostoId])
+  @@map("consumo_capa")
+}
+
+// ===========================================================================
+// USUARIOS / ROLES / PERMISOS
+// ===========================================================================
+
+model Usuario {
+  id        BigInt   @id @default(autoincrement())
+  empresaId BigInt   @map("empresa_id")
+  email     String
+  hashClave String   @map("hash_clave")
+  nombre    String
+  activo    Boolean  @default(true)
+  creadoEn  DateTime @default(now()) @map("creado_en")
+
+  empresa     Empresa           @relation(fields: [empresaId], references: [id])
+  roles       UsuarioRol[]
+  movimientos MovimientoStock[]
+
+  @@unique([empresaId, email])
+  @@map("usuario")
+}
+
+model Rol {
+  id        BigInt @id @default(autoincrement())
+  empresaId BigInt @map("empresa_id")
+  codigo    String // ADMIN, ALMACENERO, COMPRAS, VENTAS, AUDITOR
+  nombre    String
+
+  empresa  Empresa      @relation(fields: [empresaId], references: [id])
+  permisos RolPermiso[]
+  usuarios UsuarioRol[]
+
+  @@unique([empresaId, codigo])
+  @@map("rol")
+}
+
+model Permiso {
+  id     BigInt @id @default(autoincrement())
+  codigo String @unique // "inventario.movimiento.crear", "producto.editar"
+  nombre String
+
+  roles RolPermiso[]
+
+  @@map("permiso")
+}
+
+model RolPermiso {
+  rolId     BigInt @map("rol_id")
+  permisoId BigInt @map("permiso_id")
+
+  rol     Rol     @relation(fields: [rolId], references: [id])
+  permiso Permiso @relation(fields: [permisoId], references: [id])
+
+  @@id([rolId, permisoId])
+  @@map("rol_permiso")
+}
+
+model UsuarioRol {
+  usuarioId BigInt @map("usuario_id")
+  rolId     BigInt @map("rol_id")
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
+  rol     Rol     @relation(fields: [rolId], references: [id])
+
+  @@id([usuarioId, rolId])
+  @@map("usuario_rol")
+}
+
+// ===========================================================================
+// COMPRAS: Proveedor, Orden de Compra, Recepcion (parcial)
+// ===========================================================================
+
+enum EstadoOrdenCompra {
+  BORRADOR
+  EMITIDA
+  PARCIAL
+  COMPLETA
+  ANULADA
+}
+
+model Proveedor {
+  id        BigInt   @id @default(autoincrement())
+  empresaId BigInt   @map("empresa_id")
+  ruc       String   @db.VarChar(11)
+  razonSocial String @map("razon_social")
+  direccion String?
+  telefono  String?
+  email     String?
+  activo    Boolean  @default(true)
+  creadoEn  DateTime @default(now()) @map("creado_en")
+
+  ordenes OrdenCompra[]
+
+  @@unique([empresaId, ruc])
+  @@index([empresaId])
+  @@map("proveedor")
+}
+
+model OrdenCompra {
+  id          BigInt            @id @default(autoincrement())
+  empresaId   BigInt            @map("empresa_id")
+  proveedorId BigInt            @map("proveedor_id")
+  almacenId   BigInt            @map("almacen_id") // almacen de recepcion
+  numero      String // correlativo interno de la OC
+  estado      EstadoOrdenCompra @default(BORRADOR)
+  fechaEmision DateTime         @default(now()) @map("fecha_emision")
+  total       Decimal           @default(0) @db.Decimal(20, 2)
+  observaciones String?
+  usuarioId   BigInt            @map("usuario_id")
+
+  proveedor   Proveedor          @relation(fields: [proveedorId], references: [id])
+  lineas      OrdenCompraLinea[]
+  recepciones Recepcion[]
+
+  @@unique([empresaId, numero])
+  @@index([empresaId, estado])
+  @@map("orden_compra")
+}
+
+model OrdenCompraLinea {
+  id            BigInt  @id @default(autoincrement())
+  empresaId     BigInt  @map("empresa_id")
+  ordenCompraId BigInt  @map("orden_compra_id")
+  skuId         BigInt  @map("sku_id")
+  cantidad      Decimal @db.Decimal(20, 8)
+  costoUnitario Decimal @map("costo_unitario") @db.Decimal(20, 8)
+  cantidadRecibida Decimal @default(0) @map("cantidad_recibida") @db.Decimal(20, 8)
+
+  ordenCompra OrdenCompra @relation(fields: [ordenCompraId], references: [id])
+
+  @@index([ordenCompraId])
+  @@index([empresaId, skuId])
+  @@map("orden_compra_linea")
+}
+
+model Recepcion {
+  id            BigInt   @id @default(autoincrement())
+  empresaId     BigInt   @map("empresa_id")
+  ordenCompraId BigInt   @map("orden_compra_id")
+  fecha         DateTime @default(now())
+  tipoDocumentoSunat String @default("01") @map("tipo_documento_sunat") @db.VarChar(2)
+  serieComprobante String? @map("serie_comprobante")
+  numeroComprobante String? @map("numero_comprobante")
+  usuarioId     BigInt   @map("usuario_id")
+
+  ordenCompra OrdenCompra      @relation(fields: [ordenCompraId], references: [id])
+  lineas      RecepcionLinea[]
+
+  @@index([empresaId, ordenCompraId])
+  @@map("recepcion")
+}
+
+model RecepcionLinea {
+  id            BigInt  @id @default(autoincrement())
+  empresaId     BigInt  @map("empresa_id")
+  recepcionId   BigInt  @map("recepcion_id")
+  ordenCompraLineaId BigInt @map("orden_compra_linea_id")
+  skuId         BigInt  @map("sku_id")
+  cantidad      Decimal @db.Decimal(20, 8)
+  movimientoStockId BigInt @map("movimiento_stock_id") // entrada generada en el ledger
+
+  recepcion Recepcion @relation(fields: [recepcionId], references: [id])
+
+  @@index([recepcionId])
+  @@map("recepcion_linea")
+}
+
+// ===========================================================================
+// VENTAS: Orden de venta con reserva y despacho
+// ===========================================================================
+
+enum EstadoOrdenVenta {
+  PENDIENTE
+  PARCIAL
+  DESPACHADA
+  ANULADA
+}
+
+model OrdenVenta {
+  id           BigInt           @id @default(autoincrement())
+  empresaId    BigInt           @map("empresa_id")
+  almacenId    BigInt           @map("almacen_id")
+  numero       String
+  cliente      String?
+  estado       EstadoOrdenVenta @default(PENDIENTE)
+  fechaEmision DateTime         @default(now()) @map("fecha_emision")
+  total        Decimal          @default(0) @db.Decimal(20, 2)
+  observaciones String?
+  usuarioId    BigInt           @map("usuario_id")
+
+  lineas OrdenVentaLinea[]
+
+  @@unique([empresaId, numero])
+  @@index([empresaId, estado])
+  @@map("orden_venta")
+}
+
+model OrdenVentaLinea {
+  id           BigInt  @id @default(autoincrement())
+  empresaId    BigInt  @map("empresa_id")
+  ordenVentaId BigInt  @map("orden_venta_id")
+  skuId        BigInt  @map("sku_id")
+  cantidad     Decimal @db.Decimal(20, 8)
+  precioUnitario Decimal @default(0) @map("precio_unitario") @db.Decimal(20, 8)
+  cantidadDespachada Decimal @default(0) @map("cantidad_despachada") @db.Decimal(20, 8)
+
+  ordenVenta OrdenVenta @relation(fields: [ordenVentaId], references: [id])
+
+  @@index([ordenVentaId])
+  @@index([empresaId, skuId])
+  @@map("orden_venta_linea")
+}
+
+// ===========================================================================
+// TRAZABILIDAD: Conteo fisico / cuadre de inventario
+// ===========================================================================
+
+enum EstadoConteo {
+  ABIERTO
+  APLICADO
+  ANULADO
+}
+
+model ConteoFisico {
+  id            BigInt       @id @default(autoincrement())
+  empresaId     BigInt       @map("empresa_id")
+  almacenId     BigInt       @map("almacen_id")
+  estado        EstadoConteo @default(ABIERTO)
+  fecha         DateTime     @default(now())
+  observaciones String?
+  usuarioId     BigInt       @map("usuario_id")
+
+  lineas ConteoLinea[]
+
+  @@index([empresaId, estado])
+  @@map("conteo_fisico")
+}
+
+model ConteoLinea {
+  id              BigInt  @id @default(autoincrement())
+  empresaId       BigInt  @map("empresa_id")
+  conteoId        BigInt  @map("conteo_id")
+  skuId           BigInt  @map("sku_id")
+  cantidadSistema Decimal @map("cantidad_sistema") @db.Decimal(20, 8)
+  cantidadContada Decimal @map("cantidad_contada") @db.Decimal(20, 8)
+  diferencia      Decimal @db.Decimal(20, 8)
+  movimientoAjusteId BigInt? @map("movimiento_ajuste_id")
+
+  conteo ConteoFisico @relation(fields: [conteoId], references: [id])
+
+  @@unique([conteoId, skuId])
+  @@index([conteoId])
+  @@map("conteo_linea")
+}
+
+// ===========================================================================
+// TRASLADOS entre almacenes (con transito: despacho -> en transito -> recepcion)
+// ===========================================================================
+
+enum EstadoTraslado {
+  PENDIENTE
+  EN_TRANSITO
+  RECIBIDO
+  ANULADO
+}
+
+model Traslado {
+  id               BigInt         @id @default(autoincrement())
+  empresaId        BigInt         @map("empresa_id")
+  numero           String
+  almacenOrigenId  BigInt         @map("almacen_origen_id")
+  almacenDestinoId BigInt         @map("almacen_destino_id")
+  estado           EstadoTraslado @default(PENDIENTE)
+  fechaEmision     DateTime       @default(now()) @map("fecha_emision")
+  fechaDespacho    DateTime?      @map("fecha_despacho")
+  fechaRecepcion   DateTime?      @map("fecha_recepcion")
+  observaciones    String?
+  usuarioId        BigInt         @map("usuario_id")
+
+  lineas TrasladoLinea[]
+
+  @@unique([empresaId, numero])
+  @@index([empresaId, estado])
+  @@map("traslado")
+}
+
+model TrasladoLinea {
+  id                BigInt  @id @default(autoincrement())
+  empresaId         BigInt  @map("empresa_id")
+  trasladoId        BigInt  @map("traslado_id")
+  skuId             BigInt  @map("sku_id")
+  cantidad          Decimal @db.Decimal(20, 8) // solicitada
+  cantidadDespachada Decimal @default(0) @map("cantidad_despachada") @db.Decimal(20, 8)
+  cantidadRecibida  Decimal @default(0) @map("cantidad_recibida") @db.Decimal(20, 8)
+  costoUnitario     Decimal @default(0) @map("costo_unitario") @db.Decimal(20, 8) // costo al despachar
+
+  traslado Traslado @relation(fields: [trasladoId], references: [id])
+
+  @@index([trasladoId])
+  @@index([empresaId, skuId])
+  @@map("traslado_linea")
+}
+
+// ===========================================================================
+// ACTIVOS FIJOS (modulo aparte — no usa ledger ni capas)
+// ===========================================================================
+
+model CategoriaActivo {
+  id            BigInt  @id @default(autoincrement())
+  empresaId     BigInt  @map("empresa_id")
+  nombre        String
+  vidaUtilMeses Int     @map("vida_util_meses")
+  tasaAnual     Decimal @map("tasa_anual") @db.Decimal(7, 4)
+
+  activos ActivoFijo[]
+
+  @@unique([empresaId, nombre])
+  @@map("categoria_activo")
+}
+
+model ActivoFijo {
+  id            BigInt  @id @default(autoincrement())
+  empresaId     BigInt  @map("empresa_id")
+  sucursalId    BigInt  @map("sucursal_id")
+  categoriaId   BigInt  @map("categoria_id")
+  codigo        String
+  nombre        String
+  marca         String?
+  modelo        String?
+  numeroSerie   String? @map("numero_serie")
+  departamento  String?
+  responsableId BigInt? @map("responsable_id")
+
+  fechaCompra        DateTime @map("fecha_compra")
+  valorAdquisicion   Decimal  @map("valor_adquisicion") @db.Decimal(20, 2)
+  valorResidual      Decimal  @default(0) @map("valor_residual") @db.Decimal(20, 2)
+  metodoDepreciacion MetodoDepreciacion @default(LINEAL) @map("metodo_depreciacion")
+  vidaUtilMeses      Int      @map("vida_util_meses")
+
+  fechaFinGarantia DateTime?    @map("fecha_fin_garantia")
+  estado           EstadoActivo @default(OPERATIVO)
+
+  depreciacionAcumulada Decimal @default(0) @map("depreciacion_acumulada") @db.Decimal(20, 2)
+  valorActual           Decimal @map("valor_actual") @db.Decimal(20, 2)
+
+  categoria      CategoriaActivo      @relation(fields: [categoriaId], references: [id])
+  sucursal       Sucursal             @relation(fields: [sucursalId], references: [id])
+  depreciaciones DepreciacionActivo[]
+
+  @@unique([empresaId, codigo])
+  @@index([empresaId, sucursalId])
+  @@map("activo_fijo")
+}
+
+/// Ledger de depreciacion: una fila por periodo (mes). Append-only.
+model DepreciacionActivo {
+  id             BigInt   @id @default(autoincrement())
+  empresaId      BigInt   @map("empresa_id")
+  activoId       BigInt   @map("activo_id")
+  periodo        String   @db.VarChar(7) // "2026-06"
+  montoPeriodo   Decimal  @map("monto_periodo") @db.Decimal(20, 2)
+  acumuladoHasta Decimal  @map("acumulado_hasta") @db.Decimal(20, 2)
+  valorEnLibros  Decimal  @map("valor_en_libros") @db.Decimal(20, 2)
+  generadoEn     DateTime @default(now()) @map("generado_en")
+
+  activo ActivoFijo @relation(fields: [activoId], references: [id])
+
+  @@unique([empresaId, activoId, periodo])
+  @@index([empresaId, periodo])
+  @@map("depreciacion_activo")
+}

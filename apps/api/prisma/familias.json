@@ -1,0 +1,214 @@
+[
+  {
+    "codigo": "001",
+    "nombre": "SOLDADURAS"
+  },
+  {
+    "codigo": "002",
+    "nombre": "ABRASIVOS"
+  },
+  {
+    "codigo": "003",
+    "nombre": "ARTICULOS DE LIMPIEZA"
+  },
+  {
+    "codigo": "004",
+    "nombre": "LINEA ELECTRICA"
+  },
+  {
+    "codigo": "005",
+    "nombre": "ACCESORIOS P/ MAQUINAS"
+  },
+  {
+    "codigo": "006",
+    "nombre": "ARTICULOS EN POLIURETANO"
+  },
+  {
+    "codigo": "007",
+    "nombre": "ARTICULOS DE TORNERIA"
+  },
+  {
+    "codigo": "008",
+    "nombre": "COMPRA DE HERRAMIENTAS P/ CLIENTES"
+  },
+  {
+    "codigo": "009",
+    "nombre": "LUBRICANTES"
+  },
+  {
+    "codigo": "010",
+    "nombre": "ARTICULOS DE PINTADO"
+  },
+  {
+    "codigo": "011",
+    "nombre": "ARTICULOS DE SEGURIDAD"
+  },
+  {
+    "codigo": "012",
+    "nombre": "ARTICULOS DE FIJACIN"
+  },
+  {
+    "codigo": "013",
+    "nombre": "SOLVENTES QUIMICOS"
+  },
+  {
+    "codigo": "014",
+    "nombre": "COMBUSTIBLES"
+  },
+  {
+    "codigo": "015",
+    "nombre": "UTILES DE ESCRITORIO"
+  },
+  {
+    "codigo": "016",
+    "nombre": "EQUIPOS DE INFORMATICA"
+  },
+  {
+    "codigo": "017",
+    "nombre": "BOTIQUIN"
+  },
+  {
+    "codigo": "018",
+    "nombre": "GASTOS CONSUMO DE ALIMENTOS"
+  },
+  {
+    "codigo": "019",
+    "nombre": "MUEBLES Y ENSERES"
+  },
+  {
+    "codigo": "020",
+    "nombre": "MANGUERAS"
+  },
+  {
+    "codigo": "021",
+    "nombre": "PEGAMENTOS"
+  },
+  {
+    "codigo": "022",
+    "nombre": "ARTICULOS DE CONEXIONES"
+  },
+  {
+    "codigo": "023",
+    "nombre": "ACCESORIOS DE SANITARIOS"
+  },
+  {
+    "codigo": "024",
+    "nombre": "CERRADURAS"
+  },
+  {
+    "codigo": "025",
+    "nombre": "EMBALAJES"
+  },
+  {
+    "codigo": "026",
+    "nombre": "ACOPLAMIENTOS Y ENGRANAJES"
+  },
+  {
+    "codigo": "027",
+    "nombre": "ARTICULOS DE AMORTIGUACIN"
+  },
+  {
+    "codigo": "028",
+    "nombre": "RODAMIENTOS,CHUMACERAS, RETENES"
+  },
+  {
+    "codigo": "029",
+    "nombre": "REPUESTOS"
+  },
+  {
+    "codigo": "030",
+    "nombre": "BARRAS Y BOCINAS EN BRONCE"
+  },
+  {
+    "codigo": "031",
+    "nombre": "ACEROS ESPECIALES"
+  },
+  {
+    "codigo": "032",
+    "nombre": "PLANCHAS,TUBERIAS,RED,ANG"
+  },
+  {
+    "codigo": "033",
+    "nombre": "ARTICULOS DE MEDICIN"
+  },
+  {
+    "codigo": "034",
+    "nombre": "ARTICULOS DE CONSTRUCCION"
+  },
+  {
+    "codigo": "035",
+    "nombre": "REPUESTOS EN MADERA"
+  },
+  {
+    "codigo": "036",
+    "nombre": "REPUESTOS ACCESORIOS ACTIVOS FIJOS"
+  },
+  {
+    "codigo": "037",
+    "nombre": "SERVICIOS POR TERCEROS"
+  },
+  {
+    "codigo": "038",
+    "nombre": "ARTICULOS DE CALDERERIA"
+  },
+  {
+    "codigo": "039",
+    "nombre": "MAQUINAS Y EQUIPOS"
+  },
+  {
+    "codigo": "040",
+    "nombre": "PLANCHAS ACRILICAS"
+  },
+  {
+    "codigo": "041",
+    "nombre": "CODIGOS NO VALIDOS"
+  },
+  {
+    "codigo": "042",
+    "nombre": "OBSEQUIOS"
+  },
+  {
+    "codigo": "043",
+    "nombre": "REACTIVO Y ACCESORIOS P/LABORATORIO"
+  },
+  {
+    "codigo": "044",
+    "nombre": "ACTIVO FIJO"
+  },
+  {
+    "codigo": "045",
+    "nombre": "ADELANTO P/ PROVEEDORES"
+  },
+  {
+    "codigo": "046",
+    "nombre": "REJILLAS METALICAS Y/O PISOS GREINTING"
+  },
+  {
+    "codigo": "047",
+    "nombre": "CANCELACIN P/PROVEEDORES"
+  },
+  {
+    "codigo": "048",
+    "nombre": "INDICADORES OPTICOS DE RECTIFICADO"
+  },
+  {
+    "codigo": "049",
+    "nombre": "EMPAQUETADURAS"
+  },
+  {
+    "codigo": "050",
+    "nombre": "ADITIVOS"
+  },
+  {
+    "codigo": "051",
+    "nombre": "ARTICULOS DE IDENTIFICACIN"
+  },
+  {
+    "codigo": "052",
+    "nombre": "REPUESTOS DE VEHICULOS"
+  },
+  {
+    "codigo": "053",
+    "nombre": "EQUIPOS INDUSTRIALES P/ MINERIA"
+  }
+]
