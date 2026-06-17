@@ -1,0 +1,208 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =========================================================================
+   SISTEMA DE DISENO EMPRESARIAL — BM INVENTARIOS
+   Sobrio, profesional, legible. Grafito + dorado de marca como acento puntual.
+   El diseno se calla; el dato manda.
+   ========================================================================= */
+
+:root {
+  /* Superficies */
+  --fondo: #f4f5f7;
+  --panel: #ffffff;
+  --panel-alt: #f8f9fa;
+  --blanco: #ffffff;
+
+  /* Texto / grafito de marca */
+  --tinta: #1f2328;
+  --texto: #2f343b;
+  --texto-sec: #656d76;
+  --texto-ter: #8b9198;
+
+  /* Bordes */
+  --borde: #e3e6ea;
+  --borde-fuerte: #d0d4d9;
+
+  /* Acento de marca — dorado BM */
+  --oro: #f6b60b;
+  --oro-osc: #b8860b;     /* para texto/links sobre claro (contraste) */
+  --oro-hover: #e0a400;
+  --oro-tenue: #fef6db;
+  --oro-anillo: rgba(246, 182, 11, 0.28);
+
+  /* Estados funcionales */
+  --exito: #1a7f37;
+  --exito-tenue: #e6f4ea;
+  --peligro: #cf222e;
+  --peligro-tenue: #fbe9ea;
+  --info: #0969da;
+  --info-tenue: #e7f0fb;
+  --aviso: #9a6700;
+  --aviso-tenue: #fdf6e3;
+
+  /* Tipografia */
+  --fuente-base: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --fuente-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  /* Sombras suaves (empresarial) */
+  --sombra-sm: 0 1px 2px rgba(31, 35, 40, 0.06);
+  --sombra: 0 1px 3px rgba(31, 35, 40, 0.08), 0 1px 2px rgba(31, 35, 40, 0.04);
+  --sombra-md: 0 4px 12px rgba(31, 35, 40, 0.08);
+
+  --radio: 6px;
+  --radio-lg: 8px;
+}
+
+* { border-color: var(--borde); }
+
+body {
+  background-color: var(--fondo);
+  color: var(--texto);
+  font-family: var(--fuente-base);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--fuente-base);
+  color: var(--tinta);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Numeros y codigos: monoespaciada tabular */
+.mono, .dato, code, .tabular {
+  font-family: var(--fuente-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+@layer components {
+  /* --- Paneles --- */
+  .panel {
+    @apply bg-white;
+    border: 1px solid var(--borde);
+    border-radius: var(--radio-lg);
+    box-shadow: var(--sombra);
+  }
+  .panel-cabecera {
+    @apply flex items-center justify-between gap-3 px-5 py-3.5;
+    border-bottom: 1px solid var(--borde);
+  }
+  .panel-titulo {
+    @apply text-[0.95rem] font-semibold;
+    color: var(--tinta);
+  }
+
+  /* --- Botones --- */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 text-sm font-medium transition-colors;
+    height: 2.5rem;
+    border-radius: var(--radio);
+    border: 1px solid transparent;
+    cursor: pointer;
+  }
+  .btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--oro-anillo);
+  }
+  .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+  .btn-primario {
+    background: var(--oro);
+    color: #3d2f00;
+    font-weight: 600;
+  }
+  .btn-primario:hover:not(:disabled) { background: var(--oro-hover); }
+
+  .btn-oscuro {
+    background: var(--tinta);
+    color: #fff;
+  }
+  .btn-oscuro:hover:not(:disabled) { background: #32383f; }
+
+  .btn-contorno {
+    background: var(--blanco);
+    color: var(--texto);
+    border-color: var(--borde-fuerte);
+  }
+  .btn-contorno:hover:not(:disabled) { background: var(--panel-alt); }
+
+  .btn-texto {
+    background: transparent;
+    color: var(--texto-sec);
+  }
+  .btn-texto:hover:not(:disabled) { background: var(--panel-alt); color: var(--tinta); }
+
+  /* --- Campos --- */
+  .campo {
+    @apply w-full px-3 text-sm transition-shadow;
+    height: 2.5rem;
+    background: var(--blanco);
+    border: 1px solid var(--borde-fuerte);
+    border-radius: var(--radio);
+    color: var(--tinta);
+  }
+  .campo:focus {
+    outline: none;
+    border-color: var(--oro);
+    box-shadow: 0 0 0 3px var(--oro-anillo);
+  }
+  .campo::placeholder { color: var(--texto-ter); }
+  .campo:disabled { background: var(--panel-alt); opacity: 0.7; }
+  .campo[aria-invalid="true"] {
+    border-color: var(--peligro);
+  }
+  .campo[aria-invalid="true"]:focus {
+    box-shadow: 0 0 0 3px var(--peligro-tenue);
+  }
+
+  .etiqueta-campo {
+    @apply mb-1.5 block text-[0.8rem] font-medium;
+    color: var(--texto);
+  }
+
+  /* --- Insignias --- */
+  .insignia {
+    @apply inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium;
+    border-radius: 999px;
+    border: 1px solid transparent;
+  }
+  .insignia-neutra  { background: var(--panel-alt); border-color: var(--borde); color: var(--texto-sec); }
+  .insignia-oro     { background: var(--oro-tenue); border-color: #f3d77a; color: var(--aviso); }
+  .insignia-exito   { background: var(--exito-tenue); border-color: #abd5b8; color: var(--exito); }
+  .insignia-peligro { background: var(--peligro-tenue); border-color: #f0b3b8; color: var(--peligro); }
+  .insignia-info    { background: var(--info-tenue); border-color: #aacbf0; color: var(--info); }
+
+  /* --- Tablas --- */
+  .tabla-datos { @apply w-full border-collapse text-sm; }
+  .tabla-datos thead th {
+    @apply px-4 py-2.5 text-left text-xs font-semibold;
+    color: var(--texto-sec);
+    background: var(--panel-alt);
+    border-bottom: 1px solid var(--borde);
+  }
+  .tabla-datos tbody td {
+    @apply px-4 py-2.5;
+    color: var(--texto);
+    border-bottom: 1px solid var(--borde);
+  }
+  .tabla-datos tbody tr:last-child td { border-bottom: none; }
+  .tabla-datos tbody tr:hover { background: var(--panel-alt); }
+  .tabla-datos .num {
+    font-family: var(--fuente-mono);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  /* --- Avisos --- */
+  .aviso {
+    @apply flex items-start gap-2 px-3.5 py-2.5 text-sm;
+    border-radius: var(--radio);
+    border: 1px solid transparent;
+  }
+  .aviso-peligro { background: var(--peligro-tenue); border-color: #f0b3b8; color: #8a1c25; }
+  .aviso-exito   { background: var(--exito-tenue); border-color: #abd5b8; color: #145523; }
+}

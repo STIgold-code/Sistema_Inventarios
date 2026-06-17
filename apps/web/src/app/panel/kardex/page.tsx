@@ -1,0 +1,210 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
+import { SelectorSku } from "@/componentes/selector-sku";
+import {
+  ErrorApi,
+  obtenerAlmacenes,
+  obtenerKardex,
+  type Almacen,
+  type FilaKardex,
+  type Sku,
+} from "@/lib/api";
+import { formatearSoles } from "@/lib/formato";
+
+/** Convierte una fecha ISO a "dd/mm/aaaa hh:mm". */
+function formatearFecha(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const p = (n: number): string => n.toString().padStart(2, "0");
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+export default function PaginaKardex(): React.JSX.Element {
+  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
+  const [almacenId, setAlmacenId] = useState<number | null>(null); // null = todos
+  const [sku, setSku] = useState<Sku | null>(null);
+  const [filas, setFilas] = useState<FilaKardex[]>([]);
+  const [filtroTipo, setFiltroTipo] = useState<string>("");
+  const [cargando, setCargando] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [consultado, setConsultado] = useState<boolean>(false);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setAlmacenes(await obtenerAlmacenes());
+      } catch {
+        /* sin almacenes: queda solo "Todos" */
+      }
+    })();
+  }, []);
+
+  // Consulta el kardex cuando cambia el SKU o el almacén.
+  useEffect(() => {
+    if (!sku) {
+      setFilas([]);
+      setConsultado(false);
+      return;
+    }
+    setCargando(true);
+    setError(null);
+    setConsultado(true);
+    setFiltroTipo("");
+    void (async () => {
+      try {
+        setFilas(await obtenerKardex(sku.id, almacenId));
+      } catch (err) {
+        setError(err instanceof ErrorApi ? err.message : "No se pudo cargar el kardex.");
+        setFilas([]);
+      } finally {
+        setCargando(false);
+      }
+    })();
+  }, [sku, almacenId]);
+
+  const tipos = useMemo(
+    () => [...new Set(filas.map((f) => f.tipo))].sort(),
+    [filas],
+  );
+  const filasVisibles = useMemo(
+    () => (filtroTipo ? filas.filter((f) => f.tipo === filtroTipo) : filas),
+    [filas, filtroTipo],
+  );
+
+  return (
+    <div>
+      <EncabezadoPagina
+        titulo="Kardex valorizado"
+        descripcion="Historial de movimientos y saldos por SKU y almacén."
+      />
+
+      {/* Controles */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="w-full sm:w-96">
+          <label className="etiqueta-campo">Producto</label>
+          <SelectorSku valor={sku} onSeleccionar={setSku} />
+        </div>
+        <div className="w-full sm:w-56">
+          <label htmlFor="almacen" className="etiqueta-campo">
+            Almacén
+          </label>
+          <select
+            id="almacen"
+            className="campo"
+            value={almacenId === null ? "" : String(almacenId)}
+            onChange={(e) => setAlmacenId(e.target.value === "" ? null : Number(e.target.value))}
+          >
+            <option value="">Todos los almacenes</option>
+            {almacenes.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.codigo} — {a.nombre}
+              </option>
+            ))}
+          </select>
+        </div>
+        {consultado && filas.length > 0 && (
+          <div className="w-full sm:w-48">
+            <label htmlFor="tipo" className="etiqueta-campo">
+              Tipo de movimiento
+            </label>
+            <select
+              id="tipo"
+              className="campo"
+              value={filtroTipo}
+              onChange={(e) => setFiltroTipo(e.target.value)}
+            >
+              <option value="">Todos</option>
+              {tipos.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <div role="alert" className="aviso aviso-peligro mt-5">
+          <span>{error}</span>
+        </div>
+      )}
+
+      {!consultado && !error && (
+        <div className="mt-5 flex flex-col items-center justify-center rounded-lg border border-dashed border-borde-fuerte bg-panel/50 px-6 py-16 text-center">
+          <p className="text-sm font-medium text-texto">Busca un producto para ver su kardex</p>
+          <p className="mt-1 max-w-sm text-sm text-texto-sec">
+            Escribe el código o el nombre, elige el almacén, y el historial valorizado aparecerá aquí.
+          </p>
+        </div>
+      )}
+
+      {cargando && <p className="mt-5 text-sm text-texto-ter">Cargando kardex…</p>}
+
+      {consultado && !cargando && !error && (
+        <section className="panel mt-5">
+          <div className="panel-cabecera">
+            <span className="panel-titulo">Movimientos</span>
+            <span className="text-xs text-texto-sec">
+              {filasVisibles.length} de {filas.length} registro{filas.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            {filasVisibles.length === 0 ? (
+              <p className="px-5 py-12 text-center text-sm text-texto-ter">
+                {filas.length === 0
+                  ? "Este producto no tiene movimientos en el almacén seleccionado."
+                  : "No hay movimientos del tipo seleccionado."}
+              </p>
+            ) : (
+              <table className="tabla-datos">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Almacén</th>
+                    <th>Tipo</th>
+                    <th>Op. SUNAT</th>
+                    <th>Documento</th>
+                    <th className="num">Cantidad</th>
+                    <th className="num">Costo unit.</th>
+                    <th className="num">Costo total</th>
+                    <th className="num border-l border-borde">Saldo cant.</th>
+                    <th className="num">Saldo C.U.</th>
+                    <th className="num">Saldo total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filasVisibles.map((fila, indice) => (
+                    <tr key={`${fila.almacen}-${fila.fecha}-${indice}`}>
+                      <td className="whitespace-nowrap font-mono text-xs text-texto-sec">
+                        {formatearFecha(fila.fecha)}
+                      </td>
+                      <td className="font-mono text-xs text-texto-sec">{fila.almacen}</td>
+                      <td className="whitespace-nowrap text-tinta">{fila.tipo}</td>
+                      <td className="font-mono text-texto-sec">{fila.tipoOperacionSunat}</td>
+                      <td className="font-mono text-xs text-texto-sec">{fila.documento}</td>
+                      <td className="num text-texto">{fila.cantidad}</td>
+                      <td className="num text-texto">{formatearSoles(fila.costoUnitario)}</td>
+                      <td className="num text-texto">{formatearSoles(fila.costoTotal)}</td>
+                      <td className="num border-l border-borde bg-panel-alt font-semibold text-tinta">
+                        {fila.saldoCantidad}
+                      </td>
+                      <td className="num bg-panel-alt font-semibold text-tinta">
+                        {formatearSoles(fila.saldoCostoUnitario)}
+                      </td>
+                      <td className="num bg-panel-alt font-semibold text-tinta">
+                        {formatearSoles(fila.saldoCostoTotal)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
