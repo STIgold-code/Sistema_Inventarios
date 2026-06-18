@@ -14,6 +14,7 @@ import { TrasladosModule } from "./modulos/traslados/traslados.module.js";
 import { AlmacenesModule } from "./modulos/almacenes/almacenes.module.js";
 import { CentrosCostoModule } from "./modulos/centros-costo/centros-costo.module.js";
 import { CorrelativoModule } from "./modulos/comun/correlativo/correlativo.module.js";
+import { RequerimientosModule } from "./modulos/requerimientos/requerimientos.module.js";
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { CorrelativoModule } from "./modulos/comun/correlativo/correlativo.modul
     AlmacenesModule,
     CentrosCostoModule,
     CorrelativoModule,
+    RequerimientosModule,
   ],
 })
 export class AppModule {}
