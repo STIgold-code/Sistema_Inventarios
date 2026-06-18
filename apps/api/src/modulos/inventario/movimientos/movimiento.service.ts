@@ -61,10 +61,14 @@ interface DatosMovimiento {
   saldoCostoUnitario: Prisma.Decimal;
   saldoCostoTotal: Prisma.Decimal;
   documentoTipo: string;
+  /** Id del documento origen real (OC, vale, etc.). Si no viene, queda null. */
+  documentoId?: bigint;
   tipoOperacionSunat: string;
   tipoDocumentoSunat: string;
   serieComprobante?: string;
   numeroComprobante?: string;
+  /** Fecha de emision real del documento. Si no viene, se usa la fecha actual. */
+  fechaEmisionDocumento?: Date;
   observaciones?: string;
 }
 
@@ -832,7 +836,10 @@ export class MovimientoService {
 
   private async crearMovimiento(tx: Tx, datos: DatosMovimiento) {
     const ahora = new Date();
-    const periodo = this.periodoDe(ahora);
+    // El periodo SUNAT se rige por la fecha de emision del documento cuando se
+    // provee; si no, por la fecha del movimiento (comportamiento actual).
+    const fechaEmision = datos.fechaEmisionDocumento ?? ahora;
+    const periodo = this.periodoDe(fechaEmision);
     const secuencia = await this.siguienteSecuencia(tx);
 
     return tx.movimientoStock.create({
@@ -850,8 +857,9 @@ export class MovimientoService {
         saldoCostoUnitario: datos.saldoCostoUnitario,
         saldoCostoTotal: datos.saldoCostoTotal,
         documentoTipo: datos.documentoTipo as never,
+        documentoId: datos.documentoId ?? null,
         periodo,
-        fechaEmisionDocumento: ahora,
+        fechaEmisionDocumento: fechaEmision,
         cuo: secuencia.toString(),
         numeroCorrelativo: `A${secuencia}`,
         secuencia,
