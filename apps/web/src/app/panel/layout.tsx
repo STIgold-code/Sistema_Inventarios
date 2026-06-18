@@ -27,6 +27,7 @@ const GRUPOS: readonly GrupoNav[] = [
     enlaces: [
       { href: "/panel/movimientos", etiqueta: "Movimientos" },
       { href: "/panel/requerimientos", etiqueta: "Requerimientos" },
+      { href: "/panel/vales", etiqueta: "Vales de salida" },
       { href: "/panel/compras", etiqueta: "Compras" },
       { href: "/panel/ventas", etiqueta: "Ventas" },
       { href: "/panel/traslados", etiqueta: "Traslados" },

@@ -472,6 +472,95 @@ export function rechazarRequerimiento(
   );
 }
 
+// ── Vales de salida (hoja de cargo): tipos ──────────────────────────────────
+
+export type EstadoValeSalida =
+  | "BORRADOR"
+  | "AUTORIZADO"
+  | "DESPACHADO"
+  | "ANULADO";
+
+export interface LineaValeSalida {
+  id: number;
+  skuId: number;
+  cantidad: string;
+  cantidadDespachada: string;
+  observacion: string | null;
+  movimientoStockId: number | null;
+}
+
+export interface ValeSalida {
+  id: number;
+  numero: string;
+  fecha: string;
+  estado: EstadoValeSalida;
+  almacenId: number;
+  almacen: string;
+  centroCostoId: number;
+  centroCosto: string;
+  destino: string;
+  solicitanteId: number;
+  solicitante: string;
+  autorizadoPorId: number | null;
+  autorizadoPor: string | null;
+  observaciones: string | null;
+  lineas: LineaValeSalida[];
+}
+
+export interface CrearValeLineaInput {
+  skuId: number;
+  cantidad: string;
+  observacion?: string;
+}
+
+export interface CrearValeInput {
+  almacenId: number;
+  centroCostoId: number;
+  destino: string;
+  observaciones?: string;
+  lineas: CrearValeLineaInput[];
+}
+
+// ── Vales de salida: funciones de dominio ───────────────────────────────────
+
+export function obtenerVales(): Promise<ValeSalida[]> {
+  return apiFetch<ValeSalida[]>("/vales");
+}
+
+export function crearVale(datos: CrearValeInput): Promise<{ id: number }> {
+  return apiFetch<{ id: number }>("/vales", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function autorizarVale(
+  id: number,
+): Promise<{ id: number; estado: EstadoValeSalida }> {
+  return apiFetch<{ id: number; estado: EstadoValeSalida }>(
+    `/vales/${id}/autorizar`,
+    { method: "POST" },
+  );
+}
+
+export function despacharVale(
+  id: number,
+): Promise<{ id: number; estado: EstadoValeSalida }> {
+  return apiFetch<{ id: number; estado: EstadoValeSalida }>(
+    `/vales/${id}/despachar`,
+    { method: "POST" },
+  );
+}
+
+export function anularVale(
+  id: number,
+): Promise<{ id: number; estado: EstadoValeSalida }> {
+  return apiFetch<{ id: number; estado: EstadoValeSalida }>(
+    `/vales/${id}/anular`,
+    { method: "POST" },
+  );
+}
+
 // ── Compras: tipos ──────────────────────────────────────────────────────────
 
 export interface Proveedor {
