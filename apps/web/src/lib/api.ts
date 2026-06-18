@@ -385,12 +385,108 @@ export function obtenerKardex(
   return apiFetch<FilaKardex[]>(`/inventario/kardex?${params.toString()}`);
 }
 
+// ── Centros de costo ──────────────────────────────────────────────────────
+
+export interface CentroCosto {
+  id: number;
+  codigo: string;
+  nombre: string;
+  activo: boolean;
+}
+
+export function obtenerCentrosCosto(): Promise<CentroCosto[]> {
+  return apiFetch<CentroCosto[]>("/centros-costo");
+}
+
+// ── Requerimientos: tipos ───────────────────────────────────────────────────
+
+export type EstadoRequerimiento =
+  | "BORRADOR"
+  | "APROBADO"
+  | "RECHAZADO"
+  | "CONVERTIDO";
+
+export interface LineaRequerimiento {
+  id: number;
+  skuId: number;
+  cantidad: string;
+  justificacion: string | null;
+}
+
+export interface Requerimiento {
+  id: number;
+  numero: string;
+  fecha: string;
+  estado: EstadoRequerimiento;
+  centroCostoId: number;
+  centroCosto: string;
+  solicitanteId: number;
+  solicitante: string;
+  aprobadoPorId: number | null;
+  observaciones: string | null;
+  lineas: LineaRequerimiento[];
+}
+
+export interface CrearRequerimientoLineaInput {
+  skuId: number;
+  cantidad: string;
+  justificacion?: string;
+}
+
+export interface CrearRequerimientoInput {
+  centroCostoId: number;
+  observaciones?: string;
+  lineas: CrearRequerimientoLineaInput[];
+}
+
+// ── Requerimientos: funciones de dominio ────────────────────────────────────
+
+export function obtenerRequerimientos(): Promise<Requerimiento[]> {
+  return apiFetch<Requerimiento[]>("/requerimientos");
+}
+
+export function crearRequerimiento(
+  datos: CrearRequerimientoInput,
+): Promise<{ id: number }> {
+  return apiFetch<{ id: number }>("/requerimientos", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function aprobarRequerimiento(
+  id: number,
+): Promise<{ id: number; estado: EstadoRequerimiento }> {
+  return apiFetch<{ id: number; estado: EstadoRequerimiento }>(
+    `/requerimientos/${id}/aprobar`,
+    { method: "POST" },
+  );
+}
+
+export function rechazarRequerimiento(
+  id: number,
+): Promise<{ id: number; estado: EstadoRequerimiento }> {
+  return apiFetch<{ id: number; estado: EstadoRequerimiento }>(
+    `/requerimientos/${id}/rechazar`,
+    { method: "POST" },
+  );
+}
+
 // ── Compras: tipos ──────────────────────────────────────────────────────────
 
 export interface Proveedor {
   id: number;
   ruc: string;
   razonSocial: string;
+  direccion?: string | null;
+  telefono?: string | null;
+  email?: string | null;
+  condicionPago?: string | null;
+  monedaHabitual?: string | null;
+  cci?: string | null;
+  contactoNombre?: string | null;
+  tipoDocIdentidad?: string | null;
+  activo: boolean;
 }
 
 export interface CrearProveedorInput {
@@ -399,13 +495,26 @@ export interface CrearProveedorInput {
   direccion?: string;
   telefono?: string;
   email?: string;
+  condicionPago?: string;
+  monedaHabitual?: string;
+  cci?: string;
+  contactoNombre?: string;
+  tipoDocIdentidad?: string;
 }
+
+/** Mismos campos que CrearProveedorInput pero sin RUC (no editable). */
+export type ActualizarProveedorInput = Omit<CrearProveedorInput, "ruc">;
 
 export interface CrearProveedorRespuesta {
   id: number;
 }
 
-export type EstadoOrdenCompra = "EMITIDA" | "PARCIAL" | "COMPLETA";
+export type EstadoOrdenCompra =
+  | "BORRADOR"
+  | "EMITIDA"
+  | "PARCIAL"
+  | "COMPLETA"
+  | "ANULADA";
 
 export interface LineaOrdenCompra {
   id: number;
@@ -423,7 +532,16 @@ export interface OrdenCompra {
   numero: string;
   estado: EstadoOrdenCompra;
   proveedor: string;
+  proveedorId: number;
+  almacenId: number;
+  requerimientoId?: number | null;
+  moneda: string;
+  tipoCambio?: string | null;
+  subtotal: string;
+  igv: string;
   total: string;
+  fechaEmision: string;
+  observaciones?: string | null;
   lineas: LineaOrdenCompra[];
 }
 
@@ -436,13 +554,19 @@ export interface CrearOrdenCompraLineaInput {
 export interface CrearOrdenCompraInput {
   proveedorId: number;
   almacenId: number;
-  numero: string;
+  requerimientoId?: number;
+  moneda?: string;
+  tipoCambio?: string;
   observaciones?: string;
   lineas: CrearOrdenCompraLineaInput[];
 }
 
 export interface CrearOrdenCompraRespuesta {
   id: number;
+  numero: string;
+  estado: EstadoOrdenCompra;
+  subtotal: string;
+  igv: string;
   total: string;
 }
 
@@ -453,9 +577,16 @@ export interface CrearRecepcionLineaInput {
 
 export interface CrearRecepcionInput {
   ordenCompraId: number;
-  tipoDocumentoSunat?: string;
-  serieComprobante?: string;
-  numeroComprobante?: string;
+  tipoDocumentoSunat: string;
+  serieComprobante: string;
+  numeroComprobante: string;
+  fechaEmisionDocumento: string;
+  moneda?: string;
+  tipoCambio?: string;
+  subtotal: string;
+  igv: string;
+  total: string;
+  guiaRemisionProveedor?: string;
   lineas: CrearRecepcionLineaInput[];
 }
 
@@ -478,6 +609,25 @@ export function crearProveedor(
   });
 }
 
+export function actualizarProveedor(
+  id: number,
+  datos: ActualizarProveedorInput,
+): Promise<{ id: number }> {
+  return apiFetch<{ id: number }>(`/compras/proveedores/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function desactivarProveedor(
+  id: number,
+): Promise<{ id: number; activo: false }> {
+  return apiFetch<{ id: number; activo: false }>(
+    `/compras/proveedores/${id}/desactivar`,
+    { method: "POST" },
+  );
+}
+
 export function obtenerOrdenesCompra(): Promise<OrdenCompra[]> {
   return apiFetch<OrdenCompra[]>("/compras/ordenes");
 }
@@ -489,6 +639,24 @@ export function crearOrdenCompra(
     method: "POST",
     body: JSON.stringify(datos),
   });
+}
+
+export function aprobarOrdenCompra(
+  id: number,
+): Promise<{ id: number; estado: EstadoOrdenCompra }> {
+  return apiFetch<{ id: number; estado: EstadoOrdenCompra }>(
+    `/compras/ordenes/${id}/aprobar`,
+    { method: "POST" },
+  );
+}
+
+export function anularOrdenCompra(
+  id: number,
+): Promise<{ id: number; estado: EstadoOrdenCompra }> {
+  return apiFetch<{ id: number; estado: EstadoOrdenCompra }>(
+    `/compras/ordenes/${id}/anular`,
+    { method: "POST" },
+  );
 }
 
 export function crearRecepcion(
