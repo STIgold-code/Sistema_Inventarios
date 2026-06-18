@@ -1,10 +1,17 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
+import { CorrelativoService } from "../comun/correlativo/correlativo.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { MovimientoService } from "../inventario/movimientos/movimiento.service.js";
 
 const D = Prisma.Decimal;
+
+/** Tasa de IGV vigente en Peru (18%). */
+const IGV_TASA = new D("0.18");
+
+/** Tolerancia (en moneda) para conciliar el subtotal capturado vs el calculado. */
+const TOLERANCIA_CONCILIACION = new D("0.50");
 
 interface NuevoProveedor {
   ruc: string;
@@ -12,21 +19,47 @@ interface NuevoProveedor {
   direccion?: string;
   telefono?: string;
   email?: string;
+  condicionPago?: string;
+  monedaHabitual?: string;
+  cci?: string;
+  contactoNombre?: string;
+  tipoDocIdentidad?: string;
+}
+
+interface CambioProveedor {
+  razonSocial?: string;
+  direccion?: string;
+  telefono?: string;
+  email?: string;
+  condicionPago?: string;
+  monedaHabitual?: string;
+  cci?: string;
+  contactoNombre?: string;
+  tipoDocIdentidad?: string;
 }
 
 interface NuevaOrden {
   proveedorId: bigint;
   almacenId: bigint;
-  numero: string;
+  requerimientoId?: bigint;
+  moneda?: string;
+  tipoCambio?: string;
   observaciones?: string;
   lineas: Array<{ skuId: bigint; cantidad: string; costoUnitario: string }>;
 }
 
 interface Recepcion {
   ordenCompraId: bigint;
-  tipoDocumentoSunat?: string;
-  serieComprobante?: string;
-  numeroComprobante?: string;
+  tipoDocumentoSunat: string;
+  serieComprobante: string;
+  numeroComprobante: string;
+  fechaEmisionDocumento: Date;
+  moneda?: string;
+  tipoCambio?: string;
+  subtotal: string;
+  igv: string;
+  total: string;
+  guiaRemisionProveedor?: string;
   lineas: Array<{ ordenCompraLineaId: bigint; cantidad: string }>;
 }
 
@@ -35,6 +68,7 @@ export class ComprasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly movimientos: MovimientoService,
+    private readonly correlativos: CorrelativoService,
   ) {}
 
   async crearProveedor(empresaId: bigint, dto: NuevoProveedor) {
@@ -42,6 +76,22 @@ export class ComprasService {
       data: { empresaId, ...dto },
     });
     return { id: proveedor.id.toString() };
+  }
+
+  /** Edita un proveedor. Valida pertenencia a la empresa (anti-IDOR). */
+  async actualizarProveedor(empresaId: bigint, id: bigint, dto: CambioProveedor) {
+    const proveedor = await this.prisma.proveedor.findFirst({ where: { id, empresaId } });
+    if (!proveedor) throw new NotFoundException("Proveedor no encontrado");
+    await this.prisma.proveedor.update({ where: { id }, data: { ...dto } });
+    return { id: id.toString() };
+  }
+
+  /** Baja logica del proveedor. Valida pertenencia a la empresa. */
+  async desactivarProveedor(empresaId: bigint, id: bigint) {
+    const proveedor = await this.prisma.proveedor.findFirst({ where: { id, empresaId } });
+    if (!proveedor) throw new NotFoundException("Proveedor no encontrado");
+    await this.prisma.proveedor.update({ where: { id }, data: { activo: false } });
+    return { id: id.toString(), activo: false };
   }
 
   async listarProveedores(empresaId: bigint) {
@@ -53,42 +103,136 @@ export class ComprasService {
       id: p.id.toString(),
       ruc: p.ruc,
       razonSocial: p.razonSocial,
+      direccion: p.direccion,
+      telefono: p.telefono,
+      email: p.email,
+      condicionPago: p.condicionPago,
+      monedaHabitual: p.monedaHabitual,
+      cci: p.cci,
+      contactoNombre: p.contactoNombre,
+      tipoDocIdentidad: p.tipoDocIdentidad,
     }));
   }
 
-  /** Crea la OC con sus lineas y calcula el total. Estado inicial EMITIDA. */
+  /**
+   * Crea la OC en estado BORRADOR. Calcula subtotal, IGV (18%) y total.
+   * El numero se asigna por correlativo (tipo ORDEN_COMPRA). Si se enlaza un
+   * requerimiento APROBADO, este pasa a CONVERTIDO. Todo en una transaccion.
+   */
   async crearOrdenCompra(usuario: UsuarioRequest, dto: NuevaOrden) {
     const proveedor = await this.prisma.proveedor.findFirst({
       where: { id: dto.proveedorId, empresaId: usuario.empresaId },
     });
     if (!proveedor) throw new NotFoundException("Proveedor no encontrado");
 
-    let total = new D(0);
-    for (const l of dto.lineas) {
-      total = total.add(new D(l.cantidad).mul(new D(l.costoUnitario)));
+    let requerimiento = null;
+    if (dto.requerimientoId !== undefined) {
+      requerimiento = await this.prisma.requerimientoCompra.findFirst({
+        where: { id: dto.requerimientoId, empresaId: usuario.empresaId },
+      });
+      if (!requerimiento) throw new NotFoundException("Requerimiento no encontrado");
+      if (requerimiento.estado !== "APROBADO") {
+        throw new BadRequestException(
+          `Solo se puede convertir un requerimiento APROBADO (estado actual: ${requerimiento.estado})`,
+        );
+      }
     }
 
-    const orden = await this.prisma.ordenCompra.create({
-      data: {
-        empresaId: usuario.empresaId,
-        proveedorId: dto.proveedorId,
-        almacenId: dto.almacenId,
-        numero: dto.numero,
-        estado: "EMITIDA",
-        total,
-        observaciones: dto.observaciones ?? null,
-        usuarioId: usuario.id,
-        lineas: {
-          create: dto.lineas.map((l) => ({
-            empresaId: usuario.empresaId,
-            skuId: l.skuId,
-            cantidad: l.cantidad,
-            costoUnitario: l.costoUnitario,
-          })),
+    let subtotal = new D(0);
+    for (const l of dto.lineas) {
+      subtotal = subtotal.add(new D(l.cantidad).mul(new D(l.costoUnitario)));
+    }
+    const igv = subtotal.mul(IGV_TASA);
+    const total = subtotal.add(igv);
+
+    const resultado = await this.prisma.$transaction(async (tx) => {
+      const correlativo = await this.correlativos.siguiente(
+        tx,
+        usuario.empresaId,
+        "ORDEN_COMPRA",
+      );
+
+      const orden = await tx.ordenCompra.create({
+        data: {
+          empresaId: usuario.empresaId,
+          proveedorId: dto.proveedorId,
+          almacenId: dto.almacenId,
+          requerimientoId: dto.requerimientoId ?? null,
+          numero: correlativo.formateado,
+          estado: "BORRADOR",
+          moneda: dto.moneda ?? "PEN",
+          tipoCambio: dto.tipoCambio ?? null,
+          subtotal,
+          igv,
+          total,
+          observaciones: dto.observaciones ?? null,
+          usuarioId: usuario.id,
+          lineas: {
+            create: dto.lineas.map((l) => ({
+              empresaId: usuario.empresaId,
+              skuId: l.skuId,
+              cantidad: l.cantidad,
+              costoUnitario: l.costoUnitario,
+            })),
+          },
         },
-      },
+      });
+
+      if (requerimiento) {
+        await tx.requerimientoCompra.update({
+          where: { id: requerimiento.id },
+          data: { estado: "CONVERTIDO" },
+        });
+      }
+
+      return orden;
     });
-    return { id: orden.id.toString(), total: total.toString() };
+
+    return {
+      id: resultado.id.toString(),
+      numero: resultado.numero,
+      estado: resultado.estado,
+      subtotal: subtotal.toString(),
+      igv: igv.toString(),
+      total: total.toString(),
+    };
+  }
+
+  /** Aprueba la OC: BORRADOR -> EMITIDA, deja constancia del aprobador. */
+  async aprobarOrden(usuario: UsuarioRequest, id: bigint) {
+    const orden = await this.prisma.ordenCompra.findFirst({
+      where: { id, empresaId: usuario.empresaId },
+    });
+    if (!orden) throw new NotFoundException("Orden de compra no encontrada");
+    if (orden.estado !== "BORRADOR") {
+      throw new BadRequestException(
+        `Solo se puede aprobar una OC en BORRADOR (estado actual: ${orden.estado})`,
+      );
+    }
+    await this.prisma.ordenCompra.update({
+      where: { id },
+      data: { estado: "EMITIDA", aprobadoPorId: usuario.id },
+    });
+    return { id: id.toString(), estado: "EMITIDA" };
+  }
+
+  /** Anula la OC: BORRADOR o EMITIDA -> ANULADA. No si ya tiene recepciones. */
+  async anularOrden(usuario: UsuarioRequest, id: bigint) {
+    const orden = await this.prisma.ordenCompra.findFirst({
+      where: { id, empresaId: usuario.empresaId },
+      include: { recepciones: { take: 1 } },
+    });
+    if (!orden) throw new NotFoundException("Orden de compra no encontrada");
+    if (orden.estado !== "BORRADOR" && orden.estado !== "EMITIDA") {
+      throw new BadRequestException(
+        `Solo se puede anular una OC en BORRADOR o EMITIDA (estado actual: ${orden.estado})`,
+      );
+    }
+    if (orden.recepciones.length > 0) {
+      throw new BadRequestException("No se puede anular una OC con recepciones registradas");
+    }
+    await this.prisma.ordenCompra.update({ where: { id }, data: { estado: "ANULADA" } });
+    return { id: id.toString(), estado: "ANULADA" };
   }
 
   async listarOrdenes(empresaId: bigint) {
@@ -105,7 +249,13 @@ export class ComprasService {
       id: o.id.toString(),
       numero: o.numero,
       estado: o.estado,
+      proveedorId: o.proveedorId.toString(),
       proveedor: o.proveedor.razonSocial,
+      requerimientoId: o.requerimientoId ? o.requerimientoId.toString() : null,
+      moneda: o.moneda,
+      tipoCambio: o.tipoCambio ? o.tipoCambio.toString() : null,
+      subtotal: o.subtotal.toString(),
+      igv: o.igv.toString(),
       total: o.total.toString(),
       lineas: o.lineas.map((l) => ({
         id: l.id.toString(),
@@ -139,8 +289,10 @@ export class ComprasService {
   }
 
   /**
-   * Recepcion parcial: por cada linea recibida valida el pendiente, genera la
-   * entrada en el ledger (MovimientoService.recibirCompra) y actualiza la OC.
+   * Recepcion parcial contra factura del proveedor (OBLIGATORIA): persiste el
+   * comprobante, concilia el subtotal capturado contra el calculado, genera la
+   * entrada en el ledger (con serie/numero/tipoDoc/fecha REALES de la factura) y
+   * actualiza la OC. Solo se permite sobre OC EMITIDA o PARCIAL.
    */
   async recibir(usuario: UsuarioRequest, dto: Recepcion) {
     const orden = await this.prisma.ordenCompra.findFirst({
@@ -148,26 +300,53 @@ export class ComprasService {
       include: { lineas: true },
     });
     if (!orden) throw new NotFoundException("Orden de compra no encontrada");
-    if (orden.estado === "COMPLETA" || orden.estado === "ANULADA") {
-      throw new BadRequestException(`La orden esta ${orden.estado}`);
+    if (orden.estado !== "EMITIDA" && orden.estado !== "PARCIAL") {
+      throw new BadRequestException(
+        `Solo se puede recibir sobre una OC EMITIDA (estado actual: ${orden.estado})`,
+      );
+    }
+
+    // Conciliacion: el subtotal capturado de la factura debe cuadrar con la
+    // suma de cantidad recibida x costo unitario de la OC (dentro de tolerancia).
+    let subtotalCalculado = new D(0);
+    for (const linea of dto.lineas) {
+      const ocLinea = orden.lineas.find((l) => l.id === linea.ordenCompraLineaId);
+      if (!ocLinea) {
+        throw new BadRequestException(
+          `Linea ${linea.ordenCompraLineaId} no pertenece a la orden`,
+        );
+      }
+      subtotalCalculado = subtotalCalculado.add(
+        new D(linea.cantidad).mul(new D(ocLinea.costoUnitario)),
+      );
+    }
+    const subtotalFactura = new D(dto.subtotal);
+    if (subtotalFactura.sub(subtotalCalculado).abs().greaterThan(TOLERANCIA_CONCILIACION)) {
+      throw new BadRequestException(
+        `El subtotal de la factura (${subtotalFactura.toString()}) no concilia con el calculado de la recepcion (${subtotalCalculado.toString()})`,
+      );
     }
 
     const recepcion = await this.prisma.recepcion.create({
       data: {
         empresaId: usuario.empresaId,
         ordenCompraId: orden.id,
-        tipoDocumentoSunat: dto.tipoDocumentoSunat ?? "01",
-        serieComprobante: dto.serieComprobante ?? null,
-        numeroComprobante: dto.numeroComprobante ?? null,
+        tipoDocumentoSunat: dto.tipoDocumentoSunat,
+        serieComprobante: dto.serieComprobante,
+        numeroComprobante: dto.numeroComprobante,
+        fechaEmisionDocumento: dto.fechaEmisionDocumento,
+        moneda: dto.moneda ?? "PEN",
+        tipoCambio: dto.tipoCambio ?? null,
+        subtotal: dto.subtotal,
+        igv: dto.igv,
+        total: dto.total,
+        guiaRemisionProveedor: dto.guiaRemisionProveedor ?? null,
         usuarioId: usuario.id,
       },
     });
 
     for (const linea of dto.lineas) {
-      const ocLinea = orden.lineas.find((l) => l.id === linea.ordenCompraLineaId);
-      if (!ocLinea) {
-        throw new BadRequestException(`Linea ${linea.ordenCompraLineaId} no pertenece a la orden`);
-      }
+      const ocLinea = orden.lineas.find((l) => l.id === linea.ordenCompraLineaId)!;
       const pendiente = new D(ocLinea.cantidad).sub(new D(ocLinea.cantidadRecibida));
       const recibir = new D(linea.cantidad);
       if (recibir.greaterThan(pendiente)) {
@@ -176,15 +355,17 @@ export class ComprasService {
         );
       }
 
-      // Genera la entrada en el ledger con el costo de la OC.
+      // Entrada en el ledger con el costo de la OC y los datos REALES de la factura.
       const mov = await this.movimientos.recibirCompra(usuario, {
         skuId: ocLinea.skuId,
         almacenId: orden.almacenId,
         cantidad: linea.cantidad,
         costoUnitario: ocLinea.costoUnitario.toString(),
+        documentoId: recepcion.id,
         tipoDocumentoSunat: dto.tipoDocumentoSunat,
         serieComprobante: dto.serieComprobante,
         numeroComprobante: dto.numeroComprobante,
+        fechaEmisionDocumento: dto.fechaEmisionDocumento,
         observaciones: `Recepcion OC ${orden.numero}`,
       });
 

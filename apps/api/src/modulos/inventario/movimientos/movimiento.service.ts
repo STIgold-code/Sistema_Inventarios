@@ -24,9 +24,13 @@ interface EntradaCompra {
   cantidad: string;
   costoUnitario: string;
   ubicacionId?: bigint;
+  /** Id del documento origen (Recepcion) para enlazar el ledger al documento real. */
+  documentoId?: bigint;
   tipoDocumentoSunat?: string;
   serieComprobante?: string;
   numeroComprobante?: string;
+  /** Fecha de emision real de la factura del proveedor (rige el periodo SUNAT). */
+  fechaEmisionDocumento?: Date;
   observaciones?: string;
 }
 
@@ -126,10 +130,12 @@ export class MovimientoService {
         saldoCostoUnitario: nuevoPromedio,
         saldoCostoTotal: nuevoValor,
         documentoTipo: "RECEPCION",
+        documentoId: dto.documentoId,
         tipoOperacionSunat: TIPO_OPERACION.COMPRA,
         tipoDocumentoSunat: dto.tipoDocumentoSunat ?? TIPO_DOCUMENTO.FACTURA,
         serieComprobante: dto.serieComprobante,
         numeroComprobante: dto.numeroComprobante,
+        fechaEmisionDocumento: dto.fechaEmisionDocumento,
         observaciones: dto.observaciones,
       });
 

@@ -2,7 +2,10 @@ import { Type } from "class-transformer";
 import {
   ArrayMinSize,
   IsArray,
+  IsIn,
   IsInt,
+  IsISO8601,
+  IsNotEmpty,
   IsOptional,
   IsString,
   Length,
@@ -10,8 +13,10 @@ import {
   MinLength,
   ValidateNested,
 } from "class-validator";
+import { TIPO_DOCUMENTO } from "@bm/tipos";
 
 const REGEX_DECIMAL = /^\d+(\.\d+)?$/;
+const TIPOS_DOCUMENTO_SUNAT = Object.values(TIPO_DOCUMENTO);
 
 export class CrearProveedorDto {
   @IsString()
@@ -33,6 +38,65 @@ export class CrearProveedorDto {
   @IsOptional()
   @IsString()
   email?: string;
+
+  @IsOptional()
+  @IsString()
+  condicionPago?: string;
+
+  @IsOptional()
+  @IsString()
+  monedaHabitual?: string;
+
+  @IsOptional()
+  @IsString()
+  cci?: string;
+
+  @IsOptional()
+  @IsString()
+  contactoNombre?: string;
+
+  @IsOptional()
+  @IsString()
+  tipoDocIdentidad?: string;
+}
+
+export class ActualizarProveedorDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  razonSocial?: string;
+
+  @IsOptional()
+  @IsString()
+  direccion?: string;
+
+  @IsOptional()
+  @IsString()
+  telefono?: string;
+
+  @IsOptional()
+  @IsString()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  condicionPago?: string;
+
+  @IsOptional()
+  @IsString()
+  monedaHabitual?: string;
+
+  @IsOptional()
+  @IsString()
+  cci?: string;
+
+  @IsOptional()
+  @IsString()
+  contactoNombre?: string;
+
+  @IsOptional()
+  @IsString()
+  tipoDocIdentidad?: string;
 }
 
 export class LineaOrdenDto {
@@ -53,9 +117,17 @@ export class CrearOrdenCompraDto {
   @IsInt()
   almacenId!: number;
 
+  @IsOptional()
+  @IsInt()
+  requerimientoId?: number;
+
+  @IsOptional()
   @IsString()
-  @MinLength(1)
-  numero!: string;
+  moneda?: string;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "tipoCambio debe ser decimal positivo" })
+  tipoCambio?: string;
 
   @IsOptional()
   @IsString()
@@ -80,17 +152,44 @@ export class RecibirDto {
   @IsInt()
   ordenCompraId!: number;
 
-  @IsOptional()
   @IsString()
-  tipoDocumentoSunat?: string;
+  @IsNotEmpty()
+  @IsIn(TIPOS_DOCUMENTO_SUNAT, {
+    message: "tipoDocumentoSunat invalido (Tabla 10 SUNAT)",
+  })
+  tipoDocumentoSunat!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  serieComprobante!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  numeroComprobante!: string;
+
+  @IsISO8601({}, { message: "fechaEmisionDocumento debe ser una fecha valida ISO 8601" })
+  fechaEmisionDocumento!: string;
 
   @IsOptional()
   @IsString()
-  serieComprobante?: string;
+  moneda?: string;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "tipoCambio debe ser decimal positivo" })
+  tipoCambio?: string;
+
+  @Matches(REGEX_DECIMAL, { message: "subtotal debe ser decimal positivo" })
+  subtotal!: string;
+
+  @Matches(REGEX_DECIMAL, { message: "igv debe ser decimal positivo" })
+  igv!: string;
+
+  @Matches(REGEX_DECIMAL, { message: "total debe ser decimal positivo" })
+  total!: string;
 
   @IsOptional()
   @IsString()
-  numeroComprobante?: string;
+  guiaRemisionProveedor?: string;
 
   @IsArray()
   @ArrayMinSize(1)

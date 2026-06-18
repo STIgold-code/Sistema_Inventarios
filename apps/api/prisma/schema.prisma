@@ -145,6 +145,7 @@ model CentroCosto {
   actualizadoEn DateTime @updatedAt @map("actualizado_en")
 
   empresa Empresa @relation(fields: [empresaId], references: [id])
+  requerimientos RequerimientoCompra[]
 
   @@unique([empresaId, codigo])
   @@index([empresaId])
@@ -415,6 +416,9 @@ model Usuario {
   empresa     Empresa           @relation(fields: [empresaId], references: [id])
   roles       UsuarioRol[]
   movimientos MovimientoStock[]
+  requerimientosSolicitados RequerimientoCompra[] @relation("RequerimientoSolicitante")
+  requerimientosAprobados   RequerimientoCompra[] @relation("RequerimientoAprobador")
+  ordenesAprobadas          OrdenCompra[]         @relation("OrdenCompraAprobador")
 
   @@unique([empresaId, email])
   @@map("usuario")
@@ -478,6 +482,52 @@ enum EstadoOrdenCompra {
   ANULADA
 }
 
+enum EstadoRequerimiento {
+  BORRADOR
+  APROBADO
+  RECHAZADO
+  CONVERTIDO
+}
+
+model RequerimientoCompra {
+  id            BigInt              @id @default(autoincrement())
+  empresaId     BigInt              @map("empresa_id")
+  numero        String // correlativo interno (tipo REQUERIMIENTO)
+  fecha         DateTime            @default(now())
+  centroCostoId BigInt              @map("centro_costo_id")
+  solicitanteId BigInt              @map("solicitante_id")
+  estado        EstadoRequerimiento @default(BORRADOR)
+  aprobadoPorId BigInt?             @map("aprobado_por_id")
+  observaciones String?
+  creadoEn      DateTime            @default(now()) @map("creado_en")
+  actualizadoEn DateTime            @updatedAt @map("actualizado_en")
+
+  centroCosto CentroCosto                  @relation(fields: [centroCostoId], references: [id])
+  solicitante Usuario                      @relation("RequerimientoSolicitante", fields: [solicitanteId], references: [id])
+  aprobadoPor Usuario?                     @relation("RequerimientoAprobador", fields: [aprobadoPorId], references: [id])
+  lineas      RequerimientoCompraLinea[]
+  ordenes     OrdenCompra[]
+
+  @@unique([empresaId, numero])
+  @@index([empresaId, estado])
+  @@map("requerimiento_compra")
+}
+
+model RequerimientoCompraLinea {
+  id               BigInt  @id @default(autoincrement())
+  empresaId        BigInt  @map("empresa_id")
+  requerimientoId  BigInt  @map("requerimiento_id")
+  skuId            BigInt  @map("sku_id")
+  cantidad         Decimal @db.Decimal(20, 8)
+  justificacion    String?
+
+  requerimiento RequerimientoCompra @relation(fields: [requerimientoId], references: [id])
+
+  @@index([requerimientoId])
+  @@index([empresaId, skuId])
+  @@map("requerimiento_compra_linea")
+}
+
 model Proveedor {
   id        BigInt   @id @default(autoincrement())
   empresaId BigInt   @map("empresa_id")
@@ -486,6 +536,11 @@ model Proveedor {
   direccion String?
   telefono  String?
   email     String?
+  condicionPago    String? @map("condicion_pago") // CONTADO, CREDITO_30...
+  monedaHabitual   String  @default("PEN") @map("moneda_habitual")
+  cci              String?
+  contactoNombre   String? @map("contacto_nombre")
+  tipoDocIdentidad String  @default("6") @map("tipo_doc_identidad") @db.VarChar(2) // Tabla 2 (6=RUC)
   activo    Boolean  @default(true)
   creadoEn  DateTime @default(now()) @map("creado_en")
 
@@ -501,16 +556,24 @@ model OrdenCompra {
   empresaId   BigInt            @map("empresa_id")
   proveedorId BigInt            @map("proveedor_id")
   almacenId   BigInt            @map("almacen_id") // almacen de recepcion
+  requerimientoId BigInt?       @map("requerimiento_id")
   numero      String // correlativo interno de la OC
   estado      EstadoOrdenCompra @default(BORRADOR)
   fechaEmision DateTime         @default(now()) @map("fecha_emision")
+  moneda      String            @default("PEN")
+  tipoCambio  Decimal?          @map("tipo_cambio") @db.Decimal(20, 6)
+  subtotal    Decimal           @default(0) @db.Decimal(20, 2)
+  igv         Decimal           @default(0) @db.Decimal(20, 2)
   total       Decimal           @default(0) @db.Decimal(20, 2)
   observaciones String?
   usuarioId   BigInt            @map("usuario_id")
+  aprobadoPorId BigInt?         @map("aprobado_por_id")
 
-  proveedor   Proveedor          @relation(fields: [proveedorId], references: [id])
-  lineas      OrdenCompraLinea[]
-  recepciones Recepcion[]
+  proveedor     Proveedor           @relation(fields: [proveedorId], references: [id])
+  requerimiento RequerimientoCompra? @relation(fields: [requerimientoId], references: [id])
+  aprobadoPor   Usuario?            @relation("OrdenCompraAprobador", fields: [aprobadoPorId], references: [id])
+  lineas        OrdenCompraLinea[]
+  recepciones   Recepcion[]
 
   @@unique([empresaId, numero])
   @@index([empresaId, estado])
@@ -538,9 +601,17 @@ model Recepcion {
   empresaId     BigInt   @map("empresa_id")
   ordenCompraId BigInt   @map("orden_compra_id")
   fecha         DateTime @default(now())
-  tipoDocumentoSunat String @default("01") @map("tipo_documento_sunat") @db.VarChar(2)
-  serieComprobante String? @map("serie_comprobante")
-  numeroComprobante String? @map("numero_comprobante")
+  // Comprobante del proveedor (OBLIGATORIO): toda recepcion nace de una factura.
+  tipoDocumentoSunat String @default("01") @map("tipo_documento_sunat") @db.VarChar(2) // Tabla 10
+  serieComprobante String @map("serie_comprobante")
+  numeroComprobante String @map("numero_comprobante")
+  fechaEmisionDocumento DateTime @map("fecha_emision_documento")
+  moneda        String   @default("PEN")
+  tipoCambio    Decimal? @map("tipo_cambio") @db.Decimal(20, 6)
+  subtotal      Decimal  @db.Decimal(20, 2)
+  igv           Decimal  @db.Decimal(20, 2)
+  total         Decimal  @db.Decimal(20, 2)
+  guiaRemisionProveedor String? @map("guia_remision_proveedor") // serie-numero de la guia del proveedor
   usuarioId     BigInt   @map("usuario_id")
 
   ordenCompra OrdenCompra      @relation(fields: [ordenCompraId], references: [id])

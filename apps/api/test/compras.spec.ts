@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../src/comun/prisma/prisma.service.js";
 import { MovimientoService } from "../src/modulos/inventario/movimientos/movimiento.service.js";
 import { ComprasService } from "../src/modulos/compras/compras.service.js";
+import { CorrelativoService } from "../src/modulos/comun/correlativo/correlativo.service.js";
 import type { UsuarioRequest } from "../src/comun/contexto/usuario-request.js";
 
 /**
@@ -10,7 +11,11 @@ import type { UsuarioRequest } from "../src/comun/contexto/usuario-request.js";
  */
 describe("ComprasService (integracion)", () => {
   const prisma = new PrismaService();
-  const compras = new ComprasService(prisma, new MovimientoService(prisma));
+  const compras = new ComprasService(
+    prisma,
+    new MovimientoService(prisma),
+    new CorrelativoService(),
+  );
 
   let usuario: UsuarioRequest;
   let almacenId: bigint;
@@ -56,18 +61,28 @@ describe("ComprasService (integracion)", () => {
     const orden = await compras.crearOrdenCompra(usuario, {
       proveedorId: BigInt(proveedor.id),
       almacenId,
-      numero: `OC-${RUN}-${contador}`,
       lineas: [{ skuId, cantidad: "100", costoUnitario: "10" }],
     });
+    // La OC nace en BORRADOR; debe aprobarse (EMITIDA) antes de recibir.
+    expect(orden.estado).toBe("BORRADOR");
+    await compras.aprobarOrden(usuario, BigInt(orden.id));
+
     const oc = await prisma.ordenCompra.findUniqueOrThrow({
       where: { id: BigInt(orden.id) },
       include: { lineas: true },
     });
     const lineaId = oc.lineas[0]!.id;
 
-    // Recepcion parcial de 40 de 100.
+    // Recepcion parcial de 40 de 100, con factura del proveedor (40 x 10 = 400).
     await compras.recibir(usuario, {
       ordenCompraId: BigInt(orden.id),
+      tipoDocumentoSunat: "01",
+      serieComprobante: "F001",
+      numeroComprobante: "100",
+      fechaEmisionDocumento: new Date(),
+      subtotal: "400",
+      igv: "72",
+      total: "472",
       lineas: [{ ordenCompraLineaId: lineaId, cantidad: "40" }],
     });
 
@@ -77,9 +92,16 @@ describe("ComprasService (integracion)", () => {
     let estado = (await prisma.ordenCompra.findUniqueOrThrow({ where: { id: BigInt(orden.id) } })).estado;
     expect(estado).toBe("PARCIAL");
 
-    // Recepcion del resto (60).
+    // Recepcion del resto (60), con factura del proveedor (60 x 10 = 600).
     await compras.recibir(usuario, {
       ordenCompraId: BigInt(orden.id),
+      tipoDocumentoSunat: "01",
+      serieComprobante: "F001",
+      numeroComprobante: "101",
+      fechaEmisionDocumento: new Date(),
+      subtotal: "600",
+      igv: "108",
+      total: "708",
       lineas: [{ ordenCompraLineaId: lineaId, cantidad: "60" }],
     });
 
@@ -99,16 +121,24 @@ describe("ComprasService (integracion)", () => {
     const orden = await compras.crearOrdenCompra(usuario, {
       proveedorId: BigInt(proveedor.id),
       almacenId,
-      numero: `OC-${RUN}-${contador}`,
       lineas: [{ skuId, cantidad: "5", costoUnitario: "10" }],
     });
+    await compras.aprobarOrden(usuario, BigInt(orden.id));
     const oc = await prisma.ordenCompra.findUniqueOrThrow({
       where: { id: BigInt(orden.id) },
       include: { lineas: true },
     });
+    // Subtotal conciliado con 9 x 10 = 90 para llegar a la validacion de pendiente.
     await expect(
       compras.recibir(usuario, {
         ordenCompraId: BigInt(orden.id),
+        tipoDocumentoSunat: "01",
+        serieComprobante: "F001",
+        numeroComprobante: "200",
+        fechaEmisionDocumento: new Date(),
+        subtotal: "90",
+        igv: "16.2",
+        total: "106.2",
         lineas: [{ ordenCompraLineaId: oc.lineas[0]!.id, cantidad: "9" }],
       }),
     ).rejects.toThrow();
