@@ -1,7 +1,11 @@
 import "reflect-metadata";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { json, urlencoded } from "express";
 import { AppModule } from "./app.module.js";
+
+/** Límite del cuerpo de la petición; las cargas masivas se envían por lotes. */
+const LIMITE_CUERPO = "5mb";
 
 // Las PK son BigInt y no son serializables a JSON por defecto.
 // Las transportamos como string para no perder precision.
@@ -12,7 +16,10 @@ import { AppModule } from "./app.module.js";
 };
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bodyParser: false });
+
+  app.use(json({ limit: LIMITE_CUERPO }));
+  app.use(urlencoded({ extended: true, limit: LIMITE_CUERPO }));
 
   app.enableCors();
   app.useGlobalPipes(
