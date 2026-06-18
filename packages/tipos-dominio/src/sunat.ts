@@ -40,6 +40,46 @@ export const UNIDAD_MEDIDA_SUNAT = {
 export type UnidadMedidaSunat =
   (typeof UNIDAD_MEDIDA_SUNAT)[keyof typeof UNIDAD_MEDIDA_SUNAT];
 
+/** Tabla 2 - Tipo de documento de identidad del adquirente/destinatario. */
+export const TIPO_DOCUMENTO_IDENTIDAD = {
+  DOC_TRIB_NO_DOMICILIADO: "0",
+  DNI: "1",
+  CARNET_EXTRANJERIA: "4",
+  RUC: "6",
+  PASAPORTE: "7",
+  CEDULA_DIPLOMATICA: "A",
+  NO_DOMICILIADO_SIN_RUC: "B",
+  TIN_DOC_TRIB_PP_NN: "C",
+  IN_DOC_TRIB_PP_JJ: "D",
+  TAM_TARJETA_ANDINA: "E",
+} as const;
+export type TipoDocumentoIdentidad =
+  (typeof TIPO_DOCUMENTO_IDENTIDAD)[keyof typeof TIPO_DOCUMENTO_IDENTIDAD];
+
+/**
+ * Catalogo 20 - Motivo de traslado (guia de remision remitente).
+ * Fuente: Anexo III R.S. 188-2010/SUNAT y modificatorias (guia electronica).
+ */
+export const MOTIVO_TRASLADO = {
+  VENTA: "01",
+  COMPRA: "02",
+  VENTA_CON_ENTREGA_A_TERCEROS: "03",
+  TRASLADO_ENTRE_ESTABLECIMIENTOS_MISMA_EMPRESA: "04",
+  CONSIGNACION: "05",
+  DEVOLUCION: "06",
+  RECOJO_BIENES_TRANSFORMADOS: "07",
+  IMPORTACION: "08",
+  EXPORTACION: "09",
+  TRASLADO_DE_BIENES_PARA_TRANSFORMACION: "10",
+  AUTOCONSUMO: "11",
+  VENTA_SUJETA_CONFIRMACION: "12",
+  OTROS: "13",
+  TRASLADO_EMISOR_ITINERANTE_CP: "14",
+  TRASLADO_ZONA_PRIMARIA: "18",
+} as const;
+export type MotivoTraslado =
+  (typeof MOTIVO_TRASLADO)[keyof typeof MOTIVO_TRASLADO];
+
 /** Tabla 10 - Tipo de documento (Catalogo 01 de comprobantes). */
 export const TIPO_DOCUMENTO = {
   OTROS_NO_DOMICILIADOS: "00",
