@@ -96,7 +96,7 @@ export default function LayoutPanel({
         <div className="flex items-center justify-between border-b border-borde px-4 py-4">
           <div>
             <div className="inline-flex rounded-md bg-tinta px-2.5 py-2">
-              <Image src="/logo-bm.png" alt="BM Ingenieros S.A.C." width={112} height={39} priority />
+              <Image src="/logo-bm.png" alt="BM Ingenieros S.A.C." width={112} height={39} />
             </div>
             <p className="mt-2 text-[0.7rem] text-texto-ter">Sistema de Inventarios</p>
           </div>
