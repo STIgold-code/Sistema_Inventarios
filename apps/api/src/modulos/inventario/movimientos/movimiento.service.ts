@@ -616,6 +616,34 @@ export class MovimientoService {
     return { movimientoId: id.toString() };
   }
 
+  /**
+   * Salida interna por vale de salida (hoja de cargo): consumo a obra, area o
+   * centro de costo. Es una SALIDA REAL de stock (no venta, sin precio ni
+   * cliente). Consume capas FIFO al costo vigente y enlaza el movimiento al
+   * vale via documentoId. Opera DENTRO de la transaccion del despacho: si
+   * cualquier linea falla por stock insuficiente, toda la operacion revierte.
+   * Operacion SUNAT 12 (retiro / autoconsumo interno).
+   */
+  async salidaPorVale(
+    usuario: UsuarioRequest,
+    tx: Tx,
+    dto: { skuId: bigint; almacenId: bigint; cantidad: string; documentoId: bigint; observaciones?: string },
+  ): Promise<{ movimientoId: bigint }> {
+    const cantidad = new D(dto.cantidad);
+    await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const item = await this.obtenerItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    if (!item) throw new StockInsuficienteError("0", cantidad.toString());
+    const { mov } = await this.aplicarSalida(tx, usuario, item, {
+      cantidad,
+      tipo: TIPO_MOVIMIENTO.SALIDA_CONSUMO,
+      documentoTipo: "VALE_SALIDA",
+      documentoId: dto.documentoId,
+      tipoOperacionSunat: TIPO_OPERACION.RETIRO,
+      observaciones: dto.observaciones ?? "Salida por vale",
+    });
+    return { movimientoId: mov.id };
+  }
+
   // --- helpers privados ---
 
   /** Aplica una ENTRADA (crea capa, recalcula promedio movil, snapshot fisico). */
@@ -684,6 +712,7 @@ export class MovimientoService {
       cantidad: Prisma.Decimal;
       tipo: string;
       documentoTipo: string;
+      documentoId?: bigint;
       tipoOperacionSunat: string;
       observaciones?: string;
     },
@@ -717,6 +746,7 @@ export class MovimientoService {
       saldoCostoUnitario: promedio,
       saldoCostoTotal: saldoFisico.mul(promedio),
       documentoTipo: datos.documentoTipo,
+      documentoId: datos.documentoId,
       tipoOperacionSunat: datos.tipoOperacionSunat,
       tipoDocumentoSunat: TIPO_DOCUMENTO.OTROS,
       observaciones: datos.observaciones,

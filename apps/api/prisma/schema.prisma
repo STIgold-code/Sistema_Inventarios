@@ -26,6 +26,7 @@ enum TipoMovimiento {
   SALIDA_AJUSTE
   SALIDA_TRANSFERENCIA
   SALIDA_MERMA
+  SALIDA_CONSUMO
 }
 
 enum SignoMovimiento {
@@ -41,6 +42,14 @@ enum TipoDocumentoOrigen {
   TRANSFERENCIA
   CONTEO_FISICO
   INICIAL
+  VALE_SALIDA
+}
+
+enum EstadoValeSalida {
+  BORRADOR
+  AUTORIZADO
+  DESPACHADO
+  ANULADO
 }
 
 enum EstadoLote {
@@ -108,8 +117,9 @@ model Almacen {
   codigo     String
   nombre     String
 
-  sucursal    Sucursal    @relation(fields: [sucursalId], references: [id])
-  ubicaciones Ubicacion[]
+  sucursal     Sucursal     @relation(fields: [sucursalId], references: [id])
+  ubicaciones  Ubicacion[]
+  valesSalida  ValeSalida[]
 
   @@unique([empresaId, codigo])
   @@index([empresaId, sucursalId])
@@ -146,6 +156,7 @@ model CentroCosto {
 
   empresa Empresa @relation(fields: [empresaId], references: [id])
   requerimientos RequerimientoCompra[]
+  valesSalida    ValeSalida[]
 
   @@unique([empresaId, codigo])
   @@index([empresaId])
@@ -419,6 +430,8 @@ model Usuario {
   requerimientosSolicitados RequerimientoCompra[] @relation("RequerimientoSolicitante")
   requerimientosAprobados   RequerimientoCompra[] @relation("RequerimientoAprobador")
   ordenesAprobadas          OrdenCompra[]         @relation("OrdenCompraAprobador")
+  valesSolicitados          ValeSalida[]          @relation("ValeSalidaSolicitante")
+  valesAutorizados          ValeSalida[]          @relation("ValeSalidaAutorizador")
 
   @@unique([empresaId, email])
   @@map("usuario")
@@ -526,6 +539,55 @@ model RequerimientoCompraLinea {
   @@index([requerimientoId])
   @@index([empresaId, skuId])
   @@map("requerimiento_compra_linea")
+}
+
+// ===========================================================================
+// VALE DE SALIDA / HOJA DE CARGO: salida interna de almacen (consumo a obra,
+// area o centro de costo). Segregacion de funciones: solicita != autoriza.
+// ===========================================================================
+
+model ValeSalida {
+  id              BigInt           @id @default(autoincrement())
+  empresaId       BigInt           @map("empresa_id")
+  numero          String // correlativo interno (tipo VALE_SALIDA)
+  fecha           DateTime         @default(now())
+  almacenId       BigInt           @map("almacen_id") // almacen del que sale el stock
+  centroCostoId   BigInt           @map("centro_costo_id")
+  solicitanteId   BigInt           @map("solicitante_id")
+  autorizadoPorId BigInt?          @map("autorizado_por_id")
+  destino         String // area / obra / proyecto destino del consumo
+  estado          EstadoValeSalida @default(BORRADOR)
+  observaciones   String?
+  creadoEn        DateTime         @default(now()) @map("creado_en")
+  actualizadoEn   DateTime         @updatedAt @map("actualizado_en")
+
+  almacen     Almacen           @relation(fields: [almacenId], references: [id])
+  centroCosto CentroCosto       @relation(fields: [centroCostoId], references: [id])
+  solicitante Usuario           @relation("ValeSalidaSolicitante", fields: [solicitanteId], references: [id])
+  autorizadoPor Usuario?        @relation("ValeSalidaAutorizador", fields: [autorizadoPorId], references: [id])
+  lineas      ValeSalidaLinea[]
+
+  @@unique([empresaId, numero])
+  @@index([empresaId, estado])
+  @@index([empresaId, almacenId])
+  @@map("vale_salida")
+}
+
+model ValeSalidaLinea {
+  id                  BigInt  @id @default(autoincrement())
+  empresaId           BigInt  @map("empresa_id")
+  valeSalidaId        BigInt  @map("vale_salida_id")
+  skuId               BigInt  @map("sku_id")
+  cantidad            Decimal @db.Decimal(20, 8)
+  cantidadDespachada  Decimal @default(0) @map("cantidad_despachada") @db.Decimal(20, 8)
+  observacion         String?
+  movimientoStockId   BigInt? @map("movimiento_stock_id") // salida generada en el ledger
+
+  valeSalida ValeSalida @relation(fields: [valeSalidaId], references: [id], onDelete: Cascade)
+
+  @@index([valeSalidaId])
+  @@index([empresaId, skuId])
+  @@map("vale_salida_linea")
 }
 
 model Proveedor {
