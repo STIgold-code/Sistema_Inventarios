@@ -26,6 +26,13 @@ class MermaDto {
   @IsOptional() @IsString() observaciones?: string;
 }
 
+class ExistenciasDto {
+  @IsOptional() @IsInt() pagina?: number;
+  @IsOptional() @IsInt() porPagina?: number;
+  @IsOptional() @IsString() busqueda?: string;
+  @IsOptional() @IsInt() almacenId?: number;
+}
+
 @Controller("inventario")
 @UseGuards(JwtGuard, PermisosGuard)
 export class InventarioController {
@@ -80,5 +87,19 @@ export class InventarioController {
     @Query("skuId") skuId: string,
   ) {
     return this.stock.stockPorSku(usuario.empresaId, BigInt(skuId));
+  }
+
+  @Get("existencias")
+  @Permisos("inventario.ver")
+  existencias(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Query() dto: ExistenciasDto,
+  ) {
+    return this.stock.existencias(usuario.empresaId, {
+      pagina: dto.pagina && dto.pagina > 0 ? dto.pagina : 1,
+      porPagina: dto.porPagina && dto.porPagina > 0 ? Math.min(dto.porPagina, 100) : 50,
+      busqueda: dto.busqueda,
+      almacenId: dto.almacenId ? BigInt(dto.almacenId) : undefined,
+    });
   }
 }
