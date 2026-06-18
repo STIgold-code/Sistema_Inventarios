@@ -3,6 +3,7 @@
 import { useState, type ChangeEvent } from "react";
 import { read, utils } from "xlsx";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
+import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
 import {
   ErrorApi,
   importarProductos,
@@ -13,6 +14,27 @@ import { formatearNumero } from "@/lib/formato";
 
 const ALMACEN_PRINCIPAL = 1;
 const MAX_ERRORES_VISIBLES = 20;
+
+/**
+ * Tamaño de cada lote enviado al backend. Importar miles de filas en un solo
+ * request rebasa el límite de tamaño del cuerpo (request entity too large) y
+ * arriesga timeouts, por lo que la carga se divide en lotes secuenciales.
+ */
+const TAMANO_LOTE = 400;
+
+/** Divide un arreglo en lotes de tamaño fijo. */
+function dividirEnLotes<T>(items: readonly T[], tamano: number): T[][] {
+  const lotes: T[][] = [];
+  for (let inicio = 0; inicio < items.length; inicio += tamano) {
+    lotes.push(items.slice(inicio, inicio + tamano));
+  }
+  return lotes;
+}
+
+interface Progreso {
+  lote: number;
+  total: number;
+}
 
 /** Código parlante válido: exactamente 14 dígitos. */
 const PATRON_CODIGO = /^\d{14}$/;
@@ -65,6 +87,8 @@ export default function PaginaImportador(): React.JSX.Element {
     null,
   );
   const [avisoProceso, setAvisoProceso] = useState<Aviso | null>(null);
+  const [progreso, setProgreso] = useState<Progreso | null>(null);
+  const [confirmacionAbierta, setConfirmacionAbierta] = useState<boolean>(false);
 
   async function manejarArchivo(
     evento: ChangeEvent<HTMLInputElement>,
@@ -115,7 +139,28 @@ export default function PaginaImportador(): React.JSX.Element {
     }
   }
 
-  async function ejecutarImportacion(dryRun: boolean): Promise<void> {
+  function solicitarImportacion(): void {
+    setAvisoProceso(null);
+    if (filas.length === 0) {
+      setAvisoProceso({
+        texto: "Carga un archivo con filas válidas antes de importar.",
+        tono: "error",
+      });
+      return;
+    }
+    setConfirmacionAbierta(true);
+  }
+
+  async function confirmarImportacion(): Promise<void> {
+    setConfirmacionAbierta(false);
+    await ejecutarLotes(false);
+  }
+
+  /**
+   * Procesa las filas en lotes secuenciales y acumula el resultado. Si un lote
+   * falla, conserva lo procesado hasta ese punto y reporta el error.
+   */
+  async function ejecutarLotes(dryRun: boolean): Promise<void> {
     setAvisoProceso(null);
     setResultado(null);
     if (filas.length === 0) {
@@ -125,22 +170,31 @@ export default function PaginaImportador(): React.JSX.Element {
       });
       return;
     }
-    if (
-      !dryRun &&
-      !window.confirm(
-        `Se importarán ${filas.length} fila(s) al almacén principal. ¿Deseas continuar?`,
-      )
-    ) {
-      return;
-    }
+
+    const lotes = dividirEnLotes(filas, TAMANO_LOTE);
+    const acumulado: ImportarProductosRespuesta = {
+      dryRun,
+      creados: 0,
+      actualizados: 0,
+      conStock: 0,
+      errores: [],
+    };
+
     setProcesando(true);
     try {
-      const respuesta = await importarProductos({
-        almacenId: ALMACEN_PRINCIPAL,
-        dryRun,
-        filas,
-      });
-      setResultado(respuesta);
+      for (const [indice, lote] of lotes.entries()) {
+        setProgreso({ lote: indice + 1, total: lotes.length });
+        const respuesta = await importarProductos({
+          almacenId: ALMACEN_PRINCIPAL,
+          dryRun,
+          filas: lote,
+        });
+        acumulado.creados += respuesta.creados;
+        acumulado.actualizados += respuesta.actualizados;
+        acumulado.conStock += respuesta.conStock;
+        acumulado.errores.push(...respuesta.errores);
+      }
+      setResultado(acumulado);
       setAvisoProceso({
         texto: dryRun
           ? "Previsualización completada. No se escribió ningún cambio."
@@ -148,12 +202,14 @@ export default function PaginaImportador(): React.JSX.Element {
         tono: "exito",
       });
     } catch (error) {
+      setResultado(acumulado);
       setAvisoProceso({
         texto: mensajeError(error, "No se pudo procesar la importación."),
         tono: "error",
       });
     } finally {
       setProcesando(false);
+      setProgreso(null);
     }
   }
 
@@ -231,7 +287,7 @@ export default function PaginaImportador(): React.JSX.Element {
           <div className="mt-4 flex flex-wrap gap-3">
             <button
               type="button"
-              onClick={() => void ejecutarImportacion(true)}
+              onClick={() => void ejecutarLotes(true)}
               disabled={procesando || leyendo || filas.length === 0}
               className="btn btn-contorno"
             >
@@ -239,7 +295,7 @@ export default function PaginaImportador(): React.JSX.Element {
             </button>
             <button
               type="button"
-              onClick={() => void ejecutarImportacion(false)}
+              onClick={solicitarImportacion}
               disabled={procesando || leyendo || filas.length === 0}
               className="btn btn-primario"
             >
@@ -248,7 +304,9 @@ export default function PaginaImportador(): React.JSX.Element {
           </div>
           {procesando && (
             <p className="mt-3 text-sm text-texto-sec" role="status">
-              Procesando {filas.length} fila(s)… esto puede tardar con archivos grandes.
+              {progreso
+                ? `Procesando lote ${progreso.lote} de ${progreso.total}… (${formatearNumero(filas.length)} fila(s) en total)`
+                : `Procesando ${formatearNumero(filas.length)} fila(s)…`}
             </p>
           )}
         </div>
@@ -330,6 +388,16 @@ export default function PaginaImportador(): React.JSX.Element {
           </div>
         </section>
       )}
+
+      <ModalConfirmacion
+        abierto={confirmacionAbierta}
+        titulo="Confirmar importación"
+        mensaje={`Se importarán ${formatearNumero(filas.length)} fila(s) al almacén principal. Esta acción escribe en el inventario. ¿Deseas continuar?`}
+        textoConfirmar="Importar"
+        textoCancelar="Cancelar"
+        onConfirmar={() => void confirmarImportacion()}
+        onCancelar={() => setConfirmacionAbierta(false)}
+      />
     </div>
   );
 }
