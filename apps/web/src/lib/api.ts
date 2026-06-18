@@ -289,6 +289,50 @@ export function obtenerAlmacenes(): Promise<Almacen[]> {
   return apiFetch<Almacen[]>("/inventario/almacenes");
 }
 
+// ── Existencias (stock de todos los SKUs por almacén) ────────────────────────
+
+export interface StockEnAlmacen {
+  almacenId: string;
+  disponible: string;
+  comprometido: string;
+}
+
+export interface ExistenciaSku {
+  skuId: string;
+  codigoParlante: string;
+  nombre: string;
+  unidad: string;
+  stockMinimo: string | null;
+  stocks: StockEnAlmacen[];
+  totalDisponible: string;
+  totalComprometido: string;
+}
+
+export interface ExistenciasRespuesta {
+  datos: ExistenciaSku[];
+  total: number;
+  pagina: number;
+  porPagina: number;
+  almacenes: Almacen[];
+}
+
+export function obtenerExistencias(parametros: {
+  pagina?: number;
+  porPagina?: number;
+  busqueda?: string;
+  almacenId?: number;
+}): Promise<ExistenciasRespuesta> {
+  const query = new URLSearchParams();
+  if (parametros.pagina) query.set("pagina", String(parametros.pagina));
+  if (parametros.porPagina) query.set("porPagina", String(parametros.porPagina));
+  if (parametros.busqueda) query.set("busqueda", parametros.busqueda);
+  if (parametros.almacenId) query.set("almacenId", String(parametros.almacenId));
+  const cadena = query.toString();
+  return apiFetch<ExistenciasRespuesta>(
+    `/inventario/existencias${cadena ? `?${cadena}` : ""}`,
+  );
+}
+
 // ── Gestión de almacenes y sucursales ───────────────────────────────────────
 
 export interface Sucursal {
