@@ -43,6 +43,20 @@ const PERMISOS: ReadonlyArray<{ codigo: string; nombre: string }> = [
   { codigo: "reporte.ver", nombre: "Ver reportes" },
   { codigo: "activo.gestionar", nombre: "Gestionar activos fijos" },
   { codigo: "almacen.administrar", nombre: "Administrar almacenes y sucursales" },
+  { codigo: "centrocosto.administrar", nombre: "Administrar centros de costo" },
+  { codigo: "requerimiento.crear", nombre: "Crear requerimientos" },
+  { codigo: "requerimiento.aprobar", nombre: "Aprobar requerimientos" },
+  { codigo: "compra.aprobar", nombre: "Aprobar compras" },
+  { codigo: "vale.crear", nombre: "Crear vales de salida" },
+  { codigo: "vale.autorizar", nombre: "Autorizar vales de salida" },
+  { codigo: "venta.comprobante", nombre: "Emitir comprobantes de venta" },
+  { codigo: "guia.gestionar", nombre: "Gestionar guias de remision" },
+];
+
+// Centros de costo de ejemplo para la empresa BM.
+const CENTROS_COSTO: ReadonlyArray<{ codigo: string; nombre: string }> = [
+  { codigo: "ADM", nombre: "Administracion" },
+  { codigo: "OBR", nombre: "Obra" },
 ];
 
 async function main(): Promise<void> {
@@ -98,6 +112,15 @@ async function main(): Promise<void> {
     });
   }
 
+  // --- Centros de costo de ejemplo ---
+  for (const cc of CENTROS_COSTO) {
+    await prisma.centroCosto.upsert({
+      where: { empresaId_codigo: { empresaId: empresa.id, codigo: cc.codigo } },
+      update: { nombre: cc.nombre },
+      create: { empresaId: empresa.id, codigo: cc.codigo, nombre: cc.nombre },
+    });
+  }
+
   // --- Permisos ---
   for (const per of PERMISOS) {
     await prisma.permiso.upsert({
@@ -145,6 +168,7 @@ async function main(): Promise<void> {
   console.log(`  Familias: ${familias.length}`);
   console.log(`  Unidades: ${UNIDADES.length}`);
   console.log(`  Permisos: ${PERMISOS.length}`);
+  console.log(`  Centros de costo: ${CENTROS_COSTO.length}`);
   console.log(`  Usuario: admin@bmingenieros.pe / admin1234`);
 }
 

@@ -74,12 +74,14 @@ model Empresa {
   activa      Boolean  @default(true)
   creadoEn    DateTime @default(now()) @map("creado_en")
 
-  sucursales Sucursal[]
-  familias   Familia[]
-  unidades   Unidad[]
-  productos  Producto[]
-  usuarios   Usuario[]
-  roles      Rol[]
+  sucursales    Sucursal[]
+  familias      Familia[]
+  unidades      Unidad[]
+  productos     Producto[]
+  usuarios      Usuario[]
+  roles         Rol[]
+  centrosCosto  CentroCosto[]
+  correlativos  DocumentoCorrelativo[]
 
   @@map("empresa")
 }
@@ -126,6 +128,45 @@ model Ubicacion {
   @@unique([almacenId, codigo])
   @@index([empresaId, almacenId])
   @@map("ubicacion")
+}
+
+// ===========================================================================
+// MAESTROS TRANSVERSALES: Centro de costo y correlativos de documento
+// ===========================================================================
+
+/// Centro de costo para imputacion contable/operativa (ej. ADM, OBR).
+model CentroCosto {
+  id        BigInt   @id @default(autoincrement())
+  empresaId BigInt   @map("empresa_id")
+  codigo    String
+  nombre    String
+  activo    Boolean  @default(true)
+  creadoEn  DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id])
+
+  @@unique([empresaId, codigo])
+  @@index([empresaId])
+  @@map("centro_costo")
+}
+
+/// Correlativo atomico por (empresa, tipo de documento, serie).
+/// El incremento se hace dentro de una transaccion via upsert.
+model DocumentoCorrelativo {
+  id            BigInt   @id @default(autoincrement())
+  empresaId     BigInt   @map("empresa_id")
+  tipoDocumento String   @map("tipo_documento") // REQUERIMIENTO, ORDEN_COMPRA, VALE_SALIDA...
+  serie         String   @default("")
+  ultimoNumero  Int      @default(0) @map("ultimo_numero")
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id])
+
+  @@unique([empresaId, tipoDocumento, serie])
+  @@index([empresaId])
+  @@map("documento_correlativo")
 }
 
 // ===========================================================================
