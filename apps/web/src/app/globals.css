@@ -130,6 +130,13 @@ h1, h2, h3, h4 {
   }
   .btn-contorno:hover:not(:disabled) { background: var(--panel-alt); }
 
+  .btn-peligro {
+    background: var(--peligro);
+    color: #fff;
+    font-weight: 600;
+  }
+  .btn-peligro:hover:not(:disabled) { filter: brightness(0.93); }
+
   .btn-texto {
     background: transparent;
     color: var(--texto-sec);
