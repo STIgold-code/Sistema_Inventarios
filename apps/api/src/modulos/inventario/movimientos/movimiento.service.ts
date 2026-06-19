@@ -41,9 +41,13 @@ interface SalidaVenta {
   ubicacionId?: bigint;
   /** Si true, la salida descuenta del stock comprometido (despacho de reserva). */
   desdeReserva?: boolean;
+  /** Id del documento origen (ComprobanteVenta) para enlazar el ledger al comprobante real. */
+  documentoId?: bigint;
   tipoDocumentoSunat?: string;
   serieComprobante?: string;
   numeroComprobante?: string;
+  /** Fecha de emision real del comprobante (rige el periodo SUNAT). */
+  fechaEmisionDocumento?: Date;
   observaciones?: string;
 }
 
@@ -304,10 +308,12 @@ export class MovimientoService {
         saldoCostoUnitario: nuevoPromedio,
         saldoCostoTotal: nuevoSaldoValor,
         documentoTipo: "VENTA",
+        documentoId: dto.documentoId,
         tipoOperacionSunat: TIPO_OPERACION.VENTA,
         tipoDocumentoSunat: dto.tipoDocumentoSunat ?? TIPO_DOCUMENTO.BOLETA_VENTA,
         serieComprobante: dto.serieComprobante,
         numeroComprobante: dto.numeroComprobante,
+        fechaEmisionDocumento: dto.fechaEmisionDocumento,
         observaciones: dto.observaciones,
       });
 

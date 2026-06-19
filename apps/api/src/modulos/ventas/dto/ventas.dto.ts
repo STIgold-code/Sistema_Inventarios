@@ -2,15 +2,20 @@ import { Type } from "class-transformer";
 import {
   ArrayMinSize,
   IsArray,
+  IsIn,
   IsInt,
+  IsISO8601,
+  IsNotEmpty,
   IsOptional,
   IsString,
   Matches,
   MinLength,
   ValidateNested,
 } from "class-validator";
+import { TIPO_DOCUMENTO } from "@bm/tipos";
 
 const REGEX_DECIMAL = /^\d+(\.\d+)?$/;
+const TIPOS_DOCUMENTO_SUNAT = Object.values(TIPO_DOCUMENTO);
 
 export class LineaVentaDto {
   @IsInt()
@@ -33,8 +38,21 @@ export class CrearOrdenVentaDto {
   numero!: string;
 
   @IsOptional()
+  @IsInt()
+  clienteId?: number;
+
+  /** @deprecated Usar clienteId. Texto libre legacy. */
+  @IsOptional()
   @IsString()
   cliente?: string;
+
+  @IsOptional()
+  @IsString()
+  moneda?: string;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "tipoCambio debe ser decimal positivo" })
+  tipoCambio?: string;
 
   @IsOptional()
   @IsString()
@@ -55,21 +73,54 @@ export class LineaDespachoDto {
   cantidad!: string;
 }
 
+/**
+ * Comprobante de venta (OBLIGATORIO al despachar): es el sustento SUNAT.
+ * El sistema NO emite electronicamente, solo registra la referencia.
+ */
+export class ComprobanteVentaDto {
+  @IsString()
+  @IsNotEmpty()
+  @IsIn(TIPOS_DOCUMENTO_SUNAT, {
+    message: "tipoDocumentoSunat invalido (Tabla 10 SUNAT)",
+  })
+  tipoDocumentoSunat!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  serie!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  numero!: string;
+
+  @IsISO8601({}, { message: "fechaEmision debe ser una fecha valida ISO 8601" })
+  fechaEmision!: string;
+
+  @IsOptional()
+  @IsString()
+  moneda?: string;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "tipoCambio debe ser decimal positivo" })
+  tipoCambio?: string;
+
+  @Matches(REGEX_DECIMAL, { message: "subtotal debe ser decimal positivo" })
+  subtotal!: string;
+
+  @Matches(REGEX_DECIMAL, { message: "igv debe ser decimal positivo" })
+  igv!: string;
+
+  @Matches(REGEX_DECIMAL, { message: "total debe ser decimal positivo" })
+  total!: string;
+}
+
 export class DespacharDto {
   @IsInt()
   ordenVentaId!: number;
 
-  @IsOptional()
-  @IsString()
-  tipoDocumentoSunat?: string;
-
-  @IsOptional()
-  @IsString()
-  serieComprobante?: string;
-
-  @IsOptional()
-  @IsString()
-  numeroComprobante?: string;
+  @ValidateNested()
+  @Type(() => ComprobanteVentaDto)
+  comprobante!: ComprobanteVentaDto;
 
   @IsArray()
   @ArrayMinSize(1)

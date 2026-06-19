@@ -91,6 +91,7 @@ model Empresa {
   roles         Rol[]
   centrosCosto  CentroCosto[]
   correlativos  DocumentoCorrelativo[]
+  clientes      Cliente[]
 
   @@map("empresa")
 }
@@ -709,19 +710,50 @@ enum EstadoOrdenVenta {
   ANULADA
 }
 
+/// Maestro de clientes (espejo de Proveedor). El comprobante de venta se emite
+/// a su nombre. tipoDocIdentidad usa la Tabla 2 SUNAT (6=RUC, 1=DNI).
+model Cliente {
+  id               BigInt   @id @default(autoincrement())
+  empresaId        BigInt   @map("empresa_id")
+  tipoDocIdentidad String   @default("6") @map("tipo_doc_identidad") @db.VarChar(2) // Tabla 2 (6=RUC, 1=DNI)
+  numeroDoc        String   @map("numero_doc")
+  razonSocial      String   @map("razon_social")
+  direccion        String?
+  telefono         String?
+  email            String?
+  activo           Boolean  @default(true)
+  creadoEn         DateTime @default(now()) @map("creado_en")
+  actualizadoEn    DateTime @updatedAt @map("actualizado_en")
+
+  empresa      Empresa            @relation(fields: [empresaId], references: [id])
+  ordenes      OrdenVenta[]
+  comprobantes ComprobanteVenta[]
+
+  @@unique([empresaId, numeroDoc])
+  @@index([empresaId])
+  @@map("cliente")
+}
+
 model OrdenVenta {
   id           BigInt           @id @default(autoincrement())
   empresaId    BigInt           @map("empresa_id")
   almacenId    BigInt           @map("almacen_id")
+  clienteId    BigInt?          @map("cliente_id") // FK al maestro Cliente (preferido)
   numero       String
-  cliente      String?
+  cliente      String?          // texto libre legacy/fallback (deprecado, usar clienteId)
   estado       EstadoOrdenVenta @default(PENDIENTE)
   fechaEmision DateTime         @default(now()) @map("fecha_emision")
+  moneda       String           @default("PEN")
+  tipoCambio   Decimal?         @map("tipo_cambio") @db.Decimal(20, 6)
+  subtotal     Decimal          @default(0) @db.Decimal(20, 2)
+  igv          Decimal          @default(0) @db.Decimal(20, 2)
   total        Decimal          @default(0) @db.Decimal(20, 2)
   observaciones String?
   usuarioId    BigInt           @map("usuario_id")
 
-  lineas OrdenVentaLinea[]
+  clienteRef   Cliente?           @relation(fields: [clienteId], references: [id])
+  lineas       OrdenVentaLinea[]
+  comprobantes ComprobanteVenta[]
 
   @@unique([empresaId, numero])
   @@index([empresaId, estado])
@@ -742,6 +774,33 @@ model OrdenVentaLinea {
   @@index([ordenVentaId])
   @@index([empresaId, skuId])
   @@map("orden_venta_linea")
+}
+
+/// Referencia del comprobante de venta (NO emite electronicamente, solo
+/// registra el sustento SUNAT). Un comprobante por despacho de la orden.
+model ComprobanteVenta {
+  id                 BigInt   @id @default(autoincrement())
+  empresaId          BigInt   @map("empresa_id")
+  ordenVentaId       BigInt   @map("orden_venta_id")
+  clienteId          BigInt   @map("cliente_id")
+  tipoDocumentoSunat String   @map("tipo_documento_sunat") @db.VarChar(2) // Tabla 10
+  serie              String
+  numero             String
+  fechaEmision       DateTime @map("fecha_emision")
+  moneda             String   @default("PEN")
+  tipoCambio         Decimal? @map("tipo_cambio") @db.Decimal(20, 6)
+  subtotal           Decimal  @db.Decimal(20, 2)
+  igv                Decimal  @db.Decimal(20, 2)
+  total              Decimal  @db.Decimal(20, 2)
+  creadoEn           DateTime @default(now()) @map("creado_en")
+  actualizadoEn      DateTime @updatedAt @map("actualizado_en")
+
+  ordenVenta OrdenVenta @relation(fields: [ordenVentaId], references: [id])
+  cliente    Cliente    @relation(fields: [clienteId], references: [id])
+
+  @@unique([empresaId, tipoDocumentoSunat, serie, numero])
+  @@index([empresaId, ordenVentaId])
+  @@map("comprobante_venta")
 }
 
 // ===========================================================================

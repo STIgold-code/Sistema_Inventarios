@@ -24,7 +24,10 @@ export class VentasController {
     return this.ventas.crearOrdenVenta(usuario, {
       almacenId: BigInt(dto.almacenId),
       numero: dto.numero,
+      clienteId: dto.clienteId ? BigInt(dto.clienteId) : undefined,
       cliente: dto.cliente,
+      moneda: dto.moneda,
+      tipoCambio: dto.tipoCambio,
       observaciones: dto.observaciones,
       lineas: dto.lineas.map((l) => ({
         skuId: BigInt(l.skuId),
@@ -39,9 +42,17 @@ export class VentasController {
   despachar(@UsuarioActual() usuario: UsuarioRequest, @Body() dto: DespacharDto) {
     return this.ventas.despachar(usuario, {
       ordenVentaId: BigInt(dto.ordenVentaId),
-      tipoDocumentoSunat: dto.tipoDocumentoSunat,
-      serieComprobante: dto.serieComprobante,
-      numeroComprobante: dto.numeroComprobante,
+      comprobante: {
+        tipoDocumentoSunat: dto.comprobante.tipoDocumentoSunat,
+        serie: dto.comprobante.serie,
+        numero: dto.comprobante.numero,
+        fechaEmision: new Date(dto.comprobante.fechaEmision),
+        moneda: dto.comprobante.moneda,
+        tipoCambio: dto.comprobante.tipoCambio,
+        subtotal: dto.comprobante.subtotal,
+        igv: dto.comprobante.igv,
+        total: dto.comprobante.total,
+      },
       lineas: dto.lineas.map((l) => ({
         ordenVentaLineaId: BigInt(l.ordenVentaLineaId),
         cantidad: l.cantidad,

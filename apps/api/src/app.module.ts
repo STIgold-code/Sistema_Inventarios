@@ -7,6 +7,7 @@ import { InventarioModule } from "./modulos/inventario/inventario.module.js";
 import { ProductoModule } from "./modulos/productos/producto.module.js";
 import { ComprasModule } from "./modulos/compras/compras.module.js";
 import { VentasModule } from "./modulos/ventas/ventas.module.js";
+import { ClientesModule } from "./modulos/clientes/clientes.module.js";
 import { ReportesModule } from "./modulos/reportes/reportes.module.js";
 import { ActivosModule } from "./modulos/activos/activos.module.js";
 import { ImportadorModule } from "./modulos/importador/importador.module.js";
@@ -30,6 +31,7 @@ import { ValesModule } from "./modulos/vales/vales.module.js";
     InventarioModule,
     ComprasModule,
     VentasModule,
+    ClientesModule,
     ReportesModule,
     ActivosModule,
     ImportadorModule,

@@ -6,19 +6,35 @@ import { MovimientoService } from "../inventario/movimientos/movimiento.service.
 
 const D = Prisma.Decimal;
 
+/** Tasa de IGV vigente en Peru (18%). */
+const IGV_TASA = new D("0.18");
+
 interface NuevaOrdenVenta {
   almacenId: bigint;
   numero: string;
+  clienteId?: bigint;
   cliente?: string;
+  moneda?: string;
+  tipoCambio?: string;
   observaciones?: string;
   lineas: Array<{ skuId: bigint; cantidad: string; precioUnitario?: string }>;
 }
 
+interface ComprobanteEntrada {
+  tipoDocumentoSunat: string;
+  serie: string;
+  numero: string;
+  fechaEmision: Date;
+  moneda?: string;
+  tipoCambio?: string;
+  subtotal: string;
+  igv: string;
+  total: string;
+}
+
 interface Despacho {
   ordenVentaId: bigint;
-  tipoDocumentoSunat?: string;
-  serieComprobante?: string;
-  numeroComprobante?: string;
+  comprobante: ComprobanteEntrada;
   lineas: Array<{ ordenVentaLineaId: bigint; cantidad: string }>;
 }
 
@@ -34,19 +50,34 @@ export class VentasService {
    * libera las reservas previas y elimina la orden (atomicidad efectiva).
    */
   async crearOrdenVenta(usuario: UsuarioRequest, dto: NuevaOrdenVenta) {
-    let total = new D(0);
-    for (const l of dto.lineas) {
-      total = total.add(new D(l.cantidad).mul(new D(l.precioUnitario ?? "0")));
+    // Si se provee clienteId, validar pertenencia a la empresa (anti-IDOR).
+    if (dto.clienteId !== undefined) {
+      const cliente = await this.prisma.cliente.findFirst({
+        where: { id: dto.clienteId, empresaId: usuario.empresaId },
+      });
+      if (!cliente) throw new NotFoundException("Cliente no encontrado");
     }
+
+    let subtotal = new D(0);
+    for (const l of dto.lineas) {
+      subtotal = subtotal.add(new D(l.cantidad).mul(new D(l.precioUnitario ?? "0")));
+    }
+    const igv = subtotal.mul(IGV_TASA);
+    const total = subtotal.add(igv);
 
     const orden = await this.prisma.ordenVenta.create({
       data: {
         empresaId: usuario.empresaId,
         almacenId: dto.almacenId,
         numero: dto.numero,
+        clienteId: dto.clienteId ?? null,
         cliente: dto.cliente ?? null,
-        observaciones: dto.observaciones ?? null,
+        moneda: dto.moneda ?? "PEN",
+        tipoCambio: dto.tipoCambio ?? null,
+        subtotal,
+        igv,
         total,
+        observaciones: dto.observaciones ?? null,
         usuarioId: usuario.id,
         lineas: {
           create: dto.lineas.map((l) => ({
@@ -83,13 +114,19 @@ export class VentasService {
       throw error;
     }
 
-    return { id: orden.id.toString(), total: total.toString() };
+    return {
+      id: orden.id.toString(),
+      numero: orden.numero,
+      subtotal: subtotal.toString(),
+      igv: igv.toString(),
+      total: total.toString(),
+    };
   }
 
   async listarOrdenes(empresaId: bigint) {
     const ordenes = await this.prisma.ordenVenta.findMany({
       where: { empresaId },
-      include: { lineas: true },
+      include: { lineas: true, clienteRef: true },
       orderBy: { fechaEmision: "desc" },
     });
     const skus = await this.cargarSkus(
@@ -99,8 +136,13 @@ export class VentasService {
     return ordenes.map((o) => ({
       id: o.id.toString(),
       numero: o.numero,
-      cliente: o.cliente,
+      clienteId: o.clienteId ? o.clienteId.toString() : null,
+      cliente: o.clienteRef ? o.clienteRef.razonSocial : o.cliente,
       estado: o.estado,
+      moneda: o.moneda,
+      tipoCambio: o.tipoCambio ? o.tipoCambio.toString() : null,
+      subtotal: o.subtotal.toString(),
+      igv: o.igv.toString(),
       total: o.total.toString(),
       lineas: o.lineas.map((l) => ({
         id: l.id.toString(),
@@ -132,7 +174,12 @@ export class VentasService {
     );
   }
 
-  /** Despacho (parcial): genera salidas del ledger DESDE la reserva. */
+  /**
+   * Despacho (parcial): registra el comprobante de venta (OBLIGATORIO, sustento
+   * SUNAT) y genera las salidas del ledger DESDE la reserva, enlazando cada
+   * movimiento al comprobante real (documentoId + serie/numero/tipoDoc/fecha).
+   * Un comprobante por despacho. Requiere que la orden tenga cliente identificado.
+   */
   async despachar(usuario: UsuarioRequest, dto: Despacho) {
     const orden = await this.prisma.ordenVenta.findFirst({
       where: { id: dto.ordenVentaId, empresaId: usuario.empresaId },
@@ -142,7 +189,13 @@ export class VentasService {
     if (orden.estado === "DESPACHADA" || orden.estado === "ANULADA") {
       throw new BadRequestException(`La orden esta ${orden.estado}`);
     }
+    if (orden.clienteId === null) {
+      throw new BadRequestException(
+        "La orden no tiene cliente identificado; no se puede emitir comprobante",
+      );
+    }
 
+    // Validar todas las lineas antes de tocar el ledger o crear el comprobante.
     for (const linea of dto.lineas) {
       const ovLinea = orden.lineas.find((l) => l.id === linea.ordenVentaLineaId);
       if (!ovLinea) {
@@ -155,15 +208,40 @@ export class VentasService {
           `La linea excede lo pendiente: pendiente ${pendiente.toString()}, despacho ${despachar.toString()}`,
         );
       }
+    }
+
+    const c = dto.comprobante;
+    const comprobante = await this.prisma.comprobanteVenta.create({
+      data: {
+        empresaId: usuario.empresaId,
+        ordenVentaId: orden.id,
+        clienteId: orden.clienteId,
+        tipoDocumentoSunat: c.tipoDocumentoSunat,
+        serie: c.serie,
+        numero: c.numero,
+        fechaEmision: c.fechaEmision,
+        moneda: c.moneda ?? orden.moneda,
+        tipoCambio: c.tipoCambio ?? null,
+        subtotal: c.subtotal,
+        igv: c.igv,
+        total: c.total,
+      },
+    });
+
+    for (const linea of dto.lineas) {
+      const ovLinea = orden.lineas.find((l) => l.id === linea.ordenVentaLineaId)!;
+      const despachar = new D(linea.cantidad);
 
       await this.movimientos.registrarSalidaVenta(usuario, {
         skuId: ovLinea.skuId,
         almacenId: orden.almacenId,
         cantidad: linea.cantidad,
         desdeReserva: true,
-        tipoDocumentoSunat: dto.tipoDocumentoSunat,
-        serieComprobante: dto.serieComprobante,
-        numeroComprobante: dto.numeroComprobante,
+        documentoId: comprobante.id,
+        tipoDocumentoSunat: c.tipoDocumentoSunat,
+        serieComprobante: c.serie,
+        numeroComprobante: c.numero,
+        fechaEmisionDocumento: c.fechaEmision,
         observaciones: `Despacho OV ${orden.numero}`,
       });
 
@@ -174,7 +252,7 @@ export class VentasService {
     }
 
     await this.recalcularEstado(orden.id);
-    return { ok: true };
+    return { ok: true, comprobanteId: comprobante.id.toString() };
   }
 
   /** Anula una orden no despachada y libera sus reservas. */
