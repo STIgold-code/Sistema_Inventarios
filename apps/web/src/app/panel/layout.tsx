@@ -38,6 +38,7 @@ const GRUPOS: readonly GrupoNav[] = [
   {
     titulo: "Gestión",
     enlaces: [
+      { href: "/panel/guias", etiqueta: "Guías de remisión" },
       { href: "/panel/reportes", etiqueta: "Reportes" },
       { href: "/panel/activos", etiqueta: "Activos fijos" },
       { href: "/panel/almacenes", etiqueta: "Almacenes" },

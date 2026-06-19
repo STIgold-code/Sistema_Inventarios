@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
+import { FormularioGuia } from "@/componentes/formulario-guia";
 import { SelectorSku } from "@/componentes/selector-sku";
 import {
   ErrorApi,
@@ -655,6 +656,13 @@ export default function PaginaVentas(): React.JSX.Element {
                         </tbody>
                       </table>
                     </div>
+                    {(orden.estado === "DESPACHADA" || orden.estado === "PARCIAL") && (
+                      <FormularioGuia
+                        vinculo={{ ordenVentaId: orden.id }}
+                        motivoDefecto="01"
+                        puntoLlegadaSugerido={orden.cliente ?? ""}
+                      />
+                    )}
                   </article>
                 ))
               )}

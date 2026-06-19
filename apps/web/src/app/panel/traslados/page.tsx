@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
+import { FormularioGuia } from "@/componentes/formulario-guia";
 import { SelectorSku } from "@/componentes/selector-sku";
 import {
   ErrorApi,
@@ -594,6 +595,15 @@ export default function PaginaTraslados(): React.JSX.Element {
                           </tbody>
                         </table>
                       </div>
+                      {(traslado.estado === "EN_TRANSITO" ||
+                        traslado.estado === "RECIBIDO") && (
+                        <FormularioGuia
+                          vinculo={{ trasladoId: traslado.id }}
+                          motivoDefecto="04"
+                          puntoPartidaSugerido={traslado.origen}
+                          puntoLlegadaSugerido={traslado.destino}
+                        />
+                      )}
                     </article>
                   );
                 })

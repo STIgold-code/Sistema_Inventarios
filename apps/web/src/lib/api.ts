@@ -1202,3 +1202,67 @@ export function importarProductos(
     body: JSON.stringify(datos),
   });
 }
+
+// ── Guias de remision (registro de referencia): tipos ───────────────────────
+
+export interface GuiaRemision {
+  id: string;
+  serie: string;
+  numero: string;
+  serieNumero: string;
+  fechaTraslado: string;
+  /** Codigo SUNAT del motivo (Catalogo 20). Ej. "04". */
+  motivoTraslado: string;
+  /** Clave del enum MOTIVO_TRASLADO devuelta por la API. */
+  motivoLabel: string;
+  transportistaDoc: string | null;
+  transportistaNombre: string | null;
+  puntoPartida: string;
+  puntoLlegada: string;
+  pesoBruto: string | null;
+  observaciones: string | null;
+  trasladoId: string | null;
+  trasladoNumero: string | null;
+  ordenVentaId: string | null;
+  ordenVentaNumero: string | null;
+}
+
+export interface CrearGuiaInput {
+  serie: string;
+  numero: string;
+  /** Fecha de traslado en formato ISO 8601. */
+  fechaTraslado: string;
+  /** Codigo SUNAT del motivo (Catalogo 20). */
+  motivoTraslado: string;
+  transportistaDoc?: string;
+  transportistaNombre?: string;
+  puntoPartida: string;
+  puntoLlegada: string;
+  pesoBruto?: string;
+  observaciones?: string;
+  /** Vinculo: exactamente uno de trasladoId u ordenVentaId. */
+  trasladoId?: number;
+  ordenVentaId?: number;
+}
+
+export interface FiltroGuias {
+  trasladoId?: number;
+  ordenVentaId?: number;
+}
+
+// ── Guias de remision: funciones de dominio ─────────────────────────────────
+
+export function crearGuia(datos: CrearGuiaInput): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>("/guias", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function obtenerGuias(filtro?: FiltroGuias): Promise<GuiaRemision[]> {
+  const params = new URLSearchParams();
+  if (filtro?.trasladoId) params.set("trasladoId", String(filtro.trasladoId));
+  if (filtro?.ordenVentaId) params.set("ordenVentaId", String(filtro.ordenVentaId));
+  const cadena = params.toString();
+  return apiFetch<GuiaRemision[]>(`/guias${cadena ? `?${cadena}` : ""}`);
+}
