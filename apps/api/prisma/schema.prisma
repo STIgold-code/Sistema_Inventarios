@@ -92,6 +92,7 @@ model Empresa {
   centrosCosto  CentroCosto[]
   correlativos  DocumentoCorrelativo[]
   clientes      Cliente[]
+  guiasRemision GuiaRemision[]
 
   @@map("empresa")
 }
@@ -754,6 +755,7 @@ model OrdenVenta {
   clienteRef   Cliente?           @relation(fields: [clienteId], references: [id])
   lineas       OrdenVentaLinea[]
   comprobantes ComprobanteVenta[]
+  guiasRemision GuiaRemision[]
 
   @@unique([empresaId, numero])
   @@index([empresaId, estado])
@@ -869,11 +871,45 @@ model Traslado {
   observaciones    String?
   usuarioId        BigInt         @map("usuario_id")
 
-  lineas TrasladoLinea[]
+  lineas        TrasladoLinea[]
+  guiasRemision GuiaRemision[]
 
   @@unique([empresaId, numero])
   @@index([empresaId, estado])
   @@map("traslado")
+}
+
+/// Referencia de la Guia de Remision Remitente (NO emite la GRE electronica a
+/// SUNAT; solo REGISTRA su referencia: serie/numero/motivo/transportista/puntos).
+/// Se asocia a un Traslado (motivo "04") O al despacho de una OrdenVenta
+/// (motivo "01"). Regla de negocio: exactamente uno de trasladoId/ordenVentaId
+/// debe estar presente (validado en el service).
+model GuiaRemision {
+  id                  BigInt   @id @default(autoincrement())
+  empresaId           BigInt   @map("empresa_id")
+  serie               String
+  numero              String
+  fechaTraslado       DateTime @map("fecha_traslado")
+  motivoTraslado      String   @map("motivo_traslado") @db.VarChar(2) // Catalogo 20 SUNAT
+  transportistaDoc    String?  @map("transportista_doc") // RUC del transportista
+  transportistaNombre String?  @map("transportista_nombre")
+  puntoPartida        String   @map("punto_partida")
+  puntoLlegada        String   @map("punto_llegada")
+  pesoBruto           Decimal? @map("peso_bruto") @db.Decimal(20, 3)
+  observaciones       String?
+  trasladoId          BigInt?  @map("traslado_id")
+  ordenVentaId        BigInt?  @map("orden_venta_id")
+  creadoEn            DateTime @default(now()) @map("creado_en")
+  actualizadoEn       DateTime @updatedAt @map("actualizado_en")
+
+  empresa    Empresa     @relation(fields: [empresaId], references: [id])
+  traslado   Traslado?   @relation(fields: [trasladoId], references: [id])
+  ordenVenta OrdenVenta? @relation(fields: [ordenVentaId], references: [id])
+
+  @@unique([empresaId, serie, numero])
+  @@index([empresaId, trasladoId])
+  @@index([empresaId, ordenVentaId])
+  @@map("guia_remision")
 }
 
 model TrasladoLinea {
