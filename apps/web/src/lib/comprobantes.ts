@@ -24,3 +24,15 @@ export const COMPROBANTES_COMPRA: readonly OpcionComprobante[] = [
   { codigo: TIPO_DOCUMENTO.DUA_IMPORTACION, etiqueta: "Declaración Única de Aduanas (importación)" },
   { codigo: TIPO_DOCUMENTO.OTROS, etiqueta: "Otros" },
 ] as const;
+
+/**
+ * Opciones para el comprobante de venta al despachar. A diferencia de compras,
+ * en una emision de venta solo aplican los comprobantes que el negocio emite:
+ * factura, boleta y sus notas de credito/debito (Tabla 10 SUNAT, Catalogo 01).
+ */
+export const COMPROBANTES_VENTA: readonly OpcionComprobante[] = [
+  { codigo: TIPO_DOCUMENTO.FACTURA, etiqueta: "Factura" },
+  { codigo: TIPO_DOCUMENTO.BOLETA_VENTA, etiqueta: "Boleta de venta" },
+  { codigo: TIPO_DOCUMENTO.NOTA_CREDITO, etiqueta: "Nota de crédito" },
+  { codigo: TIPO_DOCUMENTO.NOTA_DEBITO, etiqueta: "Nota de débito" },
+] as const;

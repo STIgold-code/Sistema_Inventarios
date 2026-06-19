@@ -561,6 +561,68 @@ export function anularVale(
   );
 }
 
+// ── Clientes: tipos ─────────────────────────────────────────────────────────
+
+export interface Cliente {
+  id: number;
+  tipoDocIdentidad: string;
+  numeroDoc: string;
+  razonSocial: string;
+  direccion?: string | null;
+  telefono?: string | null;
+  email?: string | null;
+}
+
+export interface CrearClienteInput {
+  tipoDocIdentidad?: string;
+  numeroDoc: string;
+  razonSocial: string;
+  direccion?: string;
+  telefono?: string;
+  email?: string;
+}
+
+/** Mismos campos que CrearClienteInput, todos opcionales para edicion parcial. */
+export type ActualizarClienteInput = Partial<CrearClienteInput>;
+
+export interface CrearClienteRespuesta {
+  id: number;
+}
+
+// ── Clientes: funciones de dominio ──────────────────────────────────────────
+
+export function obtenerClientes(): Promise<Cliente[]> {
+  return apiFetch<Cliente[]>("/clientes");
+}
+
+export function crearCliente(
+  datos: CrearClienteInput,
+): Promise<CrearClienteRespuesta> {
+  return apiFetch<CrearClienteRespuesta>("/clientes", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function actualizarCliente(
+  id: number,
+  datos: ActualizarClienteInput,
+): Promise<{ id: number }> {
+  return apiFetch<{ id: number }>(`/clientes/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function desactivarCliente(
+  id: number,
+): Promise<{ id: number; activo: false }> {
+  return apiFetch<{ id: number; activo: false }>(
+    `/clientes/${id}/desactivar`,
+    { method: "POST" },
+  );
+}
+
 // ── Compras: tipos ──────────────────────────────────────────────────────────
 
 export interface Proveedor {
@@ -774,8 +836,14 @@ export interface LineaOrdenVenta {
 export interface OrdenVenta {
   id: number;
   numero: string;
-  cliente: string;
+  /** Razon social del cliente del maestro o texto libre legacy. */
+  cliente: string | null;
+  clienteId?: string | null;
   estado: EstadoOrdenVenta;
+  moneda: string;
+  tipoCambio?: string | null;
+  subtotal: string;
+  igv: string;
   total: string;
   lineas: LineaOrdenVenta[];
 }
@@ -789,13 +857,19 @@ export interface CrearOrdenVentaLineaInput {
 export interface CrearOrdenVentaInput {
   almacenId: number;
   numero: string;
-  cliente?: string;
+  /** Cliente del maestro (preferido). */
+  clienteId?: number;
+  moneda?: string;
+  tipoCambio?: string;
   observaciones?: string;
   lineas: CrearOrdenVentaLineaInput[];
 }
 
 export interface CrearOrdenVentaRespuesta {
   id: number;
+  numero: string;
+  subtotal: string;
+  igv: string;
   total: string;
 }
 
@@ -804,16 +878,28 @@ export interface CrearDespachoLineaInput {
   cantidad: string;
 }
 
+/** Comprobante de venta. OBLIGATORIO al despachar (sustento SUNAT). */
+export interface ComprobanteVentaInput {
+  tipoDocumentoSunat: string;
+  serie: string;
+  numero: string;
+  fechaEmision: string;
+  moneda?: string;
+  tipoCambio?: string;
+  subtotal: string;
+  igv: string;
+  total: string;
+}
+
 export interface CrearDespachoInput {
   ordenVentaId: number;
-  tipoDocumentoSunat?: string;
-  serieComprobante?: string;
-  numeroComprobante?: string;
+  comprobante: ComprobanteVentaInput;
   lineas: CrearDespachoLineaInput[];
 }
 
 export interface CrearDespachoRespuesta {
   ok: true;
+  comprobanteId: string;
 }
 
 export interface AnularOrdenVentaRespuesta {

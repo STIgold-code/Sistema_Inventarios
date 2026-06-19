@@ -8,16 +8,21 @@ import {
   anularOrdenVenta,
   crearDespacho,
   crearOrdenVenta,
+  obtenerClientes,
   obtenerOrdenesVenta,
+  type Cliente,
   type EstadoOrdenVenta,
   type OrdenVenta,
   type Sku,
 } from "@/lib/api";
+import { COMPROBANTES_VENTA } from "@/lib/comprobantes";
 import { formatearSoles } from "@/lib/formato";
 
 const ALMACEN_PRINCIPAL = 1;
+const IGV_TASA = 0.18;
 
 type Pestania = "ordenes" | "despacho";
+type Moneda = "PEN" | "USD";
 
 interface Aviso {
   texto: string;
@@ -62,11 +67,14 @@ export default function PaginaVentas(): React.JSX.Element {
   const [pestania, setPestania] = useState<Pestania>("ordenes");
 
   const [ordenes, setOrdenes] = useState<OrdenVenta[]>([]);
+  const [clientes, setClientes] = useState<Cliente[]>([]);
   const [cargandoBase, setCargandoBase] = useState<boolean>(true);
 
   // Órdenes de venta
   const [numeroOrden, setNumeroOrden] = useState<string>("");
-  const [cliente, setCliente] = useState<string>("");
+  const [clienteId, setClienteId] = useState<string>("");
+  const [moneda, setMoneda] = useState<Moneda>("PEN");
+  const [tipoCambio, setTipoCambio] = useState<string>("");
   const [observaciones, setObservaciones] = useState<string>("");
   const [lineas, setLineas] = useState<LineaBorrador[]>([lineaVacia()]);
   const [guardandoOrden, setGuardandoOrden] = useState<boolean>(false);
@@ -79,6 +87,10 @@ export default function PaginaVentas(): React.JSX.Element {
   const [tipoDocumento, setTipoDocumento] = useState<string>("");
   const [serie, setSerie] = useState<string>("");
   const [numeroComprobante, setNumeroComprobante] = useState<string>("");
+  const [fechaEmision, setFechaEmision] = useState<string>("");
+  const [subtotalDoc, setSubtotalDoc] = useState<string>("");
+  const [igvDoc, setIgvDoc] = useState<string>("");
+  const [totalDoc, setTotalDoc] = useState<string>("");
   const [despachados, setDespachados] = useState<DespachoBorrador>({});
   const [guardandoDespacho, setGuardandoDespacho] = useState<boolean>(false);
   const [avisoDespacho, setAvisoDespacho] = useState<Aviso | null>(null);
@@ -86,7 +98,12 @@ export default function PaginaVentas(): React.JSX.Element {
   useEffect(() => {
     void (async (): Promise<void> => {
       try {
-        setOrdenes(await obtenerOrdenesVenta());
+        const [respOrdenes, respClientes] = await Promise.all([
+          obtenerOrdenesVenta(),
+          obtenerClientes(),
+        ]);
+        setOrdenes(respOrdenes);
+        setClientes(respClientes);
       } catch (error) {
         setAvisoOrden({
           texto: mensajeError(error, "No se pudieron cargar los datos de ventas."),
@@ -106,7 +123,7 @@ export default function PaginaVentas(): React.JSX.Element {
     }
   }
 
-  const totalBorrador = useMemo(() => {
+  const subtotalBorrador = useMemo(() => {
     return lineas.reduce((acumulado, linea) => {
       const cantidad = Number(linea.cantidad);
       const precio = Number(linea.precioUnitario);
@@ -114,6 +131,9 @@ export default function PaginaVentas(): React.JSX.Element {
       return acumulado + cantidad * precio;
     }, 0);
   }, [lineas]);
+
+  const igvBorrador = subtotalBorrador * IGV_TASA;
+  const totalBorrador = subtotalBorrador + igvBorrador;
 
   const ordenesDespachables = useMemo(
     () => ordenes.filter((o) => o.estado === "PENDIENTE" || o.estado === "PARCIAL"),
@@ -146,7 +166,17 @@ export default function PaginaVentas(): React.JSX.Element {
   async function manejarOrden(evento: FormEvent<HTMLFormElement>): Promise<void> {
     evento.preventDefault();
     setAvisoOrden(null);
-    const lineasValidas = lineas.filter((l) => l.sku !== null && l.cantidad);
+    if (!clienteId) {
+      setAvisoOrden({ texto: "Selecciona un cliente.", tono: "error" });
+      return;
+    }
+    if (moneda === "USD" && (!tipoCambio.trim() || Number(tipoCambio) <= 0)) {
+      setAvisoOrden({ texto: "Ingresa un tipo de cambio válido para dólares.", tono: "error" });
+      return;
+    }
+    const lineasValidas = lineas.filter(
+      (l): l is LineaBorrador & { sku: Sku } => l.sku !== null && l.cantidad !== "",
+    );
     if (lineasValidas.length === 0) {
       setAvisoOrden({
         texto: "Selecciona un producto en cada línea y agrega su cantidad.",
@@ -159,20 +189,24 @@ export default function PaginaVentas(): React.JSX.Element {
       const respuesta = await crearOrdenVenta({
         almacenId: ALMACEN_PRINCIPAL,
         numero: numeroOrden,
-        cliente: cliente || undefined,
+        clienteId: Number(clienteId),
+        moneda,
+        tipoCambio: moneda === "USD" ? tipoCambio : undefined,
         observaciones: observaciones || undefined,
         lineas: lineasValidas.map((l) => ({
-          skuId: l.sku!.id,
+          skuId: l.sku.id,
           cantidad: l.cantidad,
           precioUnitario: l.precioUnitario || undefined,
         })),
       });
       setAvisoOrden({
-        texto: `Orden de venta creada (#${respuesta.id}, total: ${respuesta.total}). El stock quedó reservado.`,
+        texto: `Orden de venta creada (${respuesta.numero}, total: ${formatearSoles(respuesta.total)}). El stock quedó reservado.`,
         tono: "exito",
       });
       setNumeroOrden("");
-      setCliente("");
+      setClienteId("");
+      setMoneda("PEN");
+      setTipoCambio("");
       setObservaciones("");
       setLineas([lineaVacia()]);
       await refrescarOrdenes();
@@ -215,11 +249,40 @@ export default function PaginaVentas(): React.JSX.Element {
     setDespachados((previos) => ({ ...previos, [ordenVentaLineaId]: valor }));
   }
 
+  function limpiarComprobante(): void {
+    setTipoDocumento("");
+    setSerie("");
+    setNumeroComprobante("");
+    setFechaEmision("");
+    setSubtotalDoc("");
+    setIgvDoc("");
+    setTotalDoc("");
+    setDespachados({});
+  }
+
   async function manejarDespacho(evento: FormEvent<HTMLFormElement>): Promise<void> {
     evento.preventDefault();
     setAvisoDespacho(null);
     if (!ordenSeleccionada) {
       setAvisoDespacho({ texto: "Selecciona una orden de venta.", tono: "error" });
+      return;
+    }
+    if (!tipoDocumento) {
+      setAvisoDespacho({ texto: "Selecciona el tipo de comprobante.", tono: "error" });
+      return;
+    }
+    if (!serie.trim() || !numeroComprobante.trim() || !fechaEmision) {
+      setAvisoDespacho({
+        texto: "Completa serie, número y fecha de emisión del comprobante.",
+        tono: "error",
+      });
+      return;
+    }
+    if (!subtotalDoc.trim() || !igvDoc.trim() || !totalDoc.trim()) {
+      setAvisoDespacho({
+        texto: "Completa subtotal, IGV y total del comprobante.",
+        tono: "error",
+      });
       return;
     }
     const lineasDespacho = ordenSeleccionada.lineas
@@ -239,19 +302,24 @@ export default function PaginaVentas(): React.JSX.Element {
     try {
       await crearDespacho({
         ordenVentaId: ordenSeleccionada.id,
-        tipoDocumentoSunat: tipoDocumento || undefined,
-        serieComprobante: serie || undefined,
-        numeroComprobante: numeroComprobante || undefined,
+        comprobante: {
+          tipoDocumentoSunat: tipoDocumento,
+          serie: serie.trim(),
+          numero: numeroComprobante.trim(),
+          fechaEmision: new Date(fechaEmision).toISOString(),
+          moneda: ordenSeleccionada.moneda,
+          tipoCambio: ordenSeleccionada.tipoCambio ?? undefined,
+          subtotal: subtotalDoc.trim(),
+          igv: igvDoc.trim(),
+          total: totalDoc.trim(),
+        },
         lineas: lineasDespacho,
       });
       setAvisoDespacho({
-        texto: "Despacho registrado. Stock físico descontado y estado actualizado.",
+        texto: "Despacho registrado. Comprobante guardado, stock físico descontado y estado actualizado.",
         tono: "exito",
       });
-      setTipoDocumento("");
-      setSerie("");
-      setNumeroComprobante("");
-      setDespachados({});
+      limpiarComprobante();
       await refrescarOrdenes();
     } catch (error) {
       setAvisoDespacho({
@@ -267,7 +335,7 @@ export default function PaginaVentas(): React.JSX.Element {
     <div>
       <EncabezadoPagina
         titulo="Ventas"
-        descripcion="Gestiona órdenes de venta y despachos de mercadería."
+        descripcion="Gestiona órdenes de venta y despachos con comprobante e IGV."
       />
 
       <div className="aviso aviso-exito mb-6" role="note">
@@ -276,8 +344,9 @@ export default function PaginaVentas(): React.JSX.Element {
           <span className="font-medium">crear la orden</span> el stock queda{" "}
           <span className="font-medium">reservado</span> (comprometido): no se descuenta del
           inventario físico, pero queda apartado para esa venta. Al{" "}
-          <span className="font-medium">despachar</span> se descuenta el stock físico real. Si
-          no hay stock disponible suficiente, la creación de la orden falla.
+          <span className="font-medium">despachar</span> se descuenta el stock físico real y se
+          registra el comprobante de venta. Si no hay stock disponible suficiente, la creación de
+          la orden falla.
         </span>
       </div>
 
@@ -339,27 +408,73 @@ export default function PaginaVentas(): React.JSX.Element {
                 </div>
                 <div>
                   <label htmlFor="cliente" className="etiqueta-campo">
-                    Cliente <span className="text-texto-ter">(opcional)</span>
+                    Cliente
                   </label>
-                  <input
+                  <select
                     id="cliente"
-                    value={cliente}
-                    onChange={(e) => setCliente(e.target.value)}
+                    value={clienteId}
+                    onChange={(e) => setClienteId(e.target.value)}
+                    disabled={cargandoBase}
+                    required
                     className="campo"
-                  />
+                  >
+                    <option value="">{cargandoBase ? "Cargando…" : "Selecciona…"}</option>
+                    {clientes.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.numeroDoc} — {c.razonSocial}
+                      </option>
+                    ))}
+                  </select>
+                  {!cargandoBase && clientes.length === 0 && (
+                    <p className="mt-1.5 text-xs text-texto-ter">
+                      No hay clientes registrados. Crea uno en el módulo Clientes.
+                    </p>
+                  )}
                 </div>
               </div>
 
-              <div>
-                <label htmlFor="observaciones" className="etiqueta-campo">
-                  Observaciones <span className="text-texto-ter">(opcional)</span>
-                </label>
-                <input
-                  id="observaciones"
-                  value={observaciones}
-                  onChange={(e) => setObservaciones(e.target.value)}
-                  className="campo"
-                />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="moneda-orden" className="etiqueta-campo">
+                      Moneda
+                    </label>
+                    <select
+                      id="moneda-orden"
+                      value={moneda}
+                      onChange={(e) => setMoneda(e.target.value as Moneda)}
+                      className="campo"
+                    >
+                      <option value="PEN">PEN — Soles</option>
+                      <option value="USD">USD — Dólares</option>
+                    </select>
+                  </div>
+                  {moneda === "USD" && (
+                    <div>
+                      <label htmlFor="tipo-cambio" className="etiqueta-campo">
+                        Tipo de cambio
+                      </label>
+                      <input
+                        id="tipo-cambio"
+                        value={tipoCambio}
+                        onChange={(e) => setTipoCambio(e.target.value)}
+                        inputMode="decimal"
+                        className="campo font-mono"
+                      />
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label htmlFor="observaciones" className="etiqueta-campo">
+                    Observaciones <span className="text-texto-ter">(opcional)</span>
+                  </label>
+                  <input
+                    id="observaciones"
+                    value={observaciones}
+                    onChange={(e) => setObservaciones(e.target.value)}
+                    className="campo"
+                  />
+                </div>
               </div>
 
               <div className="space-y-3">
@@ -396,7 +511,7 @@ export default function PaginaVentas(): React.JSX.Element {
                     </div>
                     <div>
                       <label htmlFor={`linea-precio-${indice}`} className="etiqueta-campo">
-                        Precio unit. <span className="text-texto-ter">(opc.)</span>
+                        Precio unit.
                       </label>
                       <input
                         id={`linea-precio-${indice}`}
@@ -423,20 +538,28 @@ export default function PaginaVentas(): React.JSX.Element {
                 ))}
               </div>
 
-              <div className="flex items-center justify-between border-t border-borde pt-4">
-                <span className="text-sm text-texto-sec">
-                  Total estimado:{" "}
-                  <span className="font-mono font-semibold text-tinta">
-                    {formatearSoles(totalBorrador)}
-                  </span>
-                </span>
-                <button
-                  type="submit"
-                  disabled={guardandoOrden}
-                  className="btn btn-primario"
-                >
-                  {guardandoOrden ? "Creando…" : "Crear orden"}
-                </button>
+              <div className="border-t border-borde pt-4">
+                <dl className="ml-auto max-w-xs space-y-1.5 text-sm">
+                  <div className="flex justify-between">
+                    <dt className="text-texto-sec">Subtotal</dt>
+                    <dd className="font-mono text-tinta">{formatearSoles(subtotalBorrador)}</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-texto-sec">IGV (18%)</dt>
+                    <dd className="font-mono text-tinta">{formatearSoles(igvBorrador)}</dd>
+                  </div>
+                  <div className="flex justify-between border-t border-borde pt-1.5">
+                    <dt className="font-medium text-texto">Total</dt>
+                    <dd className="font-mono font-semibold text-tinta">
+                      {formatearSoles(totalBorrador)}
+                    </dd>
+                  </div>
+                </dl>
+                <div className="mt-4 flex justify-end">
+                  <button type="submit" disabled={guardandoOrden} className="btn btn-primario">
+                    {guardandoOrden ? "Creando…" : "Crear orden"}
+                  </button>
+                </div>
               </div>
             </form>
           </section>
@@ -462,18 +585,17 @@ export default function PaginaVentas(): React.JSX.Element {
                 <p className="text-sm text-texto-ter">Sin órdenes registradas.</p>
               ) : (
                 ordenes.map((orden) => (
-                  <article
-                    key={orden.id}
-                    className="rounded-md border border-borde p-4"
-                  >
+                  <article key={orden.id} className="rounded-md border border-borde p-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <p className="font-mono text-sm font-semibold text-tinta">
                           {orden.numero}
                         </p>
-                        <p className="text-xs text-texto-sec">{orden.cliente}</p>
+                        <p className="text-xs text-texto-sec">
+                          {orden.cliente ?? "Sin cliente"} · {orden.moneda}
+                        </p>
                       </div>
-                      <div className="flex items-center gap-3">
+                      <div className="flex flex-wrap items-center gap-3">
                         <span className={INSIGNIA_ESTADO[orden.estado]}>{orden.estado}</span>
                         <span className="font-mono text-sm font-semibold text-tinta">
                           {formatearSoles(orden.total)}
@@ -490,6 +612,22 @@ export default function PaginaVentas(): React.JSX.Element {
                         )}
                       </div>
                     </div>
+                    <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs">
+                      <div className="flex gap-1.5">
+                        <dt className="text-texto-ter">Subtotal:</dt>
+                        <dd className="font-mono text-texto">{formatearSoles(orden.subtotal)}</dd>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <dt className="text-texto-ter">IGV:</dt>
+                        <dd className="font-mono text-texto">{formatearSoles(orden.igv)}</dd>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <dt className="text-texto-ter">Total:</dt>
+                        <dd className="font-mono font-semibold text-tinta">
+                          {formatearSoles(orden.total)}
+                        </dd>
+                      </div>
+                    </dl>
                     <div className="mt-3 overflow-x-auto">
                       <table className="tabla-datos">
                         <thead>
@@ -503,7 +641,12 @@ export default function PaginaVentas(): React.JSX.Element {
                         <tbody>
                           {orden.lineas.map((linea) => (
                             <tr key={linea.id}>
-                              <td><span className="font-mono text-xs text-texto-sec">{linea.codigoSku}</span> <span className="text-texto">{linea.nombreSku}</span></td>
+                              <td>
+                                <span className="font-mono text-xs text-texto-sec">
+                                  {linea.codigoSku}
+                                </span>{" "}
+                                <span className="text-texto">{linea.nombreSku}</span>
+                              </td>
                               <td className="num">{linea.cantidad}</td>
                               <td className="num">{linea.cantidadDespachada}</td>
                               <td className="num font-semibold text-tinta">{linea.pendiente}</td>
@@ -545,7 +688,7 @@ export default function PaginaVentas(): React.JSX.Element {
                 value={ordenDespacho}
                 onChange={(e) => {
                   setOrdenDespacho(e.target.value);
-                  setDespachados({});
+                  limpiarComprobante();
                   setAvisoDespacho(null);
                 }}
                 disabled={cargandoBase}
@@ -556,7 +699,7 @@ export default function PaginaVentas(): React.JSX.Element {
                 </option>
                 {ordenesDespachables.map((orden) => (
                   <option key={orden.id} value={orden.id}>
-                    {orden.numero} — {orden.cliente} ({orden.estado})
+                    {orden.numero} — {orden.cliente ?? "Sin cliente"} ({orden.estado})
                   </option>
                 ))}
               </select>
@@ -581,7 +724,12 @@ export default function PaginaVentas(): React.JSX.Element {
                     <tbody>
                       {ordenSeleccionada.lineas.map((linea) => (
                         <tr key={linea.id}>
-                          <td><span className="font-mono text-xs text-texto-sec">{linea.codigoSku}</span> <span className="text-texto">{linea.nombreSku}</span></td>
+                          <td>
+                            <span className="font-mono text-xs text-texto-sec">
+                              {linea.codigoSku}
+                            </span>{" "}
+                            <span className="text-texto">{linea.nombreSku}</span>
+                          </td>
                           <td className="num font-semibold text-tinta">{linea.pendiente}</td>
                           <td>
                             <input
@@ -599,47 +747,118 @@ export default function PaginaVentas(): React.JSX.Element {
                   </table>
                 </div>
 
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <div>
-                    <label htmlFor="tipo-documento" className="etiqueta-campo">
-                      Tipo doc. <span className="text-texto-ter">(opcional)</span>
-                    </label>
-                    <input
-                      id="tipo-documento"
-                      value={tipoDocumento}
-                      onChange={(e) => setTipoDocumento(e.target.value)}
-                      className="campo"
-                    />
+                <fieldset className="space-y-4 rounded-md border border-borde bg-panel-alt p-4">
+                  <legend className="px-1 text-sm font-medium text-texto">
+                    Comprobante de venta (obligatorio)
+                  </legend>
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div>
+                      <label htmlFor="tipo-documento" className="etiqueta-campo">
+                        Tipo de comprobante
+                      </label>
+                      <select
+                        id="tipo-documento"
+                        value={tipoDocumento}
+                        onChange={(e) => setTipoDocumento(e.target.value)}
+                        required
+                        className="campo"
+                      >
+                        <option value="">Selecciona…</option>
+                        {COMPROBANTES_VENTA.map((opcion) => (
+                          <option key={opcion.codigo} value={opcion.codigo}>
+                            {opcion.codigo} — {opcion.etiqueta}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="serie" className="etiqueta-campo">
+                        Serie
+                      </label>
+                      <input
+                        id="serie"
+                        value={serie}
+                        onChange={(e) => setSerie(e.target.value)}
+                        required
+                        placeholder="Ej. F001"
+                        className="campo font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="numero-comprobante" className="etiqueta-campo">
+                        Número
+                      </label>
+                      <input
+                        id="numero-comprobante"
+                        value={numeroComprobante}
+                        onChange={(e) => setNumeroComprobante(e.target.value)}
+                        required
+                        placeholder="Ej. 0001234"
+                        className="campo font-mono"
+                      />
+                    </div>
                   </div>
                   <div>
-                    <label htmlFor="serie" className="etiqueta-campo">
-                      Serie <span className="text-texto-ter">(opcional)</span>
+                    <label htmlFor="fecha-emision" className="etiqueta-campo">
+                      Fecha de emisión
                     </label>
                     <input
-                      id="serie"
-                      value={serie}
-                      onChange={(e) => setSerie(e.target.value)}
-                      className="campo font-mono"
+                      id="fecha-emision"
+                      type="date"
+                      value={fechaEmision}
+                      onChange={(e) => setFechaEmision(e.target.value)}
+                      required
+                      className="campo sm:max-w-xs"
                     />
                   </div>
-                  <div>
-                    <label htmlFor="numero-comprobante" className="etiqueta-campo">
-                      Número <span className="text-texto-ter">(opcional)</span>
-                    </label>
-                    <input
-                      id="numero-comprobante"
-                      value={numeroComprobante}
-                      onChange={(e) => setNumeroComprobante(e.target.value)}
-                      className="campo font-mono"
-                    />
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <div>
+                      <label htmlFor="subtotal-doc" className="etiqueta-campo">
+                        Subtotal
+                      </label>
+                      <input
+                        id="subtotal-doc"
+                        value={subtotalDoc}
+                        onChange={(e) => setSubtotalDoc(e.target.value)}
+                        inputMode="decimal"
+                        required
+                        className="campo font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="igv-doc" className="etiqueta-campo">
+                        IGV
+                      </label>
+                      <input
+                        id="igv-doc"
+                        value={igvDoc}
+                        onChange={(e) => setIgvDoc(e.target.value)}
+                        inputMode="decimal"
+                        required
+                        className="campo font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="total-doc" className="etiqueta-campo">
+                        Total
+                      </label>
+                      <input
+                        id="total-doc"
+                        value={totalDoc}
+                        onChange={(e) => setTotalDoc(e.target.value)}
+                        inputMode="decimal"
+                        required
+                        className="campo font-mono"
+                      />
+                    </div>
                   </div>
-                </div>
+                  <p className="text-xs text-texto-ter">
+                    El comprobante es el sustento SUNAT del despacho. La orden debe tener un
+                    cliente identificado; de lo contrario el registro será rechazado.
+                  </p>
+                </fieldset>
 
-                <button
-                  type="submit"
-                  disabled={guardandoDespacho}
-                  className="btn btn-primario"
-                >
+                <button type="submit" disabled={guardandoDespacho} className="btn btn-primario">
                   {guardandoDespacho ? "Registrando…" : "Registrar despacho"}
                 </button>
               </>
