@@ -5,15 +5,18 @@ import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import {
   ErrorApi,
   obtenerAlertasStock,
+  obtenerConsumo,
   obtenerPle,
   obtenerValorizacion,
   type AlertaStock,
+  type EjeConsumo,
   type FormatoPle,
+  type ReporteConsumo,
   type ReporteValorizacion,
 } from "@/lib/api";
-import { formatearNumero, formatearSoles } from "@/lib/formato";
+import { formatearDolares, formatearNumero, formatearSoles } from "@/lib/formato";
 
-type Pestania = "valorizacion" | "alertas" | "ple";
+type Pestania = "valorizacion" | "consumo" | "alertas" | "ple";
 
 interface Aviso {
   texto: string;
@@ -22,9 +25,24 @@ interface Aviso {
 
 const PESTANIAS: readonly { id: Pestania; etiqueta: string }[] = [
   { id: "valorizacion", etiqueta: "Valorización" },
+  { id: "consumo", etiqueta: "Consumo valorizado" },
   { id: "alertas", etiqueta: "Alertas de stock" },
   { id: "ple", etiqueta: "Libros SUNAT (PLE)" },
 ];
+
+const EJES_CONSUMO: readonly { id: EjeConsumo; etiqueta: string }[] = [
+  { id: "centroCosto", etiqueta: "Centro de costo" },
+  { id: "solicitante", etiqueta: "Solicitante" },
+  { id: "ordenTrabajo", etiqueta: "Orden de trabajo" },
+];
+
+/** Fecha local en formato AAAA-MM-DD para los campos de rango. */
+function fechaISO(fecha: Date): string {
+  const a = fecha.getFullYear().toString();
+  const m = (fecha.getMonth() + 1).toString().padStart(2, "0");
+  const d = fecha.getDate().toString().padStart(2, "0");
+  return `${a}-${m}-${d}`;
+}
 
 /** Periodo SUNAT en formato AAAAMM (6 dígitos). */
 const PATRON_PERIODO = /^\d{6}$/;
@@ -62,6 +80,44 @@ export default function PaginaReportes(): React.JSX.Element {
   const [periodo, setPeriodo] = useState<string>("");
   const [descargandoPle, setDescargandoPle] = useState<FormatoPle | null>(null);
   const [avisoPle, setAvisoPle] = useState<Aviso | null>(null);
+
+  // Consumo valorizado: rango por defecto = mes en curso.
+  const hoy = new Date();
+  const [consumoDesde, setConsumoDesde] = useState<string>(
+    fechaISO(new Date(hoy.getFullYear(), hoy.getMonth(), 1)),
+  );
+  const [consumoHasta, setConsumoHasta] = useState<string>(fechaISO(hoy));
+  const [ejeConsumo, setEjeConsumo] = useState<EjeConsumo>("centroCosto");
+  const [consumo, setConsumo] = useState<ReporteConsumo | null>(null);
+  const [cargandoConsumo, setCargandoConsumo] = useState<boolean>(false);
+  const [avisoConsumo, setAvisoConsumo] = useState<Aviso | null>(null);
+
+  async function generarConsumo(): Promise<void> {
+    setAvisoConsumo(null);
+    if (!consumoDesde || !consumoHasta) {
+      setAvisoConsumo({ texto: "Selecciona un rango de fechas.", tono: "error" });
+      return;
+    }
+    if (consumoHasta < consumoDesde) {
+      setAvisoConsumo({
+        texto: "La fecha final no puede ser anterior a la inicial.",
+        tono: "error",
+      });
+      return;
+    }
+    setCargandoConsumo(true);
+    try {
+      setConsumo(await obtenerConsumo(consumoDesde, consumoHasta, ejeConsumo));
+    } catch (error) {
+      setConsumo(null);
+      setAvisoConsumo({
+        texto: mensajeError(error, "No se pudo generar el reporte de consumo."),
+        tono: "error",
+      });
+    } finally {
+      setCargandoConsumo(false);
+    }
+  }
 
   // Alertas: una sola carga al montar.
   useEffect(() => {
@@ -258,6 +314,146 @@ export default function PaginaReportes(): React.JSX.Element {
               </div>
             </div>
           )}
+        </section>
+      )}
+
+      {pestania === "consumo" && (
+        <section className="panel mt-6">
+          <div className="panel-cabecera">
+            <span className="panel-titulo">Consumo de materiales valorizado</span>
+            {consumo && (
+              <span className="text-sm text-texto-sec">
+                Total consumido:{" "}
+                <span className="font-mono text-base font-semibold text-tinta">
+                  {formatearSoles(consumo.totalSoles)}
+                </span>
+              </span>
+            )}
+          </div>
+          <div className="space-y-4 p-5">
+            <p className="text-sm text-texto-sec">
+              Consumo de materiales por vales de salida en el rango, valorizado al costo
+              real (FIFO) del kardex. Agrúpalo por centro de costo, solicitante u orden de
+              trabajo.
+            </p>
+
+            {avisoConsumo && (
+              <div
+                role={avisoConsumo.tono === "error" ? "alert" : "status"}
+                className={`aviso ${
+                  avisoConsumo.tono === "error" ? "aviso-peligro" : "aviso-exito"
+                }`}
+              >
+                <span>{avisoConsumo.texto}</span>
+              </div>
+            )}
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div>
+                <label htmlFor="consumo-desde" className="etiqueta-campo">
+                  Desde
+                </label>
+                <input
+                  id="consumo-desde"
+                  type="date"
+                  value={consumoDesde}
+                  onChange={(e) => setConsumoDesde(e.target.value)}
+                  className="campo"
+                />
+              </div>
+              <div>
+                <label htmlFor="consumo-hasta" className="etiqueta-campo">
+                  Hasta
+                </label>
+                <input
+                  id="consumo-hasta"
+                  type="date"
+                  value={consumoHasta}
+                  onChange={(e) => setConsumoHasta(e.target.value)}
+                  className="campo"
+                />
+              </div>
+              <div>
+                <label htmlFor="consumo-agrupar" className="etiqueta-campo">
+                  Agrupar por
+                </label>
+                <select
+                  id="consumo-agrupar"
+                  value={ejeConsumo}
+                  onChange={(e) => setEjeConsumo(e.target.value as EjeConsumo)}
+                  className="campo"
+                >
+                  {EJES_CONSUMO.map((eje) => (
+                    <option key={eje.id} value={eje.id}>
+                      {eje.etiqueta}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={() => void generarConsumo()}
+                  disabled={cargandoConsumo}
+                  className="btn btn-primario w-full"
+                >
+                  {cargandoConsumo ? "Generando…" : "Generar"}
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="tabla-datos">
+                <thead>
+                  <tr>
+                    <th>
+                      {EJES_CONSUMO.find((e) => e.id === (consumo?.agrupar ?? ejeConsumo))
+                        ?.etiqueta ?? "Grupo"}
+                    </th>
+                    <th className="num">Cantidad</th>
+                    <th className="num">Costo (S/)</th>
+                    <th className="num">Costo (US$)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cargandoConsumo ? (
+                    <tr>
+                      <td colSpan={4} className="text-texto-ter">
+                        Cargando…
+                      </td>
+                    </tr>
+                  ) : !consumo ? (
+                    <tr>
+                      <td colSpan={4} className="text-texto-ter">
+                        Selecciona un rango y genera el reporte.
+                      </td>
+                    </tr>
+                  ) : consumo.grupos.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="text-texto-ter">
+                        No hay consumo registrado en el rango seleccionado.
+                      </td>
+                    </tr>
+                  ) : (
+                    consumo.grupos.map((grupo) => (
+                      <tr key={grupo.claveId ?? grupo.etiqueta}>
+                        <td className="text-tinta">{grupo.etiqueta}</td>
+                        <td className="num">{formatearNumero(grupo.cantidad)}</td>
+                        <td className="num font-semibold text-tinta">
+                          {formatearSoles(grupo.costoTotalSoles)}
+                        </td>
+                        <td className="num text-texto-sec">
+                          {grupo.costoTotalUsd !== null
+                            ? formatearDolares(grupo.costoTotalUsd)
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </section>
       )}
 

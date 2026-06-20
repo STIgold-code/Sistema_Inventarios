@@ -11,7 +11,7 @@ import {
   type FilaKardex,
   type Sku,
 } from "@/lib/api";
-import { formatearSoles } from "@/lib/formato";
+import { formatearDolares, formatearSoles } from "@/lib/formato";
 
 /** Convierte una fecha ISO a "dd/mm/aaaa hh:mm". */
 function formatearFecha(iso: string): string {
@@ -27,6 +27,7 @@ export default function PaginaKardex(): React.JSX.Element {
   const [sku, setSku] = useState<Sku | null>(null);
   const [filas, setFilas] = useState<FilaKardex[]>([]);
   const [filtroTipo, setFiltroTipo] = useState<string>("");
+  const [enUsd, setEnUsd] = useState<boolean>(false);
   const [cargando, setCargando] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [consultado, setConsultado] = useState<boolean>(false);
@@ -52,6 +53,7 @@ export default function PaginaKardex(): React.JSX.Element {
     setError(null);
     setConsultado(true);
     setFiltroTipo("");
+    setEnUsd(false);
     void (async () => {
       try {
         setFilas(await obtenerKardex(sku.id, almacenId));
@@ -71,6 +73,11 @@ export default function PaginaKardex(): React.JSX.Element {
   const filasVisibles = useMemo(
     () => (filtroTipo ? filas.filter((f) => f.tipo === filtroTipo) : filas),
     [filas, filtroTipo],
+  );
+  // El toggle USD solo tiene sentido si al menos un movimiento trae valor en dolares.
+  const hayUsd = useMemo(
+    () => filas.some((f) => f.costoUnitarioUsd !== null),
+    [filas],
   );
 
   return (
@@ -124,6 +131,16 @@ export default function PaginaKardex(): React.JSX.Element {
             </select>
           </div>
         )}
+        {consultado && hayUsd && (
+          <label className="flex items-center gap-2 pb-2 text-sm text-texto-sec">
+            <input
+              type="checkbox"
+              checked={enUsd}
+              onChange={(e) => setEnUsd(e.target.checked)}
+            />
+            Ver valores en USD
+          </label>
+        )}
       </div>
 
       {error && (
@@ -168,8 +185,8 @@ export default function PaginaKardex(): React.JSX.Element {
                     <th>Op. SUNAT</th>
                     <th>Documento</th>
                     <th className="num">Cantidad</th>
-                    <th className="num">Costo unit.</th>
-                    <th className="num">Costo total</th>
+                    <th className="num">{enUsd ? "Costo unit. USD" : "Costo unit."}</th>
+                    <th className="num">{enUsd ? "Costo total USD" : "Costo total"}</th>
                     <th className="num border-l border-borde">Saldo cant.</th>
                     <th className="num">Saldo C.U.</th>
                     <th className="num">Saldo total</th>
@@ -186,8 +203,20 @@ export default function PaginaKardex(): React.JSX.Element {
                       <td className="font-mono text-texto-sec">{fila.tipoOperacionSunat}</td>
                       <td className="font-mono text-xs text-texto-sec">{fila.documento}</td>
                       <td className="num text-texto">{fila.cantidad}</td>
-                      <td className="num text-texto">{formatearSoles(fila.costoUnitario)}</td>
-                      <td className="num text-texto">{formatearSoles(fila.costoTotal)}</td>
+                      <td className="num text-texto">
+                        {enUsd
+                          ? fila.costoUnitarioUsd === null
+                            ? "—"
+                            : formatearDolares(fila.costoUnitarioUsd)
+                          : formatearSoles(fila.costoUnitario)}
+                      </td>
+                      <td className="num text-texto">
+                        {enUsd
+                          ? fila.costoTotalUsd === null
+                            ? "—"
+                            : formatearDolares(fila.costoTotalUsd)
+                          : formatearSoles(fila.costoTotal)}
+                      </td>
                       <td className="num border-l border-borde bg-panel-alt font-semibold text-tinta">
                         {fila.saldoCantidad}
                       </td>

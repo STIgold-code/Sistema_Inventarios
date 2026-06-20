@@ -109,6 +109,12 @@ export interface Sku {
   producto: { id: string; nombre: string; activo: boolean };
   familia: { id: string; codigo: string; nombre: string };
   unidad: { id: string; codigo: string; nombre: string };
+  /** Unidad de referencia para multi-unidad (null si el SKU no la tiene). */
+  unidadReferencia: { id: string; codigo: string; nombre: string } | null;
+  /** Cuantas unidades de control equivalen a UNA de referencia (null si no aplica). */
+  factorConversion: string | null;
+  /** Si true, el SKU exige captura de numeros de serie en entradas y salidas. */
+  controlaSerie: boolean;
 }
 
 export interface CrearProductoInput {
@@ -121,6 +127,13 @@ export interface CrearProductoInput {
   tipoExistencia?: string;
   metodoValuacion?: string;
   stockMinimo?: string;
+  stockMaximo?: string;
+  puntoReposicion?: string;
+  semanasReposicion?: number;
+  /** Unidad de referencia para multi-unidad (va junto con factorConversion). */
+  unidadReferenciaId?: number;
+  /** Cuantas unidades de control equivalen a UNA de referencia (decimal > 0). */
+  factorConversion?: string;
 }
 
 export interface CrearProductoRespuesta {
@@ -166,6 +179,10 @@ export interface FilaKardex {
   saldoCantidad: string;
   saldoCostoUnitario: string;
   saldoCostoTotal: string;
+  /** Costo unitario en USD del movimiento (null si no habia TC ese dia). */
+  costoUnitarioUsd: string | null;
+  /** Costo total en USD del movimiento (null si no habia TC ese dia). */
+  costoTotalUsd: string | null;
   documento: string;
 }
 
@@ -483,6 +500,10 @@ export type EstadoValeSalida =
 export interface LineaValeSalida {
   id: number;
   skuId: number;
+  codigoSku: string;
+  nombreSku: string;
+  /** Si true, el SKU exige seleccionar numeros de serie al despachar. */
+  controlaSerie: boolean;
   cantidad: string;
   cantidadDespachada: string;
   observacion: string | null;
@@ -503,6 +524,8 @@ export interface ValeSalida {
   solicitante: string;
   autorizadoPorId: number | null;
   autorizadoPor: string | null;
+  ordenTrabajoId: string | null;
+  ordenTrabajo: string | null;
   observaciones: string | null;
   lineas: LineaValeSalida[];
 }
@@ -511,12 +534,15 @@ export interface CrearValeLineaInput {
   skuId: number;
   cantidad: string;
   observacion?: string;
+  /** Si true, la cantidad esta en unidad de referencia y se convertira a control. */
+  enUnidadReferencia?: boolean;
 }
 
 export interface CrearValeInput {
   almacenId: number;
   centroCostoId: number;
   destino: string;
+  ordenTrabajoId?: number;
   observaciones?: string;
   lineas: CrearValeLineaInput[];
 }
@@ -543,12 +569,21 @@ export function autorizarVale(
   );
 }
 
+/** Series por SKU a despachar (solo para SKUs que controlan serie). */
+export interface SeriesPorSku {
+  skuId: number;
+  numerosSerie: string[];
+}
+
 export function despacharVale(
   id: number,
+  series?: SeriesPorSku[],
 ): Promise<{ id: number; estado: EstadoValeSalida }> {
+  const body =
+    series && series.length > 0 ? JSON.stringify({ series }) : undefined;
   return apiFetch<{ id: number; estado: EstadoValeSalida }>(
     `/vales/${id}/despachar`,
-    { method: "POST" },
+    { method: "POST", body },
   );
 }
 
@@ -557,6 +592,65 @@ export function anularVale(
 ): Promise<{ id: number; estado: EstadoValeSalida }> {
   return apiFetch<{ id: number; estado: EstadoValeSalida }>(
     `/vales/${id}/anular`,
+    { method: "POST" },
+  );
+}
+
+// ── Órdenes de trabajo: tipos ───────────────────────────────────────────────
+
+export type EstadoOrdenTrabajo = "ABIERTA" | "CERRADA";
+
+export interface OrdenTrabajo {
+  id: number;
+  numero: string;
+  descripcion: string;
+  estado: EstadoOrdenTrabajo;
+  centroCostoId: number;
+  centroCosto: string | null;
+  fechaApertura: string;
+  fechaCierre: string | null;
+}
+
+export interface CrearOrdenTrabajoInput {
+  descripcion: string;
+  centroCostoId: number;
+}
+
+export interface ActualizarOrdenTrabajoInput {
+  descripcion?: string;
+  centroCostoId?: number;
+}
+
+// ── Órdenes de trabajo: funciones de dominio ────────────────────────────────
+
+export function obtenerOrdenesTrabajo(): Promise<OrdenTrabajo[]> {
+  return apiFetch<OrdenTrabajo[]>("/ordenes-trabajo");
+}
+
+export function crearOrdenTrabajo(
+  datos: CrearOrdenTrabajoInput,
+): Promise<{ id: number }> {
+  return apiFetch<{ id: number }>("/ordenes-trabajo", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function actualizarOrdenTrabajo(
+  id: number,
+  datos: ActualizarOrdenTrabajoInput,
+): Promise<{ id: number }> {
+  return apiFetch<{ id: number }>(`/ordenes-trabajo/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function cerrarOrdenTrabajo(
+  id: number,
+): Promise<{ id: number; estado: EstadoOrdenTrabajo }> {
+  return apiFetch<{ id: number; estado: EstadoOrdenTrabajo }>(
+    `/ordenes-trabajo/${id}/cerrar`,
     { method: "POST" },
   );
 }
@@ -672,6 +766,8 @@ export interface LineaOrdenCompra {
   skuId: number;
   codigoSku: string;
   nombreSku: string;
+  /** Si true, el SKU exige captura de numeros de serie al recibir. */
+  controlaSerie: boolean;
   cantidad: string;
   costoUnitario: string;
   cantidadRecibida: string;
@@ -700,6 +796,8 @@ export interface CrearOrdenCompraLineaInput {
   skuId: number;
   cantidad: string;
   costoUnitario: string;
+  /** Si true, cantidad y costo estan en unidad de referencia y se convertiran a control. */
+  enUnidadReferencia?: boolean;
 }
 
 export interface CrearOrdenCompraInput {
@@ -724,6 +822,8 @@ export interface CrearOrdenCompraRespuesta {
 export interface CrearRecepcionLineaInput {
   ordenCompraLineaId: number;
   cantidad: string;
+  /** Numeros de serie a registrar. Obligatorio si el SKU controla serie. */
+  numerosSerie?: string[];
 }
 
 export interface CrearRecepcionInput {
@@ -828,6 +928,8 @@ export interface LineaOrdenVenta {
   skuId: number;
   codigoSku: string;
   nombreSku: string;
+  /** Si true, el SKU exige seleccionar numeros de serie al despachar. */
+  controlaSerie: boolean;
   cantidad: string;
   cantidadDespachada: string;
   pendiente: string;
@@ -852,6 +954,8 @@ export interface CrearOrdenVentaLineaInput {
   skuId: number;
   cantidad: string;
   precioUnitario?: string;
+  /** Si true, cantidad y precio estan en unidad de referencia y se convertiran a control. */
+  enUnidadReferencia?: boolean;
 }
 
 export interface CrearOrdenVentaInput {
@@ -876,6 +980,8 @@ export interface CrearOrdenVentaRespuesta {
 export interface CrearDespachoLineaInput {
   ordenVentaLineaId: number;
   cantidad: string;
+  /** Numeros de serie a despachar. Obligatorio si el SKU controla serie. */
+  numerosSerie?: string[];
 }
 
 /** Comprobante de venta. OBLIGATORIO al despachar (sustento SUNAT). */
@@ -1043,6 +1149,24 @@ export interface ArchivoPle {
 
 export type FormatoPle = "121" | "131";
 
+export type EjeConsumo = "centroCosto" | "solicitante" | "ordenTrabajo";
+
+export interface GrupoConsumo {
+  claveId: string | null;
+  etiqueta: string;
+  cantidad: string;
+  costoTotalSoles: string;
+  costoTotalUsd: string | null;
+}
+
+export interface ReporteConsumo {
+  desde: string;
+  hasta: string;
+  agrupar: EjeConsumo;
+  totalSoles: string;
+  grupos: GrupoConsumo[];
+}
+
 // ── Reportes: funciones de dominio ─────────────────────────────────────────────
 
 export function obtenerValorizacion(
@@ -1060,6 +1184,15 @@ export function obtenerAlertasStock(): Promise<AlertaStock[]> {
   return apiFetch<AlertaStock[]>("/reportes/alertas-stock");
 }
 
+export function obtenerConsumo(
+  desde: string,
+  hasta: string,
+  agrupar: EjeConsumo,
+): Promise<ReporteConsumo> {
+  const params = new URLSearchParams({ desde, hasta, agrupar });
+  return apiFetch<ReporteConsumo>(`/reportes/consumo?${params.toString()}`);
+}
+
 export function obtenerPle(
   formato: FormatoPle,
   periodo: string,
@@ -1068,6 +1201,74 @@ export function obtenerPle(
   return apiFetch<ArchivoPle>(
     `/reportes/ple/${formato}?${params.toString()}`,
   );
+}
+
+// ── Reposicion y clasificacion ABC: tipos ──────────────────────────────────────
+
+export interface FilaReposicion {
+  skuId: string;
+  codigoParlante: string;
+  producto: string;
+  unidad: string;
+  disponible: string;
+  stockMinimo: string | null;
+  stockMaximo: string | null;
+  puntoReposicion: string | null;
+  semanasReposicion: number | null;
+  /** Cantidad sugerida a pedir; null si el SKU no tiene stock maximo definido. */
+  sugeridoPedir: string | null;
+}
+
+export interface ReporteReposicion {
+  filas: FilaReposicion[];
+  total: number;
+}
+
+export type ClasificacionAbc = "A" | "B" | "C";
+
+export interface FilaAbc {
+  skuId: string;
+  codigoParlante: string;
+  producto: string;
+  cantidadConsumo: string;
+  valorConsumo: string;
+  participacion: string;
+  participacionAcumulada: string;
+  clasificacion: ClasificacionAbc;
+}
+
+export interface ReporteAbc {
+  desde: string;
+  hasta: string;
+  valorTotal: string;
+  filas: FilaAbc[];
+}
+
+export interface ClasificarAbcRespuesta extends ReporteAbc {
+  persistir: boolean;
+  persistidos: number;
+}
+
+// ── Reposicion y clasificacion ABC: funciones de dominio ───────────────────────
+
+export function obtenerReposicion(): Promise<ReporteReposicion> {
+  return apiFetch<ReporteReposicion>("/reportes/reposicion");
+}
+
+export function obtenerAbc(desde: string, hasta: string): Promise<ReporteAbc> {
+  const params = new URLSearchParams({ desde, hasta });
+  return apiFetch<ReporteAbc>(`/reportes/abc?${params.toString()}`);
+}
+
+export function clasificarAbc(datos: {
+  desde: string;
+  hasta: string;
+  persistir?: boolean;
+}): Promise<ClasificarAbcRespuesta> {
+  return apiFetch<ClasificarAbcRespuesta>("/productos/clasificar-abc", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
 }
 
 // ── Activos: tipos ──────────────────────────────────────────────────────────
@@ -1265,4 +1466,186 @@ export function obtenerGuias(filtro?: FiltroGuias): Promise<GuiaRemision[]> {
   if (filtro?.ordenVentaId) params.set("ordenVentaId", String(filtro.ordenVentaId));
   const cadena = params.toString();
   return apiFetch<GuiaRemision[]>(`/guias${cadena ? `?${cadena}` : ""}`);
+}
+
+// ── Cierre mensual de periodo valorizado: tipos ─────────────────────────────
+
+export type EstadoCierrePeriodo = "ABIERTO" | "CERRADO";
+
+export interface CierrePeriodo {
+  id: string;
+  /** Periodo en formato AAAAMM. */
+  periodo: string;
+  estado: EstadoCierrePeriodo;
+  cerradoPor: { id: string; nombre: string } | null;
+  fechaCierre: string | null;
+  totalValorizadoSoles: string;
+  /** Null si algun item del periodo no tiene tipo de cambio. */
+  totalValorizadoUsd: string | null;
+}
+
+export interface CerrarPeriodoRespuesta {
+  id: string;
+  periodo: string;
+  estado: EstadoCierrePeriodo;
+  totalValorizadoSoles: string;
+  totalValorizadoUsd: string | null;
+  skusCongelados: number;
+}
+
+export interface ReabrirPeriodoRespuesta {
+  id: string;
+  periodo: string;
+  estado: EstadoCierrePeriodo;
+}
+
+// ── Cierre mensual: funciones de dominio ────────────────────────────────────
+
+export function obtenerCierres(): Promise<CierrePeriodo[]> {
+  return apiFetch<CierrePeriodo[]>("/cierres");
+}
+
+export function cerrarPeriodo(periodo: string): Promise<CerrarPeriodoRespuesta> {
+  return apiFetch<CerrarPeriodoRespuesta>(`/cierres/${periodo}/cerrar`, {
+    method: "POST",
+  });
+}
+
+export function reabrirPeriodo(
+  periodo: string,
+): Promise<ReabrirPeriodoRespuesta> {
+  return apiFetch<ReabrirPeriodoRespuesta>(`/cierres/${periodo}/reabrir`, {
+    method: "POST",
+  });
+}
+
+// ── Tipo de cambio diario (bimoneda): tipos ─────────────────────────────────
+
+export interface TipoCambioDiario {
+  id: string;
+  /** Fecha del TC en formato ISO "YYYY-MM-DD". */
+  fecha: string;
+  /** Cotizacion de compra (string decimal). */
+  compra: string;
+  /** Cotizacion de venta (string decimal). */
+  venta: string;
+}
+
+export interface GuardarTipoCambioInput {
+  /** Fecha en formato "YYYY-MM-DD". */
+  fecha: string;
+  compra: string;
+  venta: string;
+}
+
+// ── Tipo de cambio diario: funciones de dominio ─────────────────────────────
+
+/** Lista los tipos de cambio de un mes (anio + mes 1-12), ordenados por fecha. */
+export function obtenerTiposCambio(
+  anio: number,
+  mes: number,
+): Promise<TipoCambioDiario[]> {
+  const params = new URLSearchParams({
+    anio: String(anio),
+    mes: String(mes),
+  });
+  return apiFetch<TipoCambioDiario[]>(`/tipos-cambio?${params.toString()}`);
+}
+
+/** Upsert del TC de una fecha. Re-enviar la misma fecha actualiza el registro. */
+export function guardarTipoCambio(
+  datos: GuardarTipoCambioInput,
+): Promise<TipoCambioDiario> {
+  return apiFetch<TipoCambioDiario>("/tipos-cambio", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+// ── Series por articulo (trazabilidad por numero de serie): tipos ───────────
+
+export type EstadoSerieArticulo = "DISPONIBLE" | "DESPACHADO";
+
+export interface SerieArticulo {
+  id: string;
+  skuId: string;
+  codigoParlante: string;
+  skuNombre: string | null;
+  numeroSerie: string;
+  estado: EstadoSerieArticulo;
+  almacenId: string | null;
+  almacen: string | null;
+  movimientoEntradaId: string | null;
+  movimientoSalidaId: string | null;
+  creadoEn: string;
+}
+
+export interface FiltroSeries {
+  skuId?: number;
+  estado?: EstadoSerieArticulo;
+}
+
+// ── Series por articulo: funciones de dominio ───────────────────────────────
+
+/**
+ * Lista las series de la empresa. Filtra opcionalmente por SKU y/o estado
+ * (DISPONIBLE / DESPACHADO). Util para la consulta de series y para ofrecer
+ * los numeros disponibles al despachar un articulo serializado.
+ */
+export function obtenerSeries(filtro?: FiltroSeries): Promise<SerieArticulo[]> {
+  const params = new URLSearchParams();
+  if (filtro?.skuId) params.set("skuId", String(filtro.skuId));
+  if (filtro?.estado) params.set("estado", filtro.estado);
+  const cadena = params.toString();
+  return apiFetch<SerieArticulo[]>(`/series${cadena ? `?${cadena}` : ""}`);
+}
+
+// ── Cotizaciones proveedor-articulo: tipos ──────────────────────────────────
+
+/** Ultimo precio cotizado por un proveedor para un SKU dado. */
+export interface CotizacionProveedorArticulo {
+  cotizacionId: number;
+  proveedorId: number;
+  proveedorRazonSocial: string;
+  proveedorRuc: string;
+  moneda: string;
+  precioUnitario: string;
+  /** Fecha de la cotizacion en formato ISO 8601. */
+  fechaCotizacion: string;
+  numeroCotizacion: string | null;
+  ordenCompraRef: string | null;
+}
+
+export interface CrearCotizacionInput {
+  proveedorId: number;
+  skuId: number;
+  moneda?: string;
+  precioUnitario: string;
+  /** Fecha de la cotizacion en formato ISO 8601. */
+  fechaCotizacion: string;
+  numeroCotizacion?: string;
+  ordenCompraRef?: string;
+}
+
+// ── Cotizaciones proveedor-articulo: funciones de dominio ───────────────────
+
+/**
+ * Lista, para un SKU, el ultimo precio cotizado por cada proveedor que lo
+ * vende, ordenado por precio ascendente (mejor oferta primero).
+ */
+export function obtenerCotizacionesPorSku(
+  skuId: number,
+): Promise<CotizacionProveedorArticulo[]> {
+  return apiFetch<CotizacionProveedorArticulo[]>(
+    `/cotizaciones?skuId=${skuId}`,
+  );
+}
+
+export function crearCotizacion(
+  datos: CrearCotizacionInput,
+): Promise<{ id: number }> {
+  return apiFetch<{ id: number }>("/cotizaciones", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
 }

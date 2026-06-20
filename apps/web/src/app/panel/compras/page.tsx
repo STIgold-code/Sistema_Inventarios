@@ -1,21 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
+import { CapturaSeriesEntrada } from "@/componentes/captura-series";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
 import { SelectorSku } from "@/componentes/selector-sku";
+import { SelectorUnidadLinea } from "@/componentes/selector-unidad-linea";
 import {
   ErrorApi,
   actualizarProveedor,
   anularOrdenCompra,
   aprobarOrdenCompra,
+  crearCotizacion,
   crearOrdenCompra,
   crearProveedor,
   crearRecepcion,
   desactivarProveedor,
+  obtenerCotizacionesPorSku,
   obtenerOrdenesCompra,
   obtenerProveedores,
   obtenerRequerimientos,
+  type CotizacionProveedorArticulo,
   type EstadoOrdenCompra,
   type OrdenCompra,
   type Proveedor,
@@ -23,12 +28,12 @@ import {
   type Sku,
 } from "@/lib/api";
 import { COMPROBANTES_COMPRA } from "@/lib/comprobantes";
-import { formatearSoles } from "@/lib/formato";
+import { formatearDolares, formatearSoles } from "@/lib/formato";
 
 const ALMACEN_PRINCIPAL = 1;
 const IGV_TASA = 0.18;
 
-type Pestania = "proveedores" | "ordenes" | "recepcion";
+type Pestania = "proveedores" | "ordenes" | "recepcion" | "cotizaciones";
 type Moneda = "PEN" | "USD";
 
 interface Aviso {
@@ -40,10 +45,15 @@ interface LineaBorrador {
   sku: Sku | null;
   cantidad: string;
   costoUnitario: string;
+  enUnidadReferencia: boolean;
 }
 
 interface RecepcionBorrador {
   [ordenCompraLineaId: number]: string;
+}
+
+interface SeriesBorrador {
+  [ordenCompraLineaId: number]: string[];
 }
 
 interface FormProveedor {
@@ -76,7 +86,13 @@ const PESTANIAS: readonly { id: Pestania; etiqueta: string }[] = [
   { id: "proveedores", etiqueta: "Proveedores" },
   { id: "ordenes", etiqueta: "Órdenes de compra" },
   { id: "recepcion", etiqueta: "Recepción" },
+  { id: "cotizaciones", etiqueta: "Cotizaciones" },
 ];
+
+/** Formatea un precio segun su moneda (PEN soles, cualquier otra como USD). */
+function formatearPrecio(valor: string, moneda: string): string {
+  return moneda === "PEN" ? formatearSoles(valor) : formatearDolares(valor);
+}
 
 const INSIGNIA_ESTADO: Record<EstadoOrdenCompra, string> = {
   BORRADOR: "insignia insignia-neutra",
@@ -87,7 +103,7 @@ const INSIGNIA_ESTADO: Record<EstadoOrdenCompra, string> = {
 };
 
 function lineaVacia(): LineaBorrador {
-  return { sku: null, cantidad: "", costoUnitario: "" };
+  return { sku: null, cantidad: "", costoUnitario: "", enUnidadReferencia: false };
 }
 
 function mensajeError(error: unknown, porDefecto: string): string {
@@ -151,8 +167,22 @@ export default function PaginaCompras(): React.JSX.Element {
   const [totalRecep, setTotalRecep] = useState<string>("");
   const [guiaRemision, setGuiaRemision] = useState<string>("");
   const [recibidos, setRecibidos] = useState<RecepcionBorrador>({});
+  const [seriesRecep, setSeriesRecep] = useState<SeriesBorrador>({});
   const [guardandoRecepcion, setGuardandoRecepcion] = useState<boolean>(false);
   const [avisoRecepcion, setAvisoRecepcion] = useState<Aviso | null>(null);
+
+  // Cotizaciones
+  const [skuCotizacion, setSkuCotizacion] = useState<Sku | null>(null);
+  const [cotizaciones, setCotizaciones] = useState<CotizacionProveedorArticulo[]>([]);
+  const [cargandoCotizaciones, setCargandoCotizaciones] = useState<boolean>(false);
+  const [proveedorCot, setProveedorCot] = useState<string>("");
+  const [monedaCot, setMonedaCot] = useState<Moneda>("PEN");
+  const [precioCot, setPrecioCot] = useState<string>("");
+  const [fechaCot, setFechaCot] = useState<string>("");
+  const [numeroCot, setNumeroCot] = useState<string>("");
+  const [refOcCot, setRefOcCot] = useState<string>("");
+  const [guardandoCotizacion, setGuardandoCotizacion] = useState<boolean>(false);
+  const [avisoCotizacion, setAvisoCotizacion] = useState<Aviso | null>(null);
 
   useEffect(() => {
     void (async (): Promise<void> => {
@@ -314,6 +344,16 @@ export default function PaginaCompras(): React.JSX.Element {
     );
   }
 
+  // Al cambiar el SKU, si el nuevo no tiene unidad de referencia se vuelve a la
+  // unidad de control para no arrastrar un flag invalido entre productos.
+  function cambiarSkuLinea(indice: number, sku: Sku | null): void {
+    const tieneReferencia = Boolean(sku?.unidadReferencia && sku.factorConversion);
+    actualizarLinea(
+      indice,
+      tieneReferencia ? { sku } : { sku, enUnidadReferencia: false },
+    );
+  }
+
   function agregarLinea(): void {
     setLineas((previas) => [...previas, lineaVacia()]);
   }
@@ -363,6 +403,7 @@ export default function PaginaCompras(): React.JSX.Element {
           skuId: l.sku.id,
           cantidad: l.cantidad,
           costoUnitario: l.costoUnitario,
+          enUnidadReferencia: l.enUnidadReferencia || undefined,
         })),
       });
       setAvisoOrden({
@@ -399,6 +440,7 @@ export default function PaginaCompras(): React.JSX.Element {
         sku: null,
         cantidad: linea.cantidad,
         costoUnitario: "",
+        enUnidadReferencia: false,
       })),
     );
     if (req.observaciones) setObservaciones(req.observaciones);
@@ -434,6 +476,13 @@ export default function PaginaCompras(): React.JSX.Element {
     setRecibidos((previos) => ({ ...previos, [ordenCompraLineaId]: valor }));
   }
 
+  function actualizarSeriesRecep(
+    ordenCompraLineaId: number,
+    series: string[],
+  ): void {
+    setSeriesRecep((previos) => ({ ...previos, [ordenCompraLineaId]: series }));
+  }
+
   function limpiarRecepcion(): void {
     setTipoDocumento("");
     setSerie("");
@@ -444,6 +493,7 @@ export default function PaginaCompras(): React.JSX.Element {
     setTotalRecep("");
     setGuiaRemision("");
     setRecibidos({});
+    setSeriesRecep({});
   }
 
   async function manejarRecepcion(evento: FormEvent<HTMLFormElement>): Promise<void> {
@@ -471,19 +521,55 @@ export default function PaginaCompras(): React.JSX.Element {
       });
       return;
     }
-    const lineasRecepcion = ordenSeleccionada.lineas
+    const lineasConCantidad = ordenSeleccionada.lineas
       .map((linea) => ({
-        ordenCompraLineaId: linea.id,
+        linea,
         cantidad: recibidos[linea.id]?.trim() ?? "",
       }))
       .filter((l) => l.cantidad !== "" && Number(l.cantidad) > 0);
-    if (lineasRecepcion.length === 0) {
+    if (lineasConCantidad.length === 0) {
       setAvisoRecepcion({
         texto: "Ingresa la cantidad recibida en al menos una línea.",
         tono: "error",
       });
       return;
     }
+    // Validacion de series para lineas serializadas: N series no vacias y unicas.
+    for (const { linea, cantidad } of lineasConCantidad) {
+      if (!linea.controlaSerie) continue;
+      const series = (seriesRecep[linea.id] ?? [])
+        .map((s) => s.trim())
+        .filter((s) => s !== "");
+      const esperadas = Number(cantidad);
+      if (!Number.isInteger(esperadas)) {
+        setAvisoRecepcion({
+          texto: `${linea.nombreSku} controla número de serie: la cantidad recibida debe ser entera.`,
+          tono: "error",
+        });
+        return;
+      }
+      if (series.length !== esperadas) {
+        setAvisoRecepcion({
+          texto: `Ingresa ${esperadas} número(s) de serie para ${linea.nombreSku}.`,
+          tono: "error",
+        });
+        return;
+      }
+      if (new Set(series).size !== series.length) {
+        setAvisoRecepcion({
+          texto: `Hay números de serie repetidos en ${linea.nombreSku}.`,
+          tono: "error",
+        });
+        return;
+      }
+    }
+    const lineasRecepcion = lineasConCantidad.map(({ linea, cantidad }) => ({
+      ordenCompraLineaId: linea.id,
+      cantidad,
+      numerosSerie: linea.controlaSerie
+        ? (seriesRecep[linea.id] ?? []).map((s) => s.trim()).filter((s) => s !== "")
+        : undefined,
+    }));
     setGuardandoRecepcion(true);
     try {
       const respuesta = await crearRecepcion({
@@ -513,6 +599,79 @@ export default function PaginaCompras(): React.JSX.Element {
       });
     } finally {
       setGuardandoRecepcion(false);
+    }
+  }
+
+  // ── Cotizaciones ─────────────────────────────────────────────────────────
+
+  async function cargarCotizaciones(sku: Sku | null): Promise<void> {
+    setSkuCotizacion(sku);
+    setAvisoCotizacion(null);
+    if (!sku) {
+      setCotizaciones([]);
+      return;
+    }
+    setCargandoCotizaciones(true);
+    try {
+      setCotizaciones(await obtenerCotizacionesPorSku(sku.id));
+    } catch (error) {
+      setCotizaciones([]);
+      setAvisoCotizacion({
+        texto: mensajeError(error, "No se pudieron cargar las cotizaciones."),
+        tono: "error",
+      });
+    } finally {
+      setCargandoCotizaciones(false);
+    }
+  }
+
+  async function manejarCotizacion(
+    evento: FormEvent<HTMLFormElement>,
+  ): Promise<void> {
+    evento.preventDefault();
+    setAvisoCotizacion(null);
+    if (!skuCotizacion) {
+      setAvisoCotizacion({ texto: "Selecciona un SKU primero.", tono: "error" });
+      return;
+    }
+    if (!proveedorCot) {
+      setAvisoCotizacion({ texto: "Selecciona un proveedor.", tono: "error" });
+      return;
+    }
+    if (!precioCot.trim() || Number(precioCot) <= 0) {
+      setAvisoCotizacion({ texto: "Ingresa un precio unitario válido.", tono: "error" });
+      return;
+    }
+    if (!fechaCot) {
+      setAvisoCotizacion({ texto: "Indica la fecha de la cotización.", tono: "error" });
+      return;
+    }
+    setGuardandoCotizacion(true);
+    try {
+      await crearCotizacion({
+        proveedorId: Number(proveedorCot),
+        skuId: skuCotizacion.id,
+        moneda: monedaCot,
+        precioUnitario: precioCot.trim(),
+        fechaCotizacion: new Date(fechaCot).toISOString(),
+        numeroCotizacion: numeroCot.trim() || undefined,
+        ordenCompraRef: refOcCot.trim() || undefined,
+      });
+      setAvisoCotizacion({ texto: "Cotización registrada.", tono: "exito" });
+      setProveedorCot("");
+      setMonedaCot("PEN");
+      setPrecioCot("");
+      setFechaCot("");
+      setNumeroCot("");
+      setRefOcCot("");
+      await cargarCotizaciones(skuCotizacion);
+    } catch (error) {
+      setAvisoCotizacion({
+        texto: mensajeError(error, "No se pudo registrar la cotización."),
+        tono: "error",
+      });
+    } finally {
+      setGuardandoCotizacion(false);
     }
   }
 
@@ -929,7 +1088,7 @@ export default function PaginaCompras(): React.JSX.Element {
                 {lineas.map((linea, indice) => (
                   <div
                     key={indice}
-                    className="grid gap-3 rounded-md border border-borde bg-panel-alt p-3 sm:grid-cols-[1fr_auto_auto_auto]"
+                    className="grid gap-3 rounded-md border border-borde bg-panel-alt p-3 sm:grid-cols-[1fr_auto_auto_auto_auto]"
                   >
                     <div>
                       <label htmlFor={`linea-sku-${indice}`} className="etiqueta-campo">
@@ -937,7 +1096,7 @@ export default function PaginaCompras(): React.JSX.Element {
                       </label>
                       <SelectorSku
                         valor={linea.sku}
-                        onSeleccionar={(sku) => actualizarLinea(indice, { sku })}
+                        onSeleccionar={(sku) => cambiarSkuLinea(indice, sku)}
                         placeholder="Busca por código o nombre…"
                       />
                     </div>
@@ -953,6 +1112,15 @@ export default function PaginaCompras(): React.JSX.Element {
                         className="campo w-28 font-mono"
                       />
                     </div>
+                    <SelectorUnidadLinea
+                      sku={linea.sku}
+                      enUnidadReferencia={linea.enUnidadReferencia}
+                      onCambiar={(v) =>
+                        actualizarLinea(indice, { enUnidadReferencia: v })
+                      }
+                      cantidad={linea.cantidad}
+                      id={`linea-unidad-${indice}`}
+                    />
                     <div>
                       <label htmlFor={`linea-costo-${indice}`} className="etiqueta-campo">
                         Costo unitario
@@ -1166,27 +1334,59 @@ export default function PaginaCompras(): React.JSX.Element {
                       </tr>
                     </thead>
                     <tbody>
-                      {ordenSeleccionada.lineas.map((linea) => (
-                        <tr key={linea.id}>
-                          <td>
-                            <span className="font-mono text-xs text-texto-sec">
-                              {linea.codigoSku}
-                            </span>{" "}
-                            <span className="text-texto">{linea.nombreSku}</span>
-                          </td>
-                          <td className="num font-semibold text-tinta">{linea.pendiente}</td>
-                          <td>
-                            <input
-                              value={recibidos[linea.id] ?? ""}
-                              onChange={(e) => actualizarRecibido(linea.id, e.target.value)}
-                              inputMode="decimal"
-                              disabled={Number(linea.pendiente) <= 0}
-                              aria-label={`Cantidad a recibir de ${linea.nombreSku}`}
-                              className="campo w-28 font-mono"
-                            />
-                          </td>
-                        </tr>
-                      ))}
+                      {ordenSeleccionada.lineas.map((linea) => {
+                        const cantidad = Number(recibidos[linea.id] ?? "");
+                        const mostrarSeries =
+                          linea.controlaSerie &&
+                          Number.isInteger(cantidad) &&
+                          cantidad > 0;
+                        return (
+                          <Fragment key={linea.id}>
+                            <tr>
+                              <td>
+                                <span className="font-mono text-xs text-texto-sec">
+                                  {linea.codigoSku}
+                                </span>{" "}
+                                <span className="text-texto">{linea.nombreSku}</span>
+                                {linea.controlaSerie && (
+                                  <span className="insignia insignia-info ml-2">
+                                    Serie
+                                  </span>
+                                )}
+                              </td>
+                              <td className="num font-semibold text-tinta">
+                                {linea.pendiente}
+                              </td>
+                              <td>
+                                <input
+                                  value={recibidos[linea.id] ?? ""}
+                                  onChange={(e) =>
+                                    actualizarRecibido(linea.id, e.target.value)
+                                  }
+                                  inputMode="decimal"
+                                  disabled={Number(linea.pendiente) <= 0}
+                                  aria-label={`Cantidad a recibir de ${linea.nombreSku}`}
+                                  className="campo w-28 font-mono"
+                                />
+                              </td>
+                            </tr>
+                            {mostrarSeries && (
+                              <tr>
+                                <td colSpan={3} className="bg-panel-alt">
+                                  <CapturaSeriesEntrada
+                                    cantidad={cantidad}
+                                    valor={seriesRecep[linea.id] ?? []}
+                                    onCambiar={(s) =>
+                                      actualizarSeriesRecep(linea.id, s)
+                                    }
+                                    idBase={`recep-${linea.id}`}
+                                  />
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1326,6 +1526,211 @@ export default function PaginaCompras(): React.JSX.Element {
             )}
           </form>
         </section>
+      )}
+
+      {pestania === "cotizaciones" && (
+        <div className="mt-6 space-y-6">
+          <section className="panel">
+            <div className="panel-cabecera">
+              <span className="panel-titulo">Cotizaciones por artículo</span>
+            </div>
+            <div className="space-y-4 p-5">
+              <p className="text-sm text-texto-sec">
+                Selecciona un artículo para ver qué proveedores lo venden y a qué
+                precio (último cotizado). Útil para elegir proveedor al crear una
+                orden de compra.
+              </p>
+              <div className="max-w-xl">
+                <label className="etiqueta-campo">Artículo (SKU)</label>
+                <SelectorSku
+                  valor={skuCotizacion}
+                  onSeleccionar={(sku) => void cargarCotizaciones(sku)}
+                  placeholder="Busca por código o nombre…"
+                />
+              </div>
+
+              {avisoCotizacion && (
+                <div
+                  role={avisoCotizacion.tono === "error" ? "alert" : "status"}
+                  className={`aviso ${
+                    avisoCotizacion.tono === "error" ? "aviso-peligro" : "aviso-exito"
+                  }`}
+                >
+                  <span>{avisoCotizacion.texto}</span>
+                </div>
+              )}
+
+              {skuCotizacion && (
+                <div className="overflow-x-auto">
+                  <table className="tabla-datos">
+                    <thead>
+                      <tr>
+                        <th>Proveedor</th>
+                        <th>RUC</th>
+                        <th>Precio</th>
+                        <th>Fecha</th>
+                        <th>N° cotización</th>
+                        <th>Ref. OC</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cargandoCotizaciones ? (
+                        <tr>
+                          <td colSpan={6} className="text-texto-ter">
+                            Cargando…
+                          </td>
+                        </tr>
+                      ) : cotizaciones.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="text-texto-ter">
+                            Este artículo aún no tiene cotizaciones registradas.
+                          </td>
+                        </tr>
+                      ) : (
+                        cotizaciones.map((cot, indice) => (
+                          <tr key={cot.cotizacionId}>
+                            <td className="text-tinta">
+                              {cot.proveedorRazonSocial}
+                              {indice === 0 && (
+                                <span className="insignia insignia-exito ml-2">
+                                  Mejor precio
+                                </span>
+                              )}
+                            </td>
+                            <td className="num">{cot.proveedorRuc}</td>
+                            <td className="num font-semibold text-tinta">
+                              {formatearPrecio(cot.precioUnitario, cot.moneda)}
+                            </td>
+                            <td className="text-texto-sec">
+                              {new Date(cot.fechaCotizacion).toLocaleDateString("es-PE")}
+                            </td>
+                            <td className="text-texto-sec">
+                              {cot.numeroCotizacion || "—"}
+                            </td>
+                            <td className="text-texto-sec">
+                              {cot.ordenCompraRef || "—"}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </section>
+
+          {skuCotizacion && (
+            <section className="panel">
+              <div className="panel-cabecera">
+                <span className="panel-titulo">
+                  Registrar cotización para {skuCotizacion.codigoParlante}
+                </span>
+              </div>
+              <form onSubmit={manejarCotizacion} className="space-y-4 p-5">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="proveedor-cot" className="etiqueta-campo">
+                      Proveedor
+                    </label>
+                    <select
+                      id="proveedor-cot"
+                      value={proveedorCot}
+                      onChange={(e) => setProveedorCot(e.target.value)}
+                      disabled={cargandoBase}
+                      required
+                      className="campo"
+                    >
+                      <option value="">
+                        {cargandoBase ? "Cargando…" : "Selecciona…"}
+                      </option>
+                      {proveedores
+                        .filter((p) => p.activo)
+                        .map((proveedor) => (
+                          <option key={proveedor.id} value={proveedor.id}>
+                            {proveedor.ruc} — {proveedor.razonSocial}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label htmlFor="moneda-cot" className="etiqueta-campo">
+                        Moneda
+                      </label>
+                      <select
+                        id="moneda-cot"
+                        value={monedaCot}
+                        onChange={(e) => setMonedaCot(e.target.value as Moneda)}
+                        className="campo"
+                      >
+                        <option value="PEN">PEN — Soles</option>
+                        <option value="USD">USD — Dólares</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="precio-cot" className="etiqueta-campo">
+                        Precio unitario
+                      </label>
+                      <input
+                        id="precio-cot"
+                        value={precioCot}
+                        onChange={(e) => setPrecioCot(e.target.value)}
+                        inputMode="decimal"
+                        required
+                        className="campo font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div>
+                    <label htmlFor="fecha-cot" className="etiqueta-campo">
+                      Fecha de cotización
+                    </label>
+                    <input
+                      id="fecha-cot"
+                      type="date"
+                      value={fechaCot}
+                      onChange={(e) => setFechaCot(e.target.value)}
+                      required
+                      className="campo"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="numero-cot" className="etiqueta-campo">
+                      N° cotización <span className="text-texto-ter">(opcional)</span>
+                    </label>
+                    <input
+                      id="numero-cot"
+                      value={numeroCot}
+                      onChange={(e) => setNumeroCot(e.target.value)}
+                      className="campo font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="ref-oc-cot" className="etiqueta-campo">
+                      Ref. OC <span className="text-texto-ter">(opcional)</span>
+                    </label>
+                    <input
+                      id="ref-oc-cot"
+                      value={refOcCot}
+                      onChange={(e) => setRefOcCot(e.target.value)}
+                      className="campo font-mono"
+                    />
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={guardandoCotizacion}
+                  className="btn btn-primario"
+                >
+                  {guardandoCotizacion ? "Registrando…" : "Registrar cotización"}
+                </button>
+              </form>
+            </section>
+          )}
+        </div>
       )}
 
       <ModalConfirmacion

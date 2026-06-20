@@ -23,6 +23,11 @@ interface EstadoFormulario {
   unidadId: string;
   nombreSku: string;
   stockMinimo: string;
+  stockMaximo: string;
+  puntoReposicion: string;
+  semanasReposicion: string;
+  unidadReferenciaId: string;
+  factorConversion: string;
 }
 
 const FORMULARIO_INICIAL: EstadoFormulario = {
@@ -32,6 +37,11 @@ const FORMULARIO_INICIAL: EstadoFormulario = {
   unidadId: "",
   nombreSku: "",
   stockMinimo: "",
+  stockMaximo: "",
+  puntoReposicion: "",
+  semanasReposicion: "",
+  unidadReferenciaId: "",
+  factorConversion: "",
 };
 
 export default function PaginaProductos(): React.JSX.Element {
@@ -120,6 +130,26 @@ export default function PaginaProductos(): React.JSX.Element {
       return;
     }
 
+    // Multi-unidad: la unidad de referencia y el factor van juntos o ninguno.
+    const tieneRef = Boolean(form.unidadReferenciaId);
+    const tieneFactor = Boolean(form.factorConversion.trim());
+    if (tieneRef !== tieneFactor) {
+      setErrorForm(
+        "La unidad de referencia y el factor de conversión deben indicarse juntos o dejarse ambos vacíos.",
+      );
+      return;
+    }
+    if (tieneRef) {
+      if (form.unidadReferenciaId === form.unidadId) {
+        setErrorForm("La unidad de referencia debe ser distinta de la unidad principal.");
+        return;
+      }
+      if (!(Number(form.factorConversion) > 0)) {
+        setErrorForm("El factor de conversión debe ser mayor que cero.");
+        return;
+      }
+    }
+
     setEnviando(true);
     try {
       const respuesta = await crearProducto({
@@ -129,6 +159,13 @@ export default function PaginaProductos(): React.JSX.Element {
         unidadId: Number(form.unidadId),
         nombreSku: form.nombreSku.trim() || undefined,
         stockMinimo: form.stockMinimo.trim() || undefined,
+        stockMaximo: form.stockMaximo.trim() || undefined,
+        puntoReposicion: form.puntoReposicion.trim() || undefined,
+        semanasReposicion: form.semanasReposicion.trim()
+          ? Number(form.semanasReposicion.trim())
+          : undefined,
+        unidadReferenciaId: tieneRef ? Number(form.unidadReferenciaId) : undefined,
+        factorConversion: tieneRef ? form.factorConversion.trim() : undefined,
       });
       setExito(`Producto creado correctamente (SKU #${respuesta.skuId}).`);
       setForm(FORMULARIO_INICIAL);
@@ -277,6 +314,122 @@ export default function PaginaProductos(): React.JSX.Element {
                 />
               </div>
 
+              <div>
+                <label htmlFor="stockMaximo" className="etiqueta-campo">
+                  Stock máximo (opcional)
+                </label>
+                <input
+                  id="stockMaximo"
+                  value={form.stockMaximo}
+                  onChange={(e) => actualizar("stockMaximo", e.target.value)}
+                  inputMode="decimal"
+                  aria-describedby="stockMaximo-ayuda"
+                  className="campo font-mono"
+                />
+                <p
+                  id="stockMaximo-ayuda"
+                  className="mt-1.5 text-xs text-texto-ter"
+                >
+                  Nivel objetivo al reponer. Define la cantidad sugerida a
+                  pedir.
+                </p>
+              </div>
+
+              <div>
+                <label htmlFor="puntoReposicion" className="etiqueta-campo">
+                  Punto de reposición (opcional)
+                </label>
+                <input
+                  id="puntoReposicion"
+                  value={form.puntoReposicion}
+                  onChange={(e) => actualizar("puntoReposicion", e.target.value)}
+                  inputMode="decimal"
+                  aria-describedby="puntoReposicion-ayuda"
+                  className="campo font-mono"
+                />
+                <p
+                  id="puntoReposicion-ayuda"
+                  className="mt-1.5 text-xs text-texto-ter"
+                >
+                  Cuando el disponible cae a este nivel, el producto entra al
+                  reporte de reposición. Si se omite, se usa el stock mínimo.
+                </p>
+              </div>
+
+              <div>
+                <label htmlFor="semanasReposicion" className="etiqueta-campo">
+                  Semanas de reposición (opcional)
+                </label>
+                <input
+                  id="semanasReposicion"
+                  value={form.semanasReposicion}
+                  onChange={(e) =>
+                    actualizar(
+                      "semanasReposicion",
+                      e.target.value.replace(/\D/g, "").slice(0, 3),
+                    )
+                  }
+                  inputMode="numeric"
+                  className="campo font-mono"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <fieldset className="grid gap-4 rounded-md border border-borde bg-panel-alt p-4 sm:grid-cols-2">
+                  <legend className="px-1 text-sm font-medium text-texto">
+                    Multi-unidad <span className="text-texto-ter">(opcional)</span>
+                  </legend>
+                  <div>
+                    <label htmlFor="unidadReferencia" className="etiqueta-campo">
+                      Unidad de referencia
+                    </label>
+                    <select
+                      id="unidadReferencia"
+                      value={form.unidadReferenciaId}
+                      onChange={(e) =>
+                        actualizar("unidadReferenciaId", e.target.value)
+                      }
+                      className="campo"
+                    >
+                      <option value="">Sin unidad de referencia</option>
+                      {unidades
+                        .filter((u) => String(u.id) !== form.unidadId)
+                        .map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.codigo} — {u.nombre}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="factorConversion" className="etiqueta-campo">
+                      Factor de conversión
+                    </label>
+                    <input
+                      id="factorConversion"
+                      value={form.factorConversion}
+                      onChange={(e) =>
+                        actualizar(
+                          "factorConversion",
+                          e.target.value.replace(/[^\d.]/g, ""),
+                        )
+                      }
+                      inputMode="decimal"
+                      placeholder="Ej. 12"
+                      aria-describedby="factorConversion-ayuda"
+                      className="campo font-mono"
+                    />
+                    <p
+                      id="factorConversion-ayuda"
+                      className="mt-1.5 text-xs text-texto-ter"
+                    >
+                      Cuántas unidades de la unidad principal equivalen a UNA
+                      unidad de referencia. Ej.: 1 caja = 12 unidades → factor 12.
+                    </p>
+                  </div>
+                </fieldset>
+              </div>
+
               <div className="sm:col-span-2">
                 <button
                   type="submit"
@@ -337,6 +490,7 @@ export default function PaginaProductos(): React.JSX.Element {
                     <th>Producto</th>
                     <th>Familia</th>
                     <th>Unidad</th>
+                    <th>Unidad ref.</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -349,6 +503,11 @@ export default function PaginaProductos(): React.JSX.Element {
                       <td className="text-texto-sec">{sku.producto.nombre}</td>
                       <td className="text-texto-sec">{sku.familia.nombre}</td>
                       <td className="text-texto-sec">{sku.unidad.codigo}</td>
+                      <td className="text-texto-sec">
+                        {sku.unidadReferencia && sku.factorConversion
+                          ? `${sku.unidadReferencia.codigo} (×${sku.factorConversion})`
+                          : "—"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

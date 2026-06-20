@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react";
+import { SelectorSeriesSalida } from "@/componentes/captura-series";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { FormularioGuia } from "@/componentes/formulario-guia";
 import { SelectorSku } from "@/componentes/selector-sku";
+import { SelectorUnidadLinea } from "@/componentes/selector-unidad-linea";
 import {
   ErrorApi,
   anularOrdenVenta,
@@ -34,10 +36,15 @@ interface LineaBorrador {
   sku: Sku | null;
   cantidad: string;
   precioUnitario: string;
+  enUnidadReferencia: boolean;
 }
 
 interface DespachoBorrador {
   [ordenVentaLineaId: number]: string;
+}
+
+interface SeriesDespachoBorrador {
+  [ordenVentaLineaId: number]: string[];
 }
 
 const PESTANIAS: readonly { id: Pestania; etiqueta: string }[] = [
@@ -53,7 +60,7 @@ const INSIGNIA_ESTADO: Record<EstadoOrdenVenta, string> = {
 };
 
 function lineaVacia(): LineaBorrador {
-  return { sku: null, cantidad: "", precioUnitario: "" };
+  return { sku: null, cantidad: "", precioUnitario: "", enUnidadReferencia: false };
 }
 
 function mensajeError(error: unknown, porDefecto: string): string {
@@ -93,6 +100,7 @@ export default function PaginaVentas(): React.JSX.Element {
   const [igvDoc, setIgvDoc] = useState<string>("");
   const [totalDoc, setTotalDoc] = useState<string>("");
   const [despachados, setDespachados] = useState<DespachoBorrador>({});
+  const [seriesDespacho, setSeriesDespacho] = useState<SeriesDespachoBorrador>({});
   const [guardandoDespacho, setGuardandoDespacho] = useState<boolean>(false);
   const [avisoDespacho, setAvisoDespacho] = useState<Aviso | null>(null);
 
@@ -154,6 +162,16 @@ export default function PaginaVentas(): React.JSX.Element {
     );
   }
 
+  // Al cambiar el SKU, si el nuevo no tiene unidad de referencia se vuelve a la
+  // unidad de control para no arrastrar un flag invalido entre productos.
+  function cambiarSkuLinea(indice: number, sku: Sku | null): void {
+    const tieneReferencia = Boolean(sku?.unidadReferencia && sku.factorConversion);
+    actualizarLinea(
+      indice,
+      tieneReferencia ? { sku } : { sku, enUnidadReferencia: false },
+    );
+  }
+
   function agregarLinea(): void {
     setLineas((previas) => [...previas, lineaVacia()]);
   }
@@ -198,6 +216,7 @@ export default function PaginaVentas(): React.JSX.Element {
           skuId: l.sku.id,
           cantidad: l.cantidad,
           precioUnitario: l.precioUnitario || undefined,
+          enUnidadReferencia: l.enUnidadReferencia || undefined,
         })),
       });
       setAvisoOrden({
@@ -250,6 +269,13 @@ export default function PaginaVentas(): React.JSX.Element {
     setDespachados((previos) => ({ ...previos, [ordenVentaLineaId]: valor }));
   }
 
+  function actualizarSeriesDespacho(
+    ordenVentaLineaId: number,
+    series: string[],
+  ): void {
+    setSeriesDespacho((previos) => ({ ...previos, [ordenVentaLineaId]: series }));
+  }
+
   function limpiarComprobante(): void {
     setTipoDocumento("");
     setSerie("");
@@ -259,6 +285,7 @@ export default function PaginaVentas(): React.JSX.Element {
     setIgvDoc("");
     setTotalDoc("");
     setDespachados({});
+    setSeriesDespacho({});
   }
 
   async function manejarDespacho(evento: FormEvent<HTMLFormElement>): Promise<void> {
@@ -286,19 +313,39 @@ export default function PaginaVentas(): React.JSX.Element {
       });
       return;
     }
-    const lineasDespacho = ordenSeleccionada.lineas
+    const lineasConCantidad = ordenSeleccionada.lineas
       .map((linea) => ({
-        ordenVentaLineaId: linea.id,
+        linea,
         cantidad: despachados[linea.id]?.trim() ?? "",
       }))
       .filter((l) => l.cantidad !== "" && Number(l.cantidad) > 0);
-    if (lineasDespacho.length === 0) {
+    if (lineasConCantidad.length === 0) {
       setAvisoDespacho({
         texto: "Ingresa la cantidad a despachar en al menos una línea.",
         tono: "error",
       });
       return;
     }
+    // Para lineas serializadas: se debe seleccionar exactamente N series.
+    for (const { linea, cantidad } of lineasConCantidad) {
+      if (!linea.controlaSerie) continue;
+      const series = seriesDespacho[linea.id] ?? [];
+      const esperadas = Number(cantidad);
+      if (!Number.isInteger(esperadas) || series.length !== esperadas) {
+        setAvisoDespacho({
+          texto: `Selecciona ${esperadas} número(s) de serie para ${linea.nombreSku}.`,
+          tono: "error",
+        });
+        return;
+      }
+    }
+    const lineasDespacho = lineasConCantidad.map(({ linea, cantidad }) => ({
+      ordenVentaLineaId: linea.id,
+      cantidad,
+      numerosSerie: linea.controlaSerie
+        ? (seriesDespacho[linea.id] ?? [])
+        : undefined,
+    }));
     setGuardandoDespacho(true);
     try {
       await crearDespacho({
@@ -489,13 +536,13 @@ export default function PaginaVentas(): React.JSX.Element {
                 {lineas.map((linea, indice) => (
                   <div
                     key={indice}
-                    className="grid gap-3 rounded-md border border-borde bg-panel-alt p-3 sm:grid-cols-[1fr_auto_auto_auto]"
+                    className="grid gap-3 rounded-md border border-borde bg-panel-alt p-3 sm:grid-cols-[1fr_auto_auto_auto_auto]"
                   >
                     <div>
                       <label className="etiqueta-campo">SKU</label>
                       <SelectorSku
                         valor={linea.sku}
-                        onSeleccionar={(sku) => actualizarLinea(indice, { sku })}
+                        onSeleccionar={(sku) => cambiarSkuLinea(indice, sku)}
                       />
                     </div>
                     <div>
@@ -510,6 +557,15 @@ export default function PaginaVentas(): React.JSX.Element {
                         className="campo w-28 font-mono"
                       />
                     </div>
+                    <SelectorUnidadLinea
+                      sku={linea.sku}
+                      enUnidadReferencia={linea.enUnidadReferencia}
+                      onCambiar={(v) =>
+                        actualizarLinea(indice, { enUnidadReferencia: v })
+                      }
+                      cantidad={linea.cantidad}
+                      id={`linea-unidad-${indice}`}
+                    />
                     <div>
                       <label htmlFor={`linea-precio-${indice}`} className="etiqueta-campo">
                         Precio unit.
@@ -730,27 +786,60 @@ export default function PaginaVentas(): React.JSX.Element {
                       </tr>
                     </thead>
                     <tbody>
-                      {ordenSeleccionada.lineas.map((linea) => (
-                        <tr key={linea.id}>
-                          <td>
-                            <span className="font-mono text-xs text-texto-sec">
-                              {linea.codigoSku}
-                            </span>{" "}
-                            <span className="text-texto">{linea.nombreSku}</span>
-                          </td>
-                          <td className="num font-semibold text-tinta">{linea.pendiente}</td>
-                          <td>
-                            <input
-                              value={despachados[linea.id] ?? ""}
-                              onChange={(e) => actualizarDespachado(linea.id, e.target.value)}
-                              inputMode="decimal"
-                              disabled={Number(linea.pendiente) <= 0}
-                              aria-label={`Cantidad a despachar de ${linea.nombreSku}`}
-                              className="campo w-28 font-mono"
-                            />
-                          </td>
-                        </tr>
-                      ))}
+                      {ordenSeleccionada.lineas.map((linea) => {
+                        const cantidad = Number(despachados[linea.id] ?? "");
+                        const mostrarSeries =
+                          linea.controlaSerie &&
+                          Number.isInteger(cantidad) &&
+                          cantidad > 0;
+                        return (
+                          <Fragment key={linea.id}>
+                            <tr>
+                              <td>
+                                <span className="font-mono text-xs text-texto-sec">
+                                  {linea.codigoSku}
+                                </span>{" "}
+                                <span className="text-texto">{linea.nombreSku}</span>
+                                {linea.controlaSerie && (
+                                  <span className="insignia insignia-info ml-2">
+                                    Serie
+                                  </span>
+                                )}
+                              </td>
+                              <td className="num font-semibold text-tinta">
+                                {linea.pendiente}
+                              </td>
+                              <td>
+                                <input
+                                  value={despachados[linea.id] ?? ""}
+                                  onChange={(e) =>
+                                    actualizarDespachado(linea.id, e.target.value)
+                                  }
+                                  inputMode="decimal"
+                                  disabled={Number(linea.pendiente) <= 0}
+                                  aria-label={`Cantidad a despachar de ${linea.nombreSku}`}
+                                  className="campo w-28 font-mono"
+                                />
+                              </td>
+                            </tr>
+                            {mostrarSeries && (
+                              <tr>
+                                <td colSpan={3} className="bg-panel-alt">
+                                  <SelectorSeriesSalida
+                                    skuId={linea.skuId}
+                                    almacenId={ALMACEN_PRINCIPAL}
+                                    cantidad={cantidad}
+                                    valor={seriesDespacho[linea.id] ?? []}
+                                    onCambiar={(s) =>
+                                      actualizarSeriesDespacho(linea.id, s)
+                                    }
+                                  />
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
