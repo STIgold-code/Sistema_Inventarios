@@ -27,6 +27,9 @@ enum TipoMovimiento {
   SALIDA_TRANSFERENCIA
   SALIDA_MERMA
   SALIDA_CONSUMO
+  DETERIORO
+  RECUPERACION
+  BAJA_DETERIORO
 }
 
 enum SignoMovimiento {
@@ -382,6 +385,10 @@ model ItemStock {
 
   cantidadDisponible   Decimal @default(0) @map("cantidad_disponible") @db.Decimal(20, 8)
   cantidadComprometida Decimal @default(0) @map("cantidad_comprometida") @db.Decimal(20, 8)
+  // Stock fisicamente presente pero NO disponible para venta/consumo por estar
+  // deteriorado. Sale del disponible al marcarse y vuelve al recuperarse; se
+  // retira del sistema al darse de baja. No afecta el costo promedio.
+  cantidadDeteriorada  Decimal @default(0) @map("cantidad_deteriorada") @db.Decimal(20, 8)
   costoPromedio        Decimal @default(0) @map("costo_promedio") @db.Decimal(20, 8)
   version              Int     @default(0)
 

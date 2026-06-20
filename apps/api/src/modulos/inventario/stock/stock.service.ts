@@ -38,6 +38,7 @@ export interface SaldoStock {
   almacenId: string;
   cantidadDisponible: string;
   cantidadComprometida: string;
+  cantidadDeteriorada: string;
   costoPromedio: string;
 }
 
@@ -45,6 +46,8 @@ export interface StockEnAlmacen {
   almacenId: string;
   disponible: string;
   comprometido: string;
+  /** Stock fisicamente presente pero NO disponible por estar deteriorado. */
+  deteriorado: string;
   /** Costo promedio unitario del SKU en este almacen. */
   costoPromedio: string;
   /** Valor (costo) total del stock disponible en este almacen: disponible * costoPromedio. */
@@ -62,6 +65,8 @@ export interface ExistenciaSku {
   stocks: StockEnAlmacen[];
   totalDisponible: string;
   totalComprometido: string;
+  /** Total deteriorado del SKU sobre todos sus almacenes (no disponible). */
+  totalDeteriorado: string;
   /**
    * Costo promedio ponderado del SKU sobre todos sus almacenes:
    * valorTotal / totalDisponible. "0" si no hay stock disponible.
@@ -204,6 +209,7 @@ export class StockService {
       almacenId: i.almacenId.toString(),
       cantidadDisponible: i.cantidadDisponible.toString(),
       cantidadComprometida: i.cantidadComprometida.toString(),
+      cantidadDeteriorada: i.cantidadDeteriorada.toString(),
       costoPromedio: i.costoPromedio.toString(),
     }));
   }
@@ -253,6 +259,7 @@ export class StockService {
               almacenId: true,
               cantidadDisponible: true,
               cantidadComprometida: true,
+              cantidadDeteriorada: true,
               costoPromedio: true,
             },
           },
@@ -270,10 +277,16 @@ export class StockService {
       // y el costo promedio del almacen se deriva como valor / disponible.
       const porAlmacen = new Map<
         string,
-        { disp: Prisma.Decimal; comp: Prisma.Decimal; valor: Prisma.Decimal }
+        {
+          disp: Prisma.Decimal;
+          comp: Prisma.Decimal;
+          det: Prisma.Decimal;
+          valor: Prisma.Decimal;
+        }
       >();
       let totalDisp = new Prisma.Decimal(0);
       let totalComp = new Prisma.Decimal(0);
+      let totalDet = new Prisma.Decimal(0);
       let totalValor = new Prisma.Decimal(0);
       for (const item of sku.items) {
         const clave = item.almacenId.toString();
@@ -282,15 +295,18 @@ export class StockService {
           {
             disp: new Prisma.Decimal(0),
             comp: new Prisma.Decimal(0),
+            det: new Prisma.Decimal(0),
             valor: new Prisma.Decimal(0),
           };
         const valorItem = item.cantidadDisponible.mul(item.costoPromedio);
         acum.disp = acum.disp.plus(item.cantidadDisponible);
         acum.comp = acum.comp.plus(item.cantidadComprometida);
+        acum.det = acum.det.plus(item.cantidadDeteriorada);
         acum.valor = acum.valor.plus(valorItem);
         porAlmacen.set(clave, acum);
         totalDisp = totalDisp.plus(item.cantidadDisponible);
         totalComp = totalComp.plus(item.cantidadComprometida);
+        totalDet = totalDet.plus(item.cantidadDeteriorada);
         totalValor = totalValor.plus(valorItem);
       }
 
@@ -311,6 +327,7 @@ export class StockService {
           almacenId: almId,
           disponible: v.disp.toString(),
           comprometido: v.comp.toString(),
+          deteriorado: v.det.toString(),
           costoPromedio: v.disp.isZero()
             ? "0"
             : v.valor.div(v.disp).toString(),
@@ -318,6 +335,7 @@ export class StockService {
         })),
         totalDisponible: totalDisp.toString(),
         totalComprometido: totalComp.toString(),
+        totalDeteriorado: totalDet.toString(),
         costoPromedio: costoPromedioSku.toString(),
         valorTotal: totalValor.toString(),
       };

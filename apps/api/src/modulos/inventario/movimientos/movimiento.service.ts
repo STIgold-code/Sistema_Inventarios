@@ -756,6 +756,195 @@ export class MovimientoService {
     return { movimientoId: mov.id, costoUnitario };
   }
 
+  /**
+   * Marca stock como DETERIORADO: mueve cantidad de cantidadDisponible ->
+   * cantidadDeteriorada. Es la MISMA existencia cambiando de condicion, no una
+   * salida fisica: NO consume capas FIFO, NO cambia el costo promedio y el stock
+   * fisico total (disponible + comprometida + deteriorada) NO cambia. Registra
+   * un movimiento DETERIORO en el ledger inmutable para trazabilidad. El stock
+   * deteriorado queda excluido de ventas/consumos porque esos flujos solo leen
+   * cantidadDisponible.
+   */
+  async marcarDeteriorado(
+    usuario: UsuarioRequest,
+    dto: { skuId: bigint; almacenId: bigint; cantidad: string; motivo: string },
+  ): Promise<{ movimientoId: string }> {
+    const cantidad = new D(dto.cantidad);
+    const id = await this.prisma.$transaction(async (tx) => {
+      await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+      const item = await this.obtenerItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+      const disponible = item ? new D(item.cantidadDisponible) : new D(0);
+      if (!item || disponible.lessThan(cantidad)) {
+        throw new StockInsuficienteError(disponible.toString(), cantidad.toString());
+      }
+      const mov = await this.crearMovimientoCondicion(tx, usuario, item, {
+        cantidad,
+        tipo: TIPO_MOVIMIENTO.DETERIORO,
+        signo: SIGNO_MOVIMIENTO.SALIDA,
+        tipoOperacionSunat: TIPO_OPERACION.OTROS,
+        observaciones: dto.motivo,
+      });
+      await tx.itemStock.update({
+        where: { id: item.id },
+        data: {
+          cantidadDisponible: { decrement: cantidad },
+          cantidadDeteriorada: { increment: cantidad },
+          version: { increment: 1 },
+        },
+      });
+      return mov.id;
+    });
+    return { movimientoId: id.toString() };
+  }
+
+  /**
+   * Recupera stock deteriorado (reparado / revisado): mueve cantidad de
+   * cantidadDeteriorada -> cantidadDisponible. Reverso de marcarDeteriorado: no
+   * toca capas ni costo, el fisico total no cambia. Registra RECUPERACION.
+   */
+  async recuperarDeteriorado(
+    usuario: UsuarioRequest,
+    dto: { skuId: bigint; almacenId: bigint; cantidad: string; motivo: string },
+  ): Promise<{ movimientoId: string }> {
+    const cantidad = new D(dto.cantidad);
+    const id = await this.prisma.$transaction(async (tx) => {
+      await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+      const item = await this.obtenerItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+      const deteriorada = item ? new D(item.cantidadDeteriorada) : new D(0);
+      if (!item || deteriorada.lessThan(cantidad)) {
+        throw new StockInsuficienteError(deteriorada.toString(), cantidad.toString());
+      }
+      const mov = await this.crearMovimientoCondicion(tx, usuario, item, {
+        cantidad,
+        tipo: TIPO_MOVIMIENTO.RECUPERACION,
+        signo: SIGNO_MOVIMIENTO.ENTRADA,
+        tipoOperacionSunat: TIPO_OPERACION.OTROS,
+        observaciones: dto.motivo,
+      });
+      await tx.itemStock.update({
+        where: { id: item.id },
+        data: {
+          cantidadDeteriorada: { decrement: cantidad },
+          cantidadDisponible: { increment: cantidad },
+          version: { increment: 1 },
+        },
+      });
+      return mov.id;
+    });
+    return { movimientoId: id.toString() };
+  }
+
+  /**
+   * Da de baja stock deteriorado: lo retira del sistema (como una merma, pero
+   * desde la condicion deteriorada). Es una SALIDA FISICA real: consume capas
+   * FIFO al costo vigente, descuenta cantidadDeteriorada y reduce el stock
+   * fisico total. Operacion SUNAT 14 (desmedros). Registra BAJA_DETERIORO.
+   */
+  async darDeBajaDeteriorado(
+    usuario: UsuarioRequest,
+    dto: { skuId: bigint; almacenId: bigint; cantidad: string; motivo: string },
+  ): Promise<{ movimientoId: string }> {
+    const cantidad = new D(dto.cantidad);
+    const id = await this.prisma.$transaction(async (tx) => {
+      await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+      const item = await this.obtenerItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+      const deteriorada = item ? new D(item.cantidadDeteriorada) : new D(0);
+      if (!item || deteriorada.lessThan(cantidad)) {
+        throw new StockInsuficienteError(deteriorada.toString(), cantidad.toString());
+      }
+
+      const promedio = new D(item.costoPromedio);
+      const disponible = new D(item.cantidadDisponible);
+      const comprometida = new D(item.cantidadComprometida);
+      const { consumos } = await this.consumirCapasFifo(
+        tx,
+        usuario.empresaId,
+        item.skuId,
+        item.almacenId,
+        cantidad,
+      );
+      const nuevaDeteriorada = deteriorada.sub(cantidad);
+      // El saldo del ledger es el stock FISICO (disponible + comprometida + deteriorada).
+      const saldoFisico = disponible.add(comprometida).add(nuevaDeteriorada);
+      const costoTotal = cantidad.mul(promedio);
+
+      const mov = await this.crearMovimiento(tx, {
+        usuario,
+        item,
+        tipo: TIPO_MOVIMIENTO.BAJA_DETERIORO,
+        signo: SIGNO_MOVIMIENTO.SALIDA,
+        cantidad,
+        costoUnitario: promedio,
+        costoTotal,
+        saldoCantidad: saldoFisico,
+        saldoCostoUnitario: promedio,
+        saldoCostoTotal: saldoFisico.mul(promedio),
+        documentoTipo: "AJUSTE",
+        tipoOperacionSunat: TIPO_OPERACION.DESMEDROS,
+        tipoDocumentoSunat: TIPO_DOCUMENTO.OTROS,
+        observaciones: dto.motivo,
+      });
+      for (const c of consumos) {
+        await tx.consumoCapa.create({
+          data: {
+            empresaId: usuario.empresaId,
+            movimientoSalidaId: mov.id,
+            capaCostoId: c.capaCostoId,
+            cantidad: c.cantidad,
+            costoUnitario: c.costoUnitario,
+          },
+        });
+      }
+      await tx.itemStock.update({
+        where: { id: item.id },
+        data: { cantidadDeteriorada: nuevaDeteriorada, version: { increment: 1 } },
+      });
+      return mov.id;
+    });
+    return { movimientoId: id.toString() };
+  }
+
+  /**
+   * Crea el movimiento de un CAMBIO DE CONDICION (DETERIORO / RECUPERACION).
+   * El stock fisico total no cambia, por lo que el snapshot de saldo (cantidad,
+   * costo unitario y costo total) refleja el fisico vigente SIN alterarlo, y el
+   * costo unitario del movimiento es el promedio vigente (la existencia conserva
+   * su costo). No consume ni crea capas.
+   */
+  private async crearMovimientoCondicion(
+    tx: Tx,
+    usuario: UsuarioRequest,
+    item: ItemStock,
+    datos: {
+      cantidad: Prisma.Decimal;
+      tipo: string;
+      signo: string;
+      tipoOperacionSunat: string;
+      observaciones: string;
+    },
+  ) {
+    const promedio = new D(item.costoPromedio);
+    const fisico = new D(item.cantidadDisponible)
+      .add(new D(item.cantidadComprometida))
+      .add(new D(item.cantidadDeteriorada));
+    return this.crearMovimiento(tx, {
+      usuario,
+      item,
+      tipo: datos.tipo,
+      signo: datos.signo,
+      cantidad: datos.cantidad,
+      costoUnitario: promedio,
+      costoTotal: datos.cantidad.mul(promedio),
+      saldoCantidad: fisico,
+      saldoCostoUnitario: promedio,
+      saldoCostoTotal: fisico.mul(promedio),
+      documentoTipo: "AJUSTE",
+      tipoOperacionSunat: datos.tipoOperacionSunat,
+      tipoDocumentoSunat: TIPO_DOCUMENTO.OTROS,
+      observaciones: datos.observaciones,
+    });
+  }
+
   // --- trazabilidad por serie ---
 
   /**

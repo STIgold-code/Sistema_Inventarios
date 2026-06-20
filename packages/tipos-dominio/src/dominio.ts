@@ -14,6 +14,12 @@ export const TIPO_MOVIMIENTO = {
   SALIDA_TRANSFERENCIA: "SALIDA_TRANSFERENCIA",
   SALIDA_MERMA: "SALIDA_MERMA",
   SALIDA_CONSUMO: "SALIDA_CONSUMO",
+  // Cambio de condicion: la existencia fisica no entra ni sale del sistema,
+  // solo pasa de "buen uso" (disponible) a "deteriorado" o viceversa.
+  DETERIORO: "DETERIORO",
+  RECUPERACION: "RECUPERACION",
+  // Baja real: la existencia deteriorada se retira del sistema (desmedro).
+  BAJA_DETERIORO: "BAJA_DETERIORO",
 } as const;
 export type TipoMovimiento =
   (typeof TIPO_MOVIMIENTO)[keyof typeof TIPO_MOVIMIENTO];
@@ -61,4 +67,11 @@ export const SIGNO_POR_TIPO: Record<TipoMovimiento, SignoMovimiento> = {
   SALIDA_TRANSFERENCIA: SIGNO_MOVIMIENTO.SALIDA,
   SALIDA_MERMA: SIGNO_MOVIMIENTO.SALIDA,
   SALIDA_CONSUMO: SIGNO_MOVIMIENTO.SALIDA,
+  // DETERIORO retira stock de la condicion "disponible" (signo SALIDA);
+  // RECUPERACION lo reintegra a "disponible" (signo ENTRADA). En ambos casos
+  // el stock fisico total no cambia: es la misma existencia cambiando de condicion.
+  DETERIORO: SIGNO_MOVIMIENTO.SALIDA,
+  RECUPERACION: SIGNO_MOVIMIENTO.ENTRADA,
+  // BAJA_DETERIORO es una salida fisica real desde el stock deteriorado.
+  BAJA_DETERIORO: SIGNO_MOVIMIENTO.SALIDA,
 };

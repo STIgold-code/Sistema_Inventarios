@@ -26,6 +26,13 @@ class MermaDto {
   @IsOptional() @IsString() observaciones?: string;
 }
 
+class CondicionDto {
+  @IsInt() skuId!: number;
+  @IsInt() almacenId!: number;
+  @Matches(DEC, { message: "cantidad debe ser decimal positivo" }) cantidad!: string;
+  @IsString() motivo!: string;
+}
+
 class ExistenciasDto {
   @IsOptional() @IsInt() pagina?: number;
   @IsOptional() @IsInt() porPagina?: number;
@@ -62,6 +69,39 @@ export class InventarioController {
       almacenId: BigInt(dto.almacenId),
       cantidad: dto.cantidad,
       observaciones: dto.observaciones,
+    });
+  }
+
+  @Post("deteriorar")
+  @Permisos("inventario.movimiento.crear")
+  deteriorar(@UsuarioActual() usuario: UsuarioRequest, @Body() dto: CondicionDto) {
+    return this.movimientos.marcarDeteriorado(usuario, {
+      skuId: BigInt(dto.skuId),
+      almacenId: BigInt(dto.almacenId),
+      cantidad: dto.cantidad,
+      motivo: dto.motivo,
+    });
+  }
+
+  @Post("recuperar")
+  @Permisos("inventario.movimiento.crear")
+  recuperar(@UsuarioActual() usuario: UsuarioRequest, @Body() dto: CondicionDto) {
+    return this.movimientos.recuperarDeteriorado(usuario, {
+      skuId: BigInt(dto.skuId),
+      almacenId: BigInt(dto.almacenId),
+      cantidad: dto.cantidad,
+      motivo: dto.motivo,
+    });
+  }
+
+  @Post("baja-deteriorado")
+  @Permisos("inventario.movimiento.crear")
+  bajaDeteriorado(@UsuarioActual() usuario: UsuarioRequest, @Body() dto: CondicionDto) {
+    return this.movimientos.darDeBajaDeteriorado(usuario, {
+      skuId: BigInt(dto.skuId),
+      almacenId: BigInt(dto.almacenId),
+      cantidad: dto.cantidad,
+      motivo: dto.motivo,
     });
   }
 
