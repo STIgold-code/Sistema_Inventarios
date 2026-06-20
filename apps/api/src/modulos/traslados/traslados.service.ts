@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
+import { AuditoriaService } from "../auditoria/auditoria.service.js";
 import { MovimientoService } from "../inventario/movimientos/movimiento.service.js";
 
 const D = Prisma.Decimal;
@@ -23,6 +24,7 @@ export class TrasladosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly movimientos: MovimientoService,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   async crear(usuario: UsuarioRequest, dto: NuevoTraslado) {
@@ -56,6 +58,14 @@ export class TrasladosService {
         },
       },
     });
+    await this.auditoria.registrar({
+      empresaId: usuario.empresaId,
+      usuarioId: usuario.id,
+      accion: "CREAR",
+      entidad: "TRASLADO",
+      entidadId: traslado.id,
+      detalle: `Traslado ${traslado.numero} creado`,
+    });
     return { id: traslado.id.toString() };
   }
 
@@ -85,6 +95,14 @@ export class TrasladosService {
     await this.prisma.traslado.update({
       where: { id: traslado.id },
       data: { estado: "EN_TRANSITO", fechaDespacho: new Date() },
+    });
+    await this.auditoria.registrar({
+      empresaId: usuario.empresaId,
+      usuarioId: usuario.id,
+      accion: "DESPACHAR",
+      entidad: "TRASLADO",
+      entidadId: traslado.id,
+      detalle: `Traslado ${traslado.numero} despachado`,
     });
     return { ok: true };
   }
@@ -129,6 +147,14 @@ export class TrasladosService {
       where: { id: traslado.id },
       data: { estado: "RECIBIDO", fechaRecepcion: new Date() },
     });
+    await this.auditoria.registrar({
+      empresaId: usuario.empresaId,
+      usuarioId: usuario.id,
+      accion: "RECIBIR",
+      entidad: "TRASLADO",
+      entidadId: traslado.id,
+      detalle: `Traslado ${traslado.numero} recibido`,
+    });
     return { ok: true };
   }
 
@@ -141,6 +167,14 @@ export class TrasladosService {
     await this.prisma.traslado.update({
       where: { id: traslado.id },
       data: { estado: "ANULADO" },
+    });
+    await this.auditoria.registrar({
+      empresaId: usuario.empresaId,
+      usuarioId: usuario.id,
+      accion: "ANULAR",
+      entidad: "TRASLADO",
+      entidadId: traslado.id,
+      detalle: `Traslado ${traslado.numero} anulado`,
     });
     return { ok: true };
   }

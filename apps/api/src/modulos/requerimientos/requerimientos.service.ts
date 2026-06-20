@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
+import { AuditoriaService } from "../auditoria/auditoria.service.js";
 import { CorrelativoService } from "../comun/correlativo/correlativo.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 
@@ -14,6 +15,7 @@ export class RequerimientosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly correlativos: CorrelativoService,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   async listar(empresaId: bigint) {
@@ -128,6 +130,17 @@ export class RequerimientosService {
           },
         },
       });
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "CREAR",
+          entidad: "REQUERIMIENTO",
+          entidadId: req.id,
+          detalle: `Requerimiento N° ${req.numero} creado`,
+        },
+        tx,
+      );
       return req.id;
     });
 
@@ -137,9 +150,22 @@ export class RequerimientosService {
   /** BORRADOR -> APROBADO, deja constancia del aprobador. */
   async aprobar(usuario: UsuarioRequest, id: bigint) {
     const req = await this.cargarBorrador(usuario.empresaId, id);
-    await this.prisma.requerimientoCompra.update({
-      where: { id: req.id },
-      data: { estado: "APROBADO", aprobadoPorId: usuario.id },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.requerimientoCompra.update({
+        where: { id: req.id },
+        data: { estado: "APROBADO", aprobadoPorId: usuario.id },
+      });
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "APROBAR",
+          entidad: "REQUERIMIENTO",
+          entidadId: req.id,
+          detalle: `Requerimiento N° ${req.numero} aprobado`,
+        },
+        tx,
+      );
     });
     return { id: id.toString(), estado: "APROBADO" };
   }
@@ -147,9 +173,22 @@ export class RequerimientosService {
   /** BORRADOR -> RECHAZADO. */
   async rechazar(usuario: UsuarioRequest, id: bigint) {
     const req = await this.cargarBorrador(usuario.empresaId, id);
-    await this.prisma.requerimientoCompra.update({
-      where: { id: req.id },
-      data: { estado: "RECHAZADO", aprobadoPorId: usuario.id },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.requerimientoCompra.update({
+        where: { id: req.id },
+        data: { estado: "RECHAZADO", aprobadoPorId: usuario.id },
+      });
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "RECHAZAR",
+          entidad: "REQUERIMIENTO",
+          entidadId: req.id,
+          detalle: `Requerimiento N° ${req.numero} rechazado`,
+        },
+        tx,
+      );
     });
     return { id: id.toString(), estado: "RECHAZADO" };
   }

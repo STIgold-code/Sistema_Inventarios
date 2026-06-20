@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
+import { AuditoriaService } from "../auditoria/auditoria.service.js";
 import { CorrelativoService } from "../comun/correlativo/correlativo.service.js";
 import { MovimientoService } from "../inventario/movimientos/movimiento.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
@@ -26,6 +27,7 @@ export class ValesService {
     private readonly prisma: PrismaService,
     private readonly correlativos: CorrelativoService,
     private readonly movimientos: MovimientoService,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   async listar(empresaId: bigint) {
@@ -220,6 +222,17 @@ export class ValesService {
           },
         },
       });
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "CREAR",
+          entidad: "VALE_SALIDA",
+          entidadId: vale.id,
+          detalle: `Vale de salida N° ${vale.numero} creado`,
+        },
+        tx,
+      );
       return vale.id;
     });
 
@@ -235,6 +248,14 @@ export class ValesService {
     await this.prisma.valeSalida.update({
       where: { id: vale.id },
       data: { estado: "AUTORIZADO", autorizadoPorId: usuario.id },
+    });
+    await this.auditoria.registrar({
+      empresaId: usuario.empresaId,
+      usuarioId: usuario.id,
+      accion: "AUTORIZAR",
+      entidad: "VALE_SALIDA",
+      entidadId: vale.id,
+      detalle: `Vale de salida N° ${vale.numero} autorizado`,
     });
     return { id: id.toString(), estado: "AUTORIZADO" };
   }
@@ -275,6 +296,17 @@ export class ValesService {
         where: { id: vale.id },
         data: { estado: "DESPACHADO" },
       });
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "DESPACHAR",
+          entidad: "VALE_SALIDA",
+          entidadId: vale.id,
+          detalle: `Vale de salida N° ${vale.numero} despachado`,
+        },
+        tx,
+      );
     });
 
     return { id: id.toString(), estado: "DESPACHADO" };
@@ -292,6 +324,14 @@ export class ValesService {
     await this.prisma.valeSalida.update({
       where: { id: vale.id },
       data: { estado: "ANULADO" },
+    });
+    await this.auditoria.registrar({
+      empresaId: usuario.empresaId,
+      usuarioId: usuario.id,
+      accion: "ANULAR",
+      entidad: "VALE_SALIDA",
+      entidadId: vale.id,
+      detalle: `Vale de salida N° ${vale.numero} anulado`,
     });
     return { id: id.toString(), estado: "ANULADO" };
   }

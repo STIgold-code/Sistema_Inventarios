@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
+import { AuditoriaService } from "../auditoria/auditoria.service.js";
 import { MovimientoService } from "../inventario/movimientos/movimiento.service.js";
 import { CorrelativoService } from "../comun/correlativo/correlativo.service.js";
 
@@ -38,6 +39,7 @@ export class DevolucionesService {
     private readonly prisma: PrismaService,
     private readonly movimientos: MovimientoService,
     private readonly correlativos: CorrelativoService,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   async registrar(usuario: UsuarioRequest, dto: NuevaDevolucion) {
@@ -174,6 +176,18 @@ export class DevolucionesService {
           },
         });
       }
+
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "DEVOLVER",
+          entidad: "DEVOLUCION_VENTA",
+          entidadId: devolucion.id,
+          detalle: `Devolución N° ${devolucion.numero} registrada (OV ${orden.numero})`,
+        },
+        tx,
+      );
 
       return {
         id: devolucion.id.toString(),

@@ -5,6 +5,7 @@ import { TiposCambioService } from "../src/modulos/tipos-cambio/tipos-cambio.ser
 import { ComprasService } from "../src/modulos/compras/compras.service.js";
 import { ProveedoresService } from "../src/modulos/proveedores/proveedores.service.js";
 import { CorrelativoService } from "../src/modulos/comun/correlativo/correlativo.service.js";
+import { AuditoriaService } from "../src/modulos/auditoria/auditoria.service.js";
 import type { UsuarioRequest } from "../src/comun/contexto/usuario-request.js";
 
 /**
@@ -15,8 +16,9 @@ describe("ComprasService (integracion)", () => {
   const prisma = new PrismaService();
   const compras = new ComprasService(
     prisma,
-    new MovimientoService(prisma, new TiposCambioService(prisma)),
+    new MovimientoService(prisma, new TiposCambioService(prisma), new AuditoriaService(prisma)),
     new CorrelativoService(),
+    new AuditoriaService(prisma),
   );
   const proveedores = new ProveedoresService(prisma);
 

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
+import { AuditoriaService } from "../auditoria/auditoria.service.js";
 import { CorrelativoService } from "../comun/correlativo/correlativo.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { MovimientoService } from "../inventario/movimientos/movimiento.service.js";
@@ -57,6 +58,7 @@ export class ComprasService {
     private readonly prisma: PrismaService,
     private readonly movimientos: MovimientoService,
     private readonly correlativos: CorrelativoService,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   /**
@@ -135,6 +137,18 @@ export class ComprasService {
         });
       }
 
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "CREAR",
+          entidad: "ORDEN_COMPRA",
+          entidadId: orden.id,
+          detalle: `Orden de compra N° ${orden.numero} creada`,
+        },
+        tx,
+      );
+
       return orden;
     });
 
@@ -159,9 +173,22 @@ export class ComprasService {
         `Solo se puede aprobar una OC en BORRADOR (estado actual: ${orden.estado})`,
       );
     }
-    await this.prisma.ordenCompra.update({
-      where: { id },
-      data: { estado: "EMITIDA", aprobadoPorId: usuario.id },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.ordenCompra.update({
+        where: { id },
+        data: { estado: "EMITIDA", aprobadoPorId: usuario.id },
+      });
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "APROBAR",
+          entidad: "ORDEN_COMPRA",
+          entidadId: orden.id,
+          detalle: `Orden de compra N° ${orden.numero} aprobada`,
+        },
+        tx,
+      );
     });
     return { id: id.toString(), estado: "EMITIDA" };
   }
@@ -181,7 +208,20 @@ export class ComprasService {
     if (orden.recepciones.length > 0) {
       throw new BadRequestException("No se puede anular una OC con recepciones registradas");
     }
-    await this.prisma.ordenCompra.update({ where: { id }, data: { estado: "ANULADA" } });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.ordenCompra.update({ where: { id }, data: { estado: "ANULADA" } });
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "ANULAR",
+          entidad: "ORDEN_COMPRA",
+          entidadId: orden.id,
+          detalle: `Orden de compra N° ${orden.numero} anulada`,
+        },
+        tx,
+      );
+    });
     return { id: id.toString(), estado: "ANULADA" };
   }
 
@@ -345,6 +385,16 @@ export class ComprasService {
     }
 
     await this.recalcularEstado(orden.id);
+
+    await this.auditoria.registrar({
+      empresaId: usuario.empresaId,
+      usuarioId: usuario.id,
+      accion: "RECIBIR",
+      entidad: "ORDEN_COMPRA",
+      entidadId: orden.id,
+      detalle: `Recepcion ${dto.serieComprobante}-${dto.numeroComprobante} sobre OC N° ${orden.numero}`,
+    });
+
     return { recepcionId: recepcion.id.toString() };
   }
 

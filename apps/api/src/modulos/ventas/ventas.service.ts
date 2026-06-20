@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
+import { AuditoriaService } from "../auditoria/auditoria.service.js";
 import { MovimientoService } from "../inventario/movimientos/movimiento.service.js";
 import {
   aUnidadDeControl,
@@ -56,6 +57,7 @@ export class VentasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly movimientos: MovimientoService,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   /**
@@ -131,6 +133,15 @@ export class VentasService {
       await this.prisma.ordenVenta.delete({ where: { id: orden.id } });
       throw error;
     }
+
+    await this.auditoria.registrar({
+      empresaId: usuario.empresaId,
+      usuarioId: usuario.id,
+      accion: "CREAR",
+      entidad: "ORDEN_VENTA",
+      entidadId: orden.id,
+      detalle: `Orden de venta N° ${orden.numero} creada`,
+    });
 
     return {
       id: orden.id.toString(),
@@ -389,6 +400,16 @@ export class VentasService {
     }
 
     await this.recalcularEstado(orden.id);
+
+    await this.auditoria.registrar({
+      empresaId: usuario.empresaId,
+      usuarioId: usuario.id,
+      accion: "DESPACHAR",
+      entidad: "ORDEN_VENTA",
+      entidadId: orden.id,
+      detalle: `Orden de venta N° ${orden.numero} despachada con comprobante ${c.serie}-${c.numero}`,
+    });
+
     return { ok: true, comprobanteId: comprobante.id.toString() };
   }
 
@@ -416,6 +437,14 @@ export class VentasService {
     await this.prisma.ordenVenta.update({
       where: { id: orden.id },
       data: { estado: "ANULADA" },
+    });
+    await this.auditoria.registrar({
+      empresaId: usuario.empresaId,
+      usuarioId: usuario.id,
+      accion: "ANULAR",
+      entidad: "ORDEN_VENTA",
+      entidadId: orden.id,
+      detalle: `Orden de venta N° ${orden.numero} anulada`,
     });
     return { ok: true };
   }

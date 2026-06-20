@@ -120,6 +120,7 @@ model Empresa {
   tiposCambio   TipoCambioDiario[]
   cierres       CierrePeriodo[]
   cuentasContables CuentaContableConfig[]
+  registrosAuditoria RegistroAuditoria[]
 
   @@map("empresa")
 }
@@ -535,6 +536,7 @@ model Usuario {
   valesSolicitados          ValeSalida[]          @relation("ValeSalidaSolicitante")
   valesAutorizados          ValeSalida[]          @relation("ValeSalidaAutorizador")
   cierresRealizados         CierrePeriodo[]       @relation("CierrePeriodoCerradoPor")
+  registrosAuditoria        RegistroAuditoria[]
 
   @@unique([empresaId, email])
   @@map("usuario")
@@ -1318,4 +1320,31 @@ model CuentaContableConfig {
   @@unique([empresaId, concepto])
   @@index([empresaId])
   @@map("cuenta_contable_config")
+}
+
+// ===========================================================================
+// AUDITORIA: bitacora append-only de acciones de gobierno (aprobaciones,
+// anulaciones, despachos, cierres, etc.). El registro NUNCA debe tumbar la
+// operacion de negocio: si su escritura falla, se loguea y se ignora.
+// ===========================================================================
+
+/// Bitacora inmutable de acciones de gobierno por empresa. Cada fila describe
+/// una accion ejecutada por un usuario sobre una entidad del dominio.
+model RegistroAuditoria {
+  id        BigInt   @id @default(autoincrement())
+  empresaId BigInt   @map("empresa_id")
+  usuarioId BigInt   @map("usuario_id")
+  accion    String // CREAR, APROBAR, RECHAZAR, ANULAR, DESPACHAR, AUTORIZAR, RECIBIR, DEVOLVER, MARCAR_DETERIORADO, RECUPERAR, BAJA_DETERIORO, CERRAR_PERIODO, REABRIR_PERIODO
+  entidad   String // REQUERIMIENTO, ORDEN_COMPRA, RECEPCION, VALE_SALIDA, ORDEN_VENTA, DEVOLUCION, MOVIMIENTO, TRASLADO, CIERRE
+  entidadId BigInt?  @map("entidad_id")
+  detalle   String? // Texto legible, ej "Requerimiento N° 5 aprobado"
+  creadoEn  DateTime @default(now()) @map("creado_en")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id])
+  usuario Usuario @relation(fields: [usuarioId], references: [id])
+
+  @@index([empresaId, entidad, entidadId])
+  @@index([empresaId, creadoEn])
+  @@index([empresaId, usuarioId])
+  @@map("registro_auditoria")
 }

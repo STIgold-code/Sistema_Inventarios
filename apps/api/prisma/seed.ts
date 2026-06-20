@@ -56,6 +56,7 @@ const PERMISOS: ReadonlyArray<{ codigo: string; nombre: string }> = [
   { codigo: "ot.gestionar", nombre: "Gestionar ordenes de trabajo" },
   { codigo: "cierre.reabrir", nombre: "Reabrir periodos cerrados (solo ADMIN)" },
   { codigo: "contabilidad.exportar", nombre: "Configurar cuentas y exportar asientos contables" },
+  { codigo: "auditoria.ver", nombre: "Ver la bitacora de auditoria" },
 ];
 
 // Centros de costo de ejemplo para la empresa BM.
@@ -148,6 +149,28 @@ async function main(): Promise<void> {
       update: {},
       create: { rolId: rolAdmin.id, permisoId: per.id },
     });
+  }
+
+  // --- Permiso de auditoria al rol AUDITOR (solo si ese rol ya existe) ---
+  const rolAuditor = await prisma.rol.findUnique({
+    where: { empresaId_codigo: { empresaId: empresa.id, codigo: "AUDITOR" } },
+  });
+  if (rolAuditor) {
+    const permisoAuditoria = await prisma.permiso.findUnique({
+      where: { codigo: "auditoria.ver" },
+    });
+    if (permisoAuditoria) {
+      await prisma.rolPermiso.upsert({
+        where: {
+          rolId_permisoId: {
+            rolId: rolAuditor.id,
+            permisoId: permisoAuditoria.id,
+          },
+        },
+        update: {},
+        create: { rolId: rolAuditor.id, permisoId: permisoAuditoria.id },
+      });
+    }
   }
 
   // --- Usuario administrador ---

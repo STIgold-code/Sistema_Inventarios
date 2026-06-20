@@ -7,6 +7,7 @@ import {
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
+import { AuditoriaService } from "../auditoria/auditoria.service.js";
 
 const D = Prisma.Decimal;
 
@@ -21,7 +22,10 @@ interface SaldoCierre {
 
 @Injectable()
 export class CierresService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditoria: AuditoriaService,
+  ) {}
 
   /** Lista los periodos con su estado y totales valorizados, mas recientes primero. */
   async listar(empresaId: bigint) {
@@ -131,6 +135,18 @@ export class CierresService {
         });
       }
 
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "CERRAR_PERIODO",
+          entidad: "CIERRE_PERIODO",
+          entidadId: cierre.id,
+          detalle: `Periodo ${periodo} cerrado (${conSaldo.length} posiciones congeladas)`,
+        },
+        tx,
+      );
+
       return {
         id: cierre.id.toString(),
         periodo: cierre.periodo,
@@ -155,6 +171,14 @@ export class CierresService {
     await this.prisma.cierrePeriodo.update({
       where: { id: cierre.id },
       data: { estado: "ABIERTO", cerradoPorId: null, fechaCierre: null },
+    });
+    await this.auditoria.registrar({
+      empresaId: usuario.empresaId,
+      usuarioId: usuario.id,
+      accion: "REABRIR_PERIODO",
+      entidad: "CIERRE_PERIODO",
+      entidadId: cierre.id,
+      detalle: `Periodo ${periodo} reabierto`,
     });
     return { id: cierre.id.toString(), periodo, estado: "ABIERTO" as const };
   }

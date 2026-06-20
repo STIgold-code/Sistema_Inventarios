@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../src/comun/prisma/prisma.service.js";
 import { MovimientoService } from "../src/modulos/inventario/movimientos/movimiento.service.js";
 import { TiposCambioService } from "../src/modulos/tipos-cambio/tipos-cambio.service.js";
+import { AuditoriaService } from "../src/modulos/auditoria/auditoria.service.js";
 import { StockInsuficienteError } from "../src/modulos/inventario/movimientos/errores.js";
 import type { UsuarioRequest } from "../src/comun/contexto/usuario-request.js";
 
@@ -14,7 +15,7 @@ import type { UsuarioRequest } from "../src/comun/contexto/usuario-request.js";
  */
 describe("Condicion deteriorado (integracion)", () => {
   const prisma = new PrismaService();
-  const servicio = new MovimientoService(prisma, new TiposCambioService(prisma));
+  const servicio = new MovimientoService(prisma, new TiposCambioService(prisma), new AuditoriaService(prisma));
 
   let usuario: UsuarioRequest;
   let almacenId: bigint;

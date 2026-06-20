@@ -9,6 +9,7 @@ import {
 } from "@bm/tipos";
 import { PrismaService } from "../../../comun/prisma/prisma.service.js";
 import type { UsuarioRequest } from "../../../comun/contexto/usuario-request.js";
+import { AuditoriaService } from "../../auditoria/auditoria.service.js";
 import { TiposCambioService } from "../../tipos-cambio/tipos-cambio.service.js";
 import {
   InconsistenciaCapasError,
@@ -99,6 +100,7 @@ export class MovimientoService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tiposCambio: TiposCambioService,
+    private readonly auditoria: AuditoriaService,
   ) {}
 
   /**
@@ -568,24 +570,35 @@ export class MovimientoService {
     const id = await this.prisma.$transaction(async (tx) => {
       await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
       const item = await this.obtenerOcrearItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
-      if (dto.incremento) {
-        const mov = await this.aplicarEntrada(tx, usuario, item, {
-          cantidad,
-          costoUnitario: new D(item.costoPromedio),
-          tipo: TIPO_MOVIMIENTO.ENTRADA_AJUSTE,
-          documentoTipo: "AJUSTE",
-          tipoOperacionSunat: TIPO_OPERACION.OTROS,
-          observaciones: dto.observaciones ?? "Ajuste (incremento)",
-        });
-        return mov.id;
-      }
-      const { mov } = await this.aplicarSalida(tx, usuario, item, {
-        cantidad,
-        tipo: TIPO_MOVIMIENTO.SALIDA_AJUSTE,
-        documentoTipo: "AJUSTE",
-        tipoOperacionSunat: TIPO_OPERACION.OTROS,
-        observaciones: dto.observaciones ?? "Ajuste (decremento)",
-      });
+      const mov = dto.incremento
+        ? await this.aplicarEntrada(tx, usuario, item, {
+            cantidad,
+            costoUnitario: new D(item.costoPromedio),
+            tipo: TIPO_MOVIMIENTO.ENTRADA_AJUSTE,
+            documentoTipo: "AJUSTE",
+            tipoOperacionSunat: TIPO_OPERACION.OTROS,
+            observaciones: dto.observaciones ?? "Ajuste (incremento)",
+          })
+        : (
+            await this.aplicarSalida(tx, usuario, item, {
+              cantidad,
+              tipo: TIPO_MOVIMIENTO.SALIDA_AJUSTE,
+              documentoTipo: "AJUSTE",
+              tipoOperacionSunat: TIPO_OPERACION.OTROS,
+              observaciones: dto.observaciones ?? "Ajuste (decremento)",
+            })
+          ).mov;
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "AJUSTE_MANUAL",
+          entidad: "MOVIMIENTO",
+          entidadId: mov.id,
+          detalle: `Ajuste manual ${dto.incremento ? "(incremento)" : "(decremento)"} de ${cantidad.toString()} unidades`,
+        },
+        tx,
+      );
       return mov.id;
     });
     return { movimientoId: id.toString() };
@@ -608,6 +621,17 @@ export class MovimientoService {
         tipoOperacionSunat: TIPO_OPERACION.MERMAS,
         observaciones: dto.observaciones ?? "Merma",
       });
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "MERMA",
+          entidad: "MOVIMIENTO",
+          entidadId: mov.id,
+          detalle: `Merma de ${cantidad.toString()} unidades`,
+        },
+        tx,
+      );
       return mov.id;
     });
     return { movimientoId: id.toString() };
@@ -792,6 +816,17 @@ export class MovimientoService {
           version: { increment: 1 },
         },
       });
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "MARCAR_DETERIORADO",
+          entidad: "MOVIMIENTO",
+          entidadId: mov.id,
+          detalle: `${cantidad.toString()} unidades marcadas como deterioradas: ${dto.motivo}`,
+        },
+        tx,
+      );
       return mov.id;
     });
     return { movimientoId: id.toString() };
@@ -829,6 +864,17 @@ export class MovimientoService {
           version: { increment: 1 },
         },
       });
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "RECUPERAR_DETERIORADO",
+          entidad: "MOVIMIENTO",
+          entidadId: mov.id,
+          detalle: `${cantidad.toString()} unidades recuperadas de deterioro: ${dto.motivo}`,
+        },
+        tx,
+      );
       return mov.id;
     });
     return { movimientoId: id.toString() };
@@ -899,6 +945,17 @@ export class MovimientoService {
         where: { id: item.id },
         data: { cantidadDeteriorada: nuevaDeteriorada, version: { increment: 1 } },
       });
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "BAJA_DETERIORADO",
+          entidad: "MOVIMIENTO",
+          entidadId: mov.id,
+          detalle: `Baja de ${cantidad.toString()} unidades deterioradas: ${dto.motivo}`,
+        },
+        tx,
+      );
       return mov.id;
     });
     return { movimientoId: id.toString() };
