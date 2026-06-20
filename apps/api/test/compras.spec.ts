@@ -3,6 +3,7 @@ import { PrismaService } from "../src/comun/prisma/prisma.service.js";
 import { MovimientoService } from "../src/modulos/inventario/movimientos/movimiento.service.js";
 import { TiposCambioService } from "../src/modulos/tipos-cambio/tipos-cambio.service.js";
 import { ComprasService } from "../src/modulos/compras/compras.service.js";
+import { ProveedoresService } from "../src/modulos/proveedores/proveedores.service.js";
 import { CorrelativoService } from "../src/modulos/comun/correlativo/correlativo.service.js";
 import type { UsuarioRequest } from "../src/comun/contexto/usuario-request.js";
 
@@ -17,6 +18,7 @@ describe("ComprasService (integracion)", () => {
     new MovimientoService(prisma, new TiposCambioService(prisma)),
     new CorrelativoService(),
   );
+  const proveedores = new ProveedoresService(prisma);
 
   let usuario: UsuarioRequest;
   let almacenId: bigint;
@@ -53,7 +55,7 @@ describe("ComprasService (integracion)", () => {
   });
 
   it("recepcion parcial genera entrada en ledger y deja la OC en PARCIAL, luego COMPLETA", async () => {
-    const proveedor = await compras.crearProveedor(usuario.empresaId, {
+    const proveedor = await proveedores.crearProveedor(usuario.empresaId, {
       ruc: `2${RUN}1`,
       razonSocial: "Proveedor Test SAC",
     });
@@ -114,7 +116,7 @@ describe("ComprasService (integracion)", () => {
   });
 
   it("rechaza recibir mas de lo pendiente", async () => {
-    const proveedor = await compras.crearProveedor(usuario.empresaId, {
+    const proveedor = await proveedores.crearProveedor(usuario.empresaId, {
       ruc: `2${RUN}2`,
       razonSocial: "Otro Proveedor SAC",
     });

@@ -40,6 +40,8 @@ export interface SkuListado {
   activo: boolean;
   /** Si true, el SKU exige captura de numeros de serie en entradas y salidas. */
   controlaSerie: boolean;
+  /** Renovabilidad: true = se repone/consume; false = no; null = sin clasificar. */
+  esRenovable: boolean | null;
   producto: {
     id: string;
     nombre: string;
@@ -69,6 +71,8 @@ export interface FiltroSkus {
   pagina?: number;
   porPagina?: number;
   busqueda?: string;
+  /** Filtra por renovabilidad. Omitido = todos. */
+  esRenovable?: boolean;
 }
 
 export interface PaginaSkus {
@@ -146,6 +150,7 @@ export class ProductoService {
     if (dto.precioVenta3 !== undefined) data.precioVenta3 = new D(dto.precioVenta3);
     if (dto.precioVenta4 !== undefined) data.precioVenta4 = new D(dto.precioVenta4);
     if (dto.monedaVenta !== undefined) data.monedaVenta = dto.monedaVenta;
+    if (dto.esRenovable !== undefined) data.esRenovable = dto.esRenovable;
 
     await this.prisma.sku.update({ where: { id: skuId }, data });
     return { id: skuId.toString() };
@@ -267,6 +272,7 @@ export class ProductoService {
           precioVenta3: dto.precioVenta3 ? new D(dto.precioVenta3) : null,
           precioVenta4: dto.precioVenta4 ? new D(dto.precioVenta4) : null,
           monedaVenta: dto.monedaVenta ?? null,
+          esRenovable: dto.esRenovable ?? null,
         },
       });
 
@@ -287,6 +293,7 @@ export class ProductoService {
 
     const where: Prisma.SkuWhereInput = {
       empresaId,
+      ...(filtro.esRenovable !== undefined ? { esRenovable: filtro.esRenovable } : {}),
       ...(busqueda
         ? {
             OR: [
@@ -332,6 +339,7 @@ export class ProductoService {
         monedaVenta: s.monedaVenta,
         activo: s.activo,
         controlaSerie: s.controlaSerie,
+        esRenovable: s.esRenovable,
         producto: {
           id: s.producto.id.toString(),
           nombre: s.producto.nombre,

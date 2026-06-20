@@ -1,54 +1,27 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
 import { JwtGuard } from "../../auth/jwt.guard.js";
 import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
 import { UsuarioActual } from "../../comun/decoradores/usuario-actual.decorator.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { ComprasService } from "./compras.service.js";
-import {
-  ActualizarProveedorDto,
-  CrearOrdenCompraDto,
-  CrearProveedorDto,
-  RecibirDto,
-} from "./dto/compras.dto.js";
+import { ProveedoresService } from "../proveedores/proveedores.service.js";
+import { CrearOrdenCompraDto, RecibirDto } from "./dto/compras.dto.js";
 
 @Controller("compras")
 @UseGuards(JwtGuard, PermisosGuard)
 export class ComprasController {
-  constructor(private readonly compras: ComprasService) {}
+  constructor(
+    private readonly compras: ComprasService,
+    private readonly proveedores: ProveedoresService,
+  ) {}
 
+  // Compatibilidad: el CRUD de proveedores vive ahora en /proveedores.
+  // Se mantiene este GET para no romper consumidores existentes.
   @Get("proveedores")
   @Permisos("compra.gestionar")
   listarProveedores(@UsuarioActual() usuario: UsuarioRequest) {
-    return this.compras.listarProveedores(usuario.empresaId);
-  }
-
-  @Post("proveedores")
-  @Permisos("compra.gestionar")
-  crearProveedor(
-    @UsuarioActual() usuario: UsuarioRequest,
-    @Body() dto: CrearProveedorDto,
-  ) {
-    return this.compras.crearProveedor(usuario.empresaId, dto);
-  }
-
-  @Patch("proveedores/:id")
-  @Permisos("compra.gestionar")
-  actualizarProveedor(
-    @UsuarioActual() usuario: UsuarioRequest,
-    @Param("id") id: string,
-    @Body() dto: ActualizarProveedorDto,
-  ) {
-    return this.compras.actualizarProveedor(usuario.empresaId, BigInt(id), dto);
-  }
-
-  @Post("proveedores/:id/desactivar")
-  @Permisos("compra.gestionar")
-  desactivarProveedor(
-    @UsuarioActual() usuario: UsuarioRequest,
-    @Param("id") id: string,
-  ) {
-    return this.compras.desactivarProveedor(usuario.empresaId, BigInt(id));
+    return this.proveedores.listarProveedores(usuario.empresaId);
   }
 
   @Get("ordenes")

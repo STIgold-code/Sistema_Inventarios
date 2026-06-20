@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -99,6 +100,12 @@ export class CrearProductoDto {
   @IsString()
   @MaxLength(3)
   monedaVenta?: string; // ISO-4217 (PEN, USD)
+
+  // Renovabilidad: true = existencia que se repone/consume y se vuelve a comprar.
+  // Null/omitido = sin clasificar.
+  @IsOptional()
+  @IsBoolean()
+  esRenovable?: boolean;
 }
 
 /**
@@ -127,4 +134,9 @@ export class ActualizarPreciosSkuDto {
   @IsString()
   @MaxLength(3)
   monedaVenta?: string; // ISO-4217 (PEN, USD)
+
+  // Renovabilidad de la existencia (true/false). Omitido = no se modifica.
+  @IsOptional()
+  @IsBoolean()
+  esRenovable?: boolean;
 }

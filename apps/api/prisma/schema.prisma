@@ -235,8 +235,9 @@ model TipoCambioDiario {
 model Familia {
   id        BigInt @id @default(autoincrement())
   empresaId BigInt @map("empresa_id")
-  codigo    String // "001", "004" (los 3 primeros digitos del codigo parlante)
+  codigo    String  // "001", "004" (los 3 primeros digitos del codigo parlante)
   nombre    String
+  activo    Boolean @default(true) // Baja logica: false oculta la familia sin borrar historico
 
   empresa   Empresa    @relation(fields: [empresaId], references: [id])
   productos Producto[]
@@ -319,6 +320,9 @@ model Sku {
   semanasReposicion   Int?     @map("semanas_reposicion")
   // Clasificacion ABC por valor de consumo: "A", "B" o "C". Null = sin clasificar.
   clasificacionAbc    String?  @map("clasificacion_abc") @db.VarChar(1)
+  // Renovabilidad de la existencia: true = se repone/consume y se vuelve a comprar;
+  // false = no renovable. Null = sin clasificar (filas previas a la fase 15).
+  esRenovable         Boolean? @map("es_renovable")
   controlaLote        Boolean  @default(false) @map("controla_lote")
   controlaSerie       Boolean  @default(false) @map("controla_serie")
   controlaVencimiento Boolean  @default(false) @map("controla_vencimiento")

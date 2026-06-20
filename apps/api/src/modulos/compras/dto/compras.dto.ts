@@ -9,96 +9,13 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
-  Length,
   Matches,
-  MinLength,
   ValidateNested,
 } from "class-validator";
 import { TIPO_DOCUMENTO } from "@bm/tipos";
 
 const REGEX_DECIMAL = /^\d+(\.\d+)?$/;
 const TIPOS_DOCUMENTO_SUNAT = Object.values(TIPO_DOCUMENTO);
-
-export class CrearProveedorDto {
-  @IsString()
-  @Length(11, 11, { message: "El RUC debe tener 11 digitos" })
-  ruc!: string;
-
-  @IsString()
-  @MinLength(1)
-  razonSocial!: string;
-
-  @IsOptional()
-  @IsString()
-  direccion?: string;
-
-  @IsOptional()
-  @IsString()
-  telefono?: string;
-
-  @IsOptional()
-  @IsString()
-  email?: string;
-
-  @IsOptional()
-  @IsString()
-  condicionPago?: string;
-
-  @IsOptional()
-  @IsString()
-  monedaHabitual?: string;
-
-  @IsOptional()
-  @IsString()
-  cci?: string;
-
-  @IsOptional()
-  @IsString()
-  contactoNombre?: string;
-
-  @IsOptional()
-  @IsString()
-  tipoDocIdentidad?: string;
-}
-
-export class ActualizarProveedorDto {
-  @IsOptional()
-  @IsString()
-  @MinLength(1)
-  razonSocial?: string;
-
-  @IsOptional()
-  @IsString()
-  direccion?: string;
-
-  @IsOptional()
-  @IsString()
-  telefono?: string;
-
-  @IsOptional()
-  @IsString()
-  email?: string;
-
-  @IsOptional()
-  @IsString()
-  condicionPago?: string;
-
-  @IsOptional()
-  @IsString()
-  monedaHabitual?: string;
-
-  @IsOptional()
-  @IsString()
-  cci?: string;
-
-  @IsOptional()
-  @IsString()
-  contactoNombre?: string;
-
-  @IsOptional()
-  @IsString()
-  tipoDocIdentidad?: string;
-}
 
 export class LineaOrdenDto {
   @IsInt()

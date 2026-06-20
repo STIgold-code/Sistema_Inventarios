@@ -31,6 +31,7 @@ class ExistenciasDto {
   @IsOptional() @IsInt() porPagina?: number;
   @IsOptional() @IsString() busqueda?: string;
   @IsOptional() @IsInt() almacenId?: number;
+  @IsOptional() @IsBoolean() esRenovable?: boolean;
 }
 
 @Controller("inventario")
@@ -100,6 +101,7 @@ export class InventarioController {
       porPagina: dto.porPagina && dto.porPagina > 0 ? Math.min(dto.porPagina, 100) : 50,
       busqueda: dto.busqueda,
       almacenId: dto.almacenId ? BigInt(dto.almacenId) : undefined,
+      esRenovable: dto.esRenovable,
     });
   }
 }

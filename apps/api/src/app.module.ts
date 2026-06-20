@@ -6,6 +6,7 @@ import { AuthModule } from "./auth/auth.module.js";
 import { InventarioModule } from "./modulos/inventario/inventario.module.js";
 import { ProductoModule } from "./modulos/productos/producto.module.js";
 import { ComprasModule } from "./modulos/compras/compras.module.js";
+import { ProveedoresModule } from "./modulos/proveedores/proveedores.module.js";
 import { CotizacionesModule } from "./modulos/cotizaciones/cotizaciones.module.js";
 import { VentasModule } from "./modulos/ventas/ventas.module.js";
 import { ClientesModule } from "./modulos/clientes/clientes.module.js";
@@ -25,6 +26,7 @@ import { CierresModule } from "./modulos/cierres/cierres.module.js";
 import { OrdenesTrabajoModule } from "./modulos/ordenes-trabajo/ordenes-trabajo.module.js";
 import { SeriesModule } from "./modulos/series/series.module.js";
 import { DevolucionesModule } from "./modulos/devoluciones/devoluciones.module.js";
+import { FamiliasModule } from "./modulos/familias/familias.module.js";
 
 @Module({
   imports: [
@@ -38,6 +40,7 @@ import { DevolucionesModule } from "./modulos/devoluciones/devoluciones.module.j
     ProductoModule,
     InventarioModule,
     ComprasModule,
+    ProveedoresModule,
     CotizacionesModule,
     VentasModule,
     ClientesModule,
@@ -57,6 +60,7 @@ import { DevolucionesModule } from "./modulos/devoluciones/devoluciones.module.j
     OrdenesTrabajoModule,
     SeriesModule,
     DevolucionesModule,
+    FamiliasModule,
   ],
 })
 export class AppModule {}

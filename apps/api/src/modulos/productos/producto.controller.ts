@@ -53,11 +53,14 @@ export class ProductoController {
     @Query("pagina") pagina?: string,
     @Query("porPagina") porPagina?: string,
     @Query("busqueda") busqueda?: string,
+    @Query("esRenovable") esRenovable?: string,
   ): Promise<PaginaSkus> {
     return this.productos.listarSkus(usuario.empresaId, {
       pagina: pagina ? Number(pagina) : undefined,
       porPagina: porPagina ? Number(porPagina) : undefined,
       busqueda,
+      esRenovable:
+        esRenovable === undefined ? undefined : esRenovable === "true",
     });
   }
 
