@@ -262,7 +262,8 @@ function TablaPorAlmacen({
           <th>Código</th>
           <th>Producto</th>
           <th>Unidad</th>
-          <th className="text-right">Disponible</th>
+          <th className="text-right">Disponible (buen uso)</th>
+          <th className="text-right">Deteriorado</th>
           <th className="text-right">Comprometido</th>
           <th className="text-right">Costo prom. (S/)</th>
           <th className="text-right">Valor (S/)</th>
@@ -276,6 +277,15 @@ function TablaPorAlmacen({
             <td className="text-texto-sec">{sku.unidad}</td>
             <td className="text-right font-mono text-tinta">
               {formatearNumero(sku.totalDisponible)}
+            </td>
+            <td className="text-right font-mono">
+              {Number(sku.totalDeteriorado) > 0 ? (
+                <span className="insignia insignia-peligro">
+                  {formatearNumero(sku.totalDeteriorado)}
+                </span>
+              ) : (
+                <span className="text-texto-ter">—</span>
+              )}
             </td>
             <td className="text-right font-mono text-texto-sec">
               {formatearNumero(sku.totalComprometido)}
@@ -291,7 +301,7 @@ function TablaPorAlmacen({
       </tbody>
       <tfoot>
         <tr>
-          <td colSpan={6} className="text-right font-semibold text-texto-sec">
+          <td colSpan={7} className="text-right font-semibold text-texto-sec">
             Total valorizado
           </td>
           <td className="text-right font-mono font-semibold text-tinta">
@@ -331,6 +341,9 @@ function TablaMatriz({
             Total unid.
           </th>
           <th className="text-right" rowSpan={2}>
+            Deteriorado
+          </th>
+          <th className="text-right" rowSpan={2}>
             Valor (S/)
           </th>
         </tr>
@@ -361,6 +374,15 @@ function TablaMatriz({
             <td className="text-right font-mono font-semibold text-tinta">
               {formatearNumero(sku.totalDisponible)}
             </td>
+            <td className="text-right font-mono">
+              {Number(sku.totalDeteriorado) > 0 ? (
+                <span className="insignia insignia-peligro">
+                  {formatearNumero(sku.totalDeteriorado)}
+                </span>
+              ) : (
+                <span className="text-texto-ter">—</span>
+              )}
+            </td>
             <td className="text-right font-mono font-semibold text-tinta">
               {formatearSoles(sku.valorTotal)}
             </td>
@@ -369,7 +391,7 @@ function TablaMatriz({
       </tbody>
       <tfoot>
         <tr>
-          <td colSpan={2 + almacenes.length * 2 + 1} className="text-right font-semibold text-texto-sec">
+          <td colSpan={2 + almacenes.length * 2 + 2} className="text-right font-semibold text-texto-sec">
             Total valorizado
           </td>
           <td className="text-right font-mono font-semibold text-tinta">

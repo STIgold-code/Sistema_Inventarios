@@ -181,6 +181,8 @@ export interface StockSku {
   almacenId: number;
   cantidadDisponible: string;
   cantidadComprometida: string;
+  /** Existencia en mal estado, separada del disponible (no vendible). */
+  cantidadDeteriorada: string;
   costoPromedio: string;
 }
 
@@ -309,6 +311,44 @@ export function registrarMerma(datos: MermaInput): Promise<MovimientoRespuesta> 
   });
 }
 
+// ── Condición de existencias (buen uso vs deteriorado) ───────────────────────
+
+export interface CondicionInput {
+  skuId: number;
+  almacenId: number;
+  cantidad: string;
+  motivo: string;
+}
+
+/** El backend devuelve el id del movimiento del ledger como cadena. */
+export interface CondicionRespuesta {
+  movimientoId: string;
+}
+
+/** Reclasifica existencia de buen uso a deteriorado (no es salida física). */
+export function marcarDeteriorado(datos: CondicionInput): Promise<CondicionRespuesta> {
+  return apiFetch<CondicionRespuesta>("/inventario/deteriorar", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+/** Reclasifica existencia de deteriorado de vuelta a buen uso. */
+export function recuperarDeteriorado(datos: CondicionInput): Promise<CondicionRespuesta> {
+  return apiFetch<CondicionRespuesta>("/inventario/recuperar", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+/** Salida física real desde el deteriorado (consume capas FIFO, baja definitiva). */
+export function darDeBajaDeteriorado(datos: CondicionInput): Promise<CondicionRespuesta> {
+  return apiFetch<CondicionRespuesta>("/inventario/baja-deteriorado", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
 // ── Traslados entre almacenes ───────────────────────────────────────────────
 
 export type EstadoTraslado = "PENDIENTE" | "EN_TRANSITO" | "RECIBIDO" | "ANULADO";
@@ -389,6 +429,8 @@ export interface StockEnAlmacen {
   almacenId: string;
   disponible: string;
   comprometido: string;
+  /** Existencia en mal estado en este almacén, separada del disponible. */
+  deteriorado: string;
   /** Costo promedio ponderado del SKU en este almacén. */
   costoPromedio: string;
   /** Valorización (disponible × costoPromedio) agregada por almacén. */
@@ -406,6 +448,8 @@ export interface ExistenciaSku {
   stocks: StockEnAlmacen[];
   totalDisponible: string;
   totalComprometido: string;
+  /** Existencia en mal estado del SKU sobre todos sus almacenes. */
+  totalDeteriorado: string;
   /** Costo promedio ponderado del SKU sobre todos sus almacenes. */
   costoPromedio: string;
   /** Valorización total del SKU (suma de valorTotal de sus almacenes). */
