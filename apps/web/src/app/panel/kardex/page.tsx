@@ -27,6 +27,7 @@ export default function PaginaKardex(): React.JSX.Element {
   const [sku, setSku] = useState<Sku | null>(null);
   const [filas, setFilas] = useState<FilaKardex[]>([]);
   const [filtroTipo, setFiltroTipo] = useState<string>("");
+  const [tipoKardex, setTipoKardex] = useState<"fisico" | "valorizado">("valorizado");
   const [enUsd, setEnUsd] = useState<boolean>(false);
   const [cargando, setCargando] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +54,7 @@ export default function PaginaKardex(): React.JSX.Element {
     setError(null);
     setConsultado(true);
     setFiltroTipo("");
+    setTipoKardex("valorizado");
     setEnUsd(false);
     void (async () => {
       try {
@@ -79,6 +81,7 @@ export default function PaginaKardex(): React.JSX.Element {
     () => filas.some((f) => f.costoUnitarioUsd !== null),
     [filas],
   );
+  const valorizado = tipoKardex === "valorizado";
 
   return (
     <div>
@@ -131,7 +134,38 @@ export default function PaginaKardex(): React.JSX.Element {
             </select>
           </div>
         )}
-        {consultado && hayUsd && (
+        {consultado && filas.length > 0 && (
+          <div className="w-full sm:w-auto">
+            <span className="etiqueta-campo">Tipo de kardex</span>
+            <div className="inline-flex rounded-lg border border-borde-fuerte bg-panel p-0.5">
+              <button
+                type="button"
+                aria-pressed={tipoKardex === "fisico"}
+                onClick={() => setTipoKardex("fisico")}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  tipoKardex === "fisico"
+                    ? "bg-tinta text-white shadow-sm"
+                    : "text-texto-sec hover:text-texto"
+                }`}
+              >
+                Físico (unidades)
+              </button>
+              <button
+                type="button"
+                aria-pressed={tipoKardex === "valorizado"}
+                onClick={() => setTipoKardex("valorizado")}
+                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                  tipoKardex === "valorizado"
+                    ? "bg-tinta text-white shadow-sm"
+                    : "text-texto-sec hover:text-texto"
+                }`}
+              >
+                Valorizado (costo)
+              </button>
+            </div>
+          </div>
+        )}
+        {consultado && valorizado && hayUsd && (
           <label className="flex items-center gap-2 pb-2 text-sm text-texto-sec">
             <input
               type="checkbox"
@@ -186,11 +220,19 @@ export default function PaginaKardex(): React.JSX.Element {
                     <th>Referencia</th>
                     <th className="num">Entradas</th>
                     <th className="num">Salidas</th>
-                    <th className="num">{enUsd ? "Costo unit. USD" : "Costo unit."}</th>
-                    <th className="num">{enUsd ? "Costo total USD" : "Costo total"}</th>
+                    {valorizado && (
+                      <>
+                        <th className="num">{enUsd ? "Costo unit. USD" : "Costo unit."}</th>
+                        <th className="num">{enUsd ? "Costo total USD" : "Costo total"}</th>
+                      </>
+                    )}
                     <th className="num border-l border-borde">Saldo cant.</th>
-                    <th className="num">Saldo C.U.</th>
-                    <th className="num">Saldo total</th>
+                    {valorizado && (
+                      <>
+                        <th className="num">Saldo C.U.</th>
+                        <th className="num">Saldo total</th>
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -213,29 +255,37 @@ export default function PaginaKardex(): React.JSX.Element {
                           ? formatearNumero(fila.cantidadSalida)
                           : "—"}
                       </td>
-                      <td className="num text-texto">
-                        {enUsd
-                          ? fila.costoUnitarioUsd === null
-                            ? "—"
-                            : formatearDolares(fila.costoUnitarioUsd)
-                          : formatearSoles(fila.costoUnitario)}
-                      </td>
-                      <td className="num text-texto">
-                        {enUsd
-                          ? fila.costoTotalUsd === null
-                            ? "—"
-                            : formatearDolares(fila.costoTotalUsd)
-                          : formatearSoles(fila.costoTotal)}
-                      </td>
+                      {valorizado && (
+                        <>
+                          <td className="num text-texto">
+                            {enUsd
+                              ? fila.costoUnitarioUsd === null
+                                ? "—"
+                                : formatearDolares(fila.costoUnitarioUsd)
+                              : formatearSoles(fila.costoUnitario)}
+                          </td>
+                          <td className="num text-texto">
+                            {enUsd
+                              ? fila.costoTotalUsd === null
+                                ? "—"
+                                : formatearDolares(fila.costoTotalUsd)
+                              : formatearSoles(fila.costoTotal)}
+                          </td>
+                        </>
+                      )}
                       <td className="num border-l border-borde bg-panel-alt font-semibold text-tinta">
                         {fila.saldoCantidad}
                       </td>
-                      <td className="num bg-panel-alt font-semibold text-tinta">
-                        {formatearSoles(fila.saldoCostoUnitario)}
-                      </td>
-                      <td className="num bg-panel-alt font-semibold text-tinta">
-                        {formatearSoles(fila.saldoCostoTotal)}
-                      </td>
+                      {valorizado && (
+                        <>
+                          <td className="num bg-panel-alt font-semibold text-tinta">
+                            {formatearSoles(fila.saldoCostoUnitario)}
+                          </td>
+                          <td className="num bg-panel-alt font-semibold text-tinta">
+                            {formatearSoles(fila.saldoCostoTotal)}
+                          </td>
+                        </>
+                      )}
                     </tr>
                   ))}
                 </tbody>

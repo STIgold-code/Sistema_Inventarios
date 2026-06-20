@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { SelectorSeriesSalida } from "@/componentes/captura-series";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
@@ -590,6 +591,14 @@ export default function PaginaVales(): React.JSX.Element {
                       <span className={INSIGNIA_ESTADO[vale.estado]}>
                         {ETIQUETA_ESTADO[vale.estado]}
                       </span>
+                      <Link
+                        href={`/panel/vales/${vale.id}/imprimir`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-contorno h-9"
+                      >
+                        Imprimir
+                      </Link>
                       {vale.estado === "BORRADOR" && (
                         <div className="flex gap-2">
                           <button

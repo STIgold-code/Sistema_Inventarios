@@ -485,6 +485,48 @@ export function crearAlmacen(datos: {
   });
 }
 
+// ── Zonas de almacén ────────────────────────────────────────────────────────
+
+export interface Zona {
+  id: string;
+  almacenId: string;
+  codigo: string;
+  nombre: string;
+  descripcion: string | null;
+  activo: boolean;
+}
+
+export function obtenerZonas(almacenId: number): Promise<Zona[]> {
+  return apiFetch<Zona[]>(`/almacenes/${almacenId}/zonas`);
+}
+
+export function crearZona(
+  almacenId: number,
+  datos: { codigo: string; nombre: string; descripcion?: string },
+): Promise<Zona> {
+  return apiFetch<Zona>(`/almacenes/${almacenId}/zonas`, {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function actualizarZona(
+  almacenId: number,
+  zonaId: number,
+  datos: { codigo?: string; nombre?: string; descripcion?: string; activo?: boolean },
+): Promise<Zona> {
+  return apiFetch<Zona>(`/almacenes/${almacenId}/zonas/${zonaId}`, {
+    method: "PATCH",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function darBajaZona(almacenId: number, zonaId: number): Promise<Zona> {
+  return apiFetch<Zona>(`/almacenes/${almacenId}/zonas/${zonaId}/baja`, {
+    method: "PATCH",
+  });
+}
+
 /** Kardex de un SKU. Si almacenId es null, trae todos los almacenes (consolidado). */
 export function obtenerKardex(
   skuId: number,
@@ -537,6 +579,32 @@ export interface Requerimiento {
   lineas: LineaRequerimiento[];
 }
 
+export interface LineaRequerimientoDetalle {
+  id: string;
+  skuId: string;
+  /** codigoParlante del SKU (14 digitos); null si el SKU ya no existe. */
+  skuCodigo: string | null;
+  skuNombre: string | null;
+  cantidad: string;
+  justificacion: string | null;
+}
+
+/** Detalle completo de un requerimiento (GET /requerimientos/:id) para impresion. */
+export interface RequerimientoDetalle {
+  id: string;
+  numero: string;
+  fecha: string;
+  estado: EstadoRequerimiento;
+  centroCostoId: string;
+  centroCosto: string;
+  solicitanteId: string;
+  solicitante: string;
+  aprobadoPorId: string | null;
+  aprobadoPor: string | null;
+  observaciones: string | null;
+  lineas: LineaRequerimientoDetalle[];
+}
+
 export interface CrearRequerimientoLineaInput {
   skuId: number;
   cantidad: string;
@@ -553,6 +621,12 @@ export interface CrearRequerimientoInput {
 
 export function obtenerRequerimientos(): Promise<Requerimiento[]> {
   return apiFetch<Requerimiento[]>("/requerimientos");
+}
+
+export function obtenerRequerimiento(
+  id: number,
+): Promise<RequerimientoDetalle> {
+  return apiFetch<RequerimientoDetalle>(`/requerimientos/${id}`);
 }
 
 export function crearRequerimiento(
@@ -644,6 +718,10 @@ export interface CrearValeInput {
 
 export function obtenerVales(): Promise<ValeSalida[]> {
   return apiFetch<ValeSalida[]>("/vales");
+}
+
+export function obtenerVale(id: number): Promise<ValeSalida> {
+  return apiFetch<ValeSalida>(`/vales/${id}`);
 }
 
 export function crearVale(datos: CrearValeInput): Promise<{ id: number }> {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
 import { SelectorSku } from "@/componentes/selector-sku";
@@ -354,6 +355,14 @@ export default function PaginaRequerimientos(): React.JSX.Element {
                       <span className={INSIGNIA_ESTADO[req.estado]}>
                         {ETIQUETA_ESTADO[req.estado]}
                       </span>
+                      <Link
+                        href={`/panel/requerimientos/${req.id}/imprimir`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-contorno h-9"
+                      >
+                        Imprimir
+                      </Link>
                       {req.estado === "BORRADOR" && (
                         <div className="flex gap-2">
                           <button

@@ -1,15 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
+import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
 import {
+  actualizarZona,
   crearAlmacen,
   crearSucursal,
+  crearZona,
+  darBajaZona,
   ErrorApi,
   obtenerAlmacenesDetalle,
   obtenerSucursales,
+  obtenerZonas,
   type AlmacenDetalle,
   type Sucursal,
+  type Zona,
 } from "@/lib/api";
 
 interface Aviso {
@@ -74,6 +80,94 @@ export default function PaginaAlmacenes(): React.JSX.Element {
       setAvisoAlm({ texto: mensajeError(error, "No se pudo crear el almacén."), tono: "error" });
     } finally {
       setGuardandoAlm(false);
+    }
+  }
+
+  // Gestión de zonas
+  const [almZonaId, setAlmZonaId] = useState<string>("");
+  const [zonas, setZonas] = useState<Zona[]>([]);
+  const [cargandoZonas, setCargandoZonas] = useState<boolean>(false);
+  const [avisoZona, setAvisoZona] = useState<Aviso | null>(null);
+  const [guardandoZona, setGuardandoZona] = useState<boolean>(false);
+  // edición: id de la zona en edición, o "nueva" para alta
+  const [edicionZona, setEdicionZona] = useState<string | null>(null);
+  const [codZona, setCodZona] = useState<string>("");
+  const [nomZona, setNomZona] = useState<string>("");
+  const [zonaBaja, setZonaBaja] = useState<Zona | null>(null);
+  const [procesandoBaja, setProcesandoBaja] = useState<boolean>(false);
+
+  const recargarZonas = useCallback(async (almacenId: string): Promise<void> => {
+    if (!almacenId) {
+      setZonas([]);
+      return;
+    }
+    setCargandoZonas(true);
+    try {
+      setZonas(await obtenerZonas(Number(almacenId)));
+    } finally {
+      setCargandoZonas(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void recargarZonas(almZonaId);
+    setEdicionZona(null);
+    setAvisoZona(null);
+  }, [almZonaId, recargarZonas]);
+
+  function abrirAltaZona(): void {
+    setEdicionZona("nueva");
+    setCodZona("");
+    setNomZona("");
+    setAvisoZona(null);
+  }
+
+  function abrirEdicionZona(zona: Zona): void {
+    setEdicionZona(zona.id);
+    setCodZona(zona.codigo);
+    setNomZona(zona.nombre);
+    setAvisoZona(null);
+  }
+
+  async function guardarZona(): Promise<void> {
+    setAvisoZona(null);
+    if (!almZonaId) return setAvisoZona({ texto: "Selecciona un almacén.", tono: "error" });
+    if (!codZona.trim() || !nomZona.trim()) {
+      return setAvisoZona({ texto: "Completa el código y el nombre.", tono: "error" });
+    }
+    setGuardandoZona(true);
+    try {
+      if (edicionZona === "nueva") {
+        await crearZona(Number(almZonaId), { codigo: codZona.trim(), nombre: nomZona.trim() });
+        setAvisoZona({ texto: "Zona creada.", tono: "exito" });
+      } else if (edicionZona) {
+        await actualizarZona(Number(almZonaId), Number(edicionZona), {
+          codigo: codZona.trim(),
+          nombre: nomZona.trim(),
+        });
+        setAvisoZona({ texto: "Zona actualizada.", tono: "exito" });
+      }
+      setEdicionZona(null);
+      await recargarZonas(almZonaId);
+    } catch (error) {
+      setAvisoZona({ texto: mensajeError(error, "No se pudo guardar la zona."), tono: "error" });
+    } finally {
+      setGuardandoZona(false);
+    }
+  }
+
+  async function confirmarBajaZona(): Promise<void> {
+    if (!zonaBaja || !almZonaId) return;
+    setProcesandoBaja(true);
+    try {
+      await darBajaZona(Number(almZonaId), Number(zonaBaja.id));
+      setAvisoZona({ texto: "Zona dada de baja.", tono: "exito" });
+      setZonaBaja(null);
+      await recargarZonas(almZonaId);
+    } catch (error) {
+      setAvisoZona({ texto: mensajeError(error, "No se pudo dar de baja la zona."), tono: "error" });
+    } finally {
+      setProcesandoBaja(false);
     }
   }
 
@@ -207,6 +301,165 @@ export default function PaginaAlmacenes(): React.JSX.Element {
           )}
         </div>
       </section>
+
+      {/* Zonas por almacén */}
+      <section className="panel mt-6">
+        <div className="panel-cabecera">
+          <span className="panel-titulo">Zonas por almacén</span>
+          {almZonaId && <span className="text-xs text-texto-sec">{zonas.length}</span>}
+        </div>
+        <div className="space-y-4 p-5">
+          {avisoZona && (
+            <div
+              role={avisoZona.tono === "error" ? "alert" : "status"}
+              className={`aviso ${avisoZona.tono === "error" ? "aviso-peligro" : "aviso-exito"}`}
+            >
+              <span>{avisoZona.texto}</span>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="grow">
+              <label htmlFor="almZona" className="etiqueta-campo">Almacén</label>
+              <select
+                id="almZona"
+                className="campo"
+                value={almZonaId}
+                onChange={(e) => setAlmZonaId(e.target.value)}
+              >
+                <option value="">Selecciona un almacén</option>
+                {almacenes.map((a) => (
+                  <option key={a.id} value={a.id}>{a.codigo} — {a.nombre} ({a.sucursal})</option>
+                ))}
+              </select>
+            </div>
+            {almZonaId && edicionZona === null && (
+              <button type="button" onClick={abrirAltaZona} className="btn btn-primario">
+                Nueva zona
+              </button>
+            )}
+          </div>
+
+          {edicionZona !== null && (
+            <div className="rounded-lg border border-borde bg-fondo-sutil p-4">
+              <p className="mb-3 text-sm font-medium text-tinta">
+                {edicionZona === "nueva" ? "Nueva zona" : "Editar zona"}
+              </p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_2fr]">
+                <div>
+                  <label htmlFor="codZona" className="etiqueta-campo">Código</label>
+                  <input
+                    id="codZona"
+                    className="campo font-mono"
+                    value={codZona}
+                    onChange={(e) => setCodZona(e.target.value)}
+                    placeholder="A1"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="nomZona" className="etiqueta-campo">Nombre</label>
+                  <input
+                    id="nomZona"
+                    className="campo"
+                    value={nomZona}
+                    onChange={(e) => setNomZona(e.target.value)}
+                    placeholder="Pasillo A — Estante 1"
+                  />
+                </div>
+              </div>
+              <div className="mt-4 flex gap-3">
+                <button
+                  type="button"
+                  onClick={guardarZona}
+                  disabled={guardandoZona}
+                  className="btn btn-primario"
+                >
+                  {guardandoZona ? "Guardando…" : "Guardar"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEdicionZona(null)}
+                  disabled={guardandoZona}
+                  className="btn btn-contorno"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!almZonaId ? (
+            <p className="py-6 text-center text-sm text-texto-ter">
+              Selecciona un almacén para ver y gestionar sus zonas.
+            </p>
+          ) : cargandoZonas ? (
+            <p className="py-6 text-center text-sm text-texto-ter">Cargando…</p>
+          ) : zonas.length === 0 ? (
+            <p className="py-6 text-center text-sm text-texto-ter">Este almacén aún no tiene zonas.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="tabla-datos">
+                <thead>
+                  <tr>
+                    <th>Código</th>
+                    <th>Nombre</th>
+                    <th>Estado</th>
+                    <th className="text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {zonas.map((z) => (
+                    <tr key={z.id}>
+                      <td className="font-mono text-texto-sec">{z.codigo}</td>
+                      <td className="text-tinta">{z.nombre}</td>
+                      <td>
+                        <span className={`insignia ${z.activo ? "insignia-exito" : "insignia-neutra"}`}>
+                          {z.activo ? "Activa" : "De baja"}
+                        </span>
+                      </td>
+                      <td className="text-right">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => abrirEdicionZona(z)}
+                            className="btn btn-contorno btn-sm"
+                          >
+                            Editar
+                          </button>
+                          {z.activo && (
+                            <button
+                              type="button"
+                              onClick={() => setZonaBaja(z)}
+                              className="btn btn-peligro btn-sm"
+                            >
+                              Dar de baja
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <ModalConfirmacion
+        abierto={zonaBaja !== null}
+        titulo="Dar de baja zona"
+        mensaje={
+          zonaBaja
+            ? `¿Confirmas dar de baja la zona ${zonaBaja.codigo} — ${zonaBaja.nombre}? Dejará de estar disponible para asignar.`
+            : ""
+        }
+        textoConfirmar="Dar de baja"
+        tono="peligro"
+        procesando={procesandoBaja}
+        onConfirmar={confirmarBajaZona}
+        onCancelar={() => setZonaBaja(null)}
+      />
     </div>
   );
 }
