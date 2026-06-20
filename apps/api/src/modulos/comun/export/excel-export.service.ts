@@ -1,7 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import ExcelJS from "exceljs";
+import { LOGO_BM_BASE64 } from "./logo-bm.base64.js";
 
 /**
  * Definicion de una columna del reporte exportable.
@@ -43,26 +42,9 @@ const COLOR_DORADO = "FFF6B60B";
 const COLOR_BLANCO = "FFFFFFFF";
 const COLOR_GRAFITO_SUAVE = "FF3A3F45";
 
-/**
- * Rutas candidatas del logo: en dev __dirname cae en src/, en prod en dist/,
- * y la WORKDIR del contenedor es apps/api. Se prueba la primera que exista.
- */
-const CANDIDATOS_LOGO = [
-  join(__dirname, "..", "..", "..", "..", "assets", "logo-bm.png"),
-  join(__dirname, "..", "..", "..", "..", "..", "assets", "logo-bm.png"),
-  join(__dirname, "..", "..", "..", "assets", "logo-bm.png"),
-  join(process.cwd(), "assets", "logo-bm.png"),
-  join(process.cwd(), "apps", "api", "assets", "logo-bm.png"),
-];
-
-function resolverLogo(): string | null {
-  for (const ruta of CANDIDATOS_LOGO) {
-    if (existsSync(ruta)) return ruta;
-  }
-  return null;
-}
-
-const RUTA_LOGO = resolverLogo();
+// El logo va embebido como base64 (ver logo-bm.base64.ts) para no depender del
+// filesystem del contenedor, que no resolvia la ruta en produccion.
+const LOGO_BUFFER = Buffer.from(LOGO_BM_BASE64, "base64");
 
 /**
  * Servicio reutilizable que genera libros de Excel con la identidad visual
@@ -128,10 +110,10 @@ export class ExcelExportService {
     opts: OpcionesExport,
     ultimaColumnaLetra: string,
   ): number {
-    // Logo arriba a la izquierda, si se encontro en alguna ruta candidata.
-    if (RUTA_LOGO) {
+    // Logo arriba a la izquierda (embebido en base64, siempre disponible).
+    {
       const imagenId = workbook.addImage({
-        buffer: readFileSync(RUTA_LOGO),
+        buffer: LOGO_BUFFER,
         extension: "png",
       });
       hoja.addImage(imagenId, {
