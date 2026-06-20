@@ -6,6 +6,7 @@ import { AuthModule } from "./auth/auth.module.js";
 import { InventarioModule } from "./modulos/inventario/inventario.module.js";
 import { ProductoModule } from "./modulos/productos/producto.module.js";
 import { ComprasModule } from "./modulos/compras/compras.module.js";
+import { CotizacionesModule } from "./modulos/cotizaciones/cotizaciones.module.js";
 import { VentasModule } from "./modulos/ventas/ventas.module.js";
 import { ClientesModule } from "./modulos/clientes/clientes.module.js";
 import { ReportesModule } from "./modulos/reportes/reportes.module.js";
@@ -18,6 +19,10 @@ import { CorrelativoModule } from "./modulos/comun/correlativo/correlativo.modul
 import { RequerimientosModule } from "./modulos/requerimientos/requerimientos.module.js";
 import { ValesModule } from "./modulos/vales/vales.module.js";
 import { GuiasModule } from "./modulos/guias/guias.module.js";
+import { TiposCambioModule } from "./modulos/tipos-cambio/tipos-cambio.module.js";
+import { CierresModule } from "./modulos/cierres/cierres.module.js";
+import { OrdenesTrabajoModule } from "./modulos/ordenes-trabajo/ordenes-trabajo.module.js";
+import { SeriesModule } from "./modulos/series/series.module.js";
 
 @Module({
   imports: [
@@ -31,6 +36,7 @@ import { GuiasModule } from "./modulos/guias/guias.module.js";
     ProductoModule,
     InventarioModule,
     ComprasModule,
+    CotizacionesModule,
     VentasModule,
     ClientesModule,
     ReportesModule,
@@ -43,6 +49,10 @@ import { GuiasModule } from "./modulos/guias/guias.module.js";
     RequerimientosModule,
     ValesModule,
     GuiasModule,
+    TiposCambioModule,
+    CierresModule,
+    OrdenesTrabajoModule,
+    SeriesModule,
   ],
 })
 export class AppModule {}

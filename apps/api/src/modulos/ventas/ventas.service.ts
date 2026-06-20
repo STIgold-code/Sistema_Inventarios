@@ -3,6 +3,10 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { MovimientoService } from "../inventario/movimientos/movimiento.service.js";
+import {
+  aUnidadDeControl,
+  precioAUnidadDeControl,
+} from "../comun/conversion/conversion-unidad.js";
 
 const D = Prisma.Decimal;
 
@@ -17,7 +21,12 @@ interface NuevaOrdenVenta {
   moneda?: string;
   tipoCambio?: string;
   observaciones?: string;
-  lineas: Array<{ skuId: bigint; cantidad: string; precioUnitario?: string }>;
+  lineas: Array<{
+    skuId: bigint;
+    cantidad: string;
+    precioUnitario?: string;
+    enUnidadReferencia?: boolean;
+  }>;
 }
 
 interface ComprobanteEntrada {
@@ -35,7 +44,11 @@ interface ComprobanteEntrada {
 interface Despacho {
   ordenVentaId: bigint;
   comprobante: ComprobanteEntrada;
-  lineas: Array<{ ordenVentaLineaId: bigint; cantidad: string }>;
+  lineas: Array<{
+    ordenVentaLineaId: bigint;
+    cantidad: string;
+    numerosSerie?: string[];
+  }>;
 }
 
 @Injectable()
@@ -58,8 +71,13 @@ export class VentasService {
       if (!cliente) throw new NotFoundException("Cliente no encontrado");
     }
 
+    // Normaliza cada linea a unidad de control (reserva, stock y costos viven en
+    // unidad de control). El precio capturado por unidad de referencia se ajusta
+    // para preservar el importe total.
+    const lineasControl = await this.normalizarLineasACtrl(usuario.empresaId, dto.lineas);
+
     let subtotal = new D(0);
-    for (const l of dto.lineas) {
+    for (const l of lineasControl) {
       subtotal = subtotal.add(new D(l.cantidad).mul(new D(l.precioUnitario ?? "0")));
     }
     const igv = subtotal.mul(IGV_TASA);
@@ -80,7 +98,7 @@ export class VentasService {
         observaciones: dto.observaciones ?? null,
         usuarioId: usuario.id,
         lineas: {
-          create: dto.lineas.map((l) => ({
+          create: lineasControl.map((l) => ({
             empresaId: usuario.empresaId,
             skuId: l.skuId,
             cantidad: l.cantidad,
@@ -93,7 +111,7 @@ export class VentasService {
     // Reservar cada linea; si una falla, revertir las previas y borrar la orden.
     const reservadas: Array<{ skuId: bigint; cantidad: string }> = [];
     try {
-      for (const l of dto.lineas) {
+      for (const l of lineasControl) {
         await this.movimientos.reservar(usuario, {
           skuId: l.skuId,
           almacenId: dto.almacenId,
@@ -123,6 +141,50 @@ export class VentasService {
     };
   }
 
+  /**
+   * Convierte las lineas capturadas en unidad de referencia a unidad de control.
+   * Valida pertenencia a la empresa (anti-IDOR) y que el SKU tenga factor.
+   */
+  private async normalizarLineasACtrl(
+    empresaId: bigint,
+    lineas: NuevaOrdenVenta["lineas"],
+  ): Promise<Array<{ skuId: bigint; cantidad: string; precioUnitario?: string }>> {
+    const idsReferencia = [
+      ...new Set(lineas.filter((l) => l.enUnidadReferencia).map((l) => l.skuId)),
+    ];
+
+    const factores = new Map<string, Prisma.Decimal | null>();
+    if (idsReferencia.length > 0) {
+      const skus = await this.prisma.sku.findMany({
+        where: { id: { in: idsReferencia }, empresaId },
+        select: { id: true, factorConversion: true, unidadReferenciaId: true },
+      });
+      if (skus.length !== idsReferencia.length) {
+        throw new NotFoundException("Algun SKU de la orden no pertenece a la empresa");
+      }
+      for (const s of skus) {
+        if (s.unidadReferenciaId === null || s.factorConversion === null) {
+          throw new BadRequestException(
+            `El SKU ${s.id} no tiene unidad de referencia configurada para conversion`,
+          );
+        }
+        factores.set(s.id.toString(), s.factorConversion);
+      }
+    }
+
+    return lineas.map((l) => {
+      if (!l.enUnidadReferencia) {
+        return { skuId: l.skuId, cantidad: l.cantidad, precioUnitario: l.precioUnitario };
+      }
+      const factor = factores.get(l.skuId.toString()) ?? null;
+      return {
+        skuId: l.skuId,
+        cantidad: aUnidadDeControl(l.cantidad, factor),
+        precioUnitario: precioAUnidadDeControl(l.precioUnitario ?? "0", factor),
+      };
+    });
+  }
+
   async listarOrdenes(empresaId: bigint) {
     const ordenes = await this.prisma.ordenVenta.findMany({
       where: { empresaId },
@@ -149,6 +211,7 @@ export class VentasService {
         skuId: l.skuId.toString(),
         codigoSku: skus.get(l.skuId.toString())?.codigo ?? "",
         nombreSku: skus.get(l.skuId.toString())?.nombre ?? `SKU ${l.skuId}`,
+        controlaSerie: skus.get(l.skuId.toString())?.controlaSerie ?? false,
         cantidad: l.cantidad.toString(),
         cantidadDespachada: l.cantidadDespachada.toString(),
         pendiente: new D(l.cantidad).sub(new D(l.cantidadDespachada)).toString(),
@@ -160,7 +223,9 @@ export class VentasService {
   private async cargarSkus(
     empresaId: bigint,
     ids: bigint[],
-  ): Promise<Map<string, { codigo: string; nombre: string }>> {
+  ): Promise<
+    Map<string, { codigo: string; nombre: string; controlaSerie: boolean }>
+  > {
     if (ids.length === 0) return new Map();
     const skus = await this.prisma.sku.findMany({
       where: { empresaId, id: { in: [...new Set(ids)] } },
@@ -169,7 +234,11 @@ export class VentasService {
     return new Map(
       skus.map((s) => [
         s.id.toString(),
-        { codigo: s.codigoParlante, nombre: s.nombre ?? s.producto.nombre },
+        {
+          codigo: s.codigoParlante,
+          nombre: s.nombre ?? s.producto.nombre,
+          controlaSerie: s.controlaSerie,
+        },
       ]),
     );
   }
@@ -243,6 +312,7 @@ export class VentasService {
         numeroComprobante: c.numero,
         fechaEmisionDocumento: c.fechaEmision,
         observaciones: `Despacho OV ${orden.numero}`,
+        numerosSerie: linea.numerosSerie,
       });
 
       await this.prisma.ordenVentaLinea.update({

@@ -5,7 +5,7 @@ import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
 import { UsuarioActual } from "../../comun/decoradores/usuario-actual.decorator.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { ValesService } from "./vales.service.js";
-import { CrearValeSalidaDto } from "./dto/vales.dto.js";
+import { CrearValeSalidaDto, DespacharValeDto } from "./dto/vales.dto.js";
 
 @Controller("vales")
 @UseGuards(JwtGuard, PermisosGuard)
@@ -27,12 +27,15 @@ export class ValesController {
     return this.vales.crear(usuario, {
       almacenId: BigInt(dto.almacenId),
       centroCostoId: BigInt(dto.centroCostoId),
+      ordenTrabajoId:
+        dto.ordenTrabajoId !== undefined ? BigInt(dto.ordenTrabajoId) : undefined,
       destino: dto.destino,
       observaciones: dto.observaciones,
       lineas: dto.lineas.map((l) => ({
         skuId: BigInt(l.skuId),
         cantidad: l.cantidad,
         observacion: l.observacion,
+        enUnidadReferencia: l.enUnidadReferencia,
       })),
     });
   }
@@ -45,8 +48,15 @@ export class ValesController {
 
   @Post(":id/despachar")
   @Permisos("vale.crear")
-  despachar(@UsuarioActual() usuario: UsuarioRequest, @Param("id") id: string) {
-    return this.vales.despachar(usuario, BigInt(id));
+  despachar(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id") id: string,
+    @Body() dto: DespacharValeDto,
+  ) {
+    const seriesPorSku = new Map<string, string[]>(
+      (dto.series ?? []).map((s) => [BigInt(s.skuId).toString(), s.numerosSerie]),
+    );
+    return this.vales.despachar(usuario, BigInt(id), seriesPorSku);
   }
 
   @Post(":id/anular")

@@ -7,5 +7,6 @@ import { ReportesService } from "./reportes.service.js";
   imports: [AuthModule],
   controllers: [ReportesController],
   providers: [ReportesService],
+  exports: [ReportesService],
 })
 export class ReportesModule {}

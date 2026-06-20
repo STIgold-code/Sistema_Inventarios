@@ -3,13 +3,20 @@ import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import { CorrelativoService } from "../comun/correlativo/correlativo.service.js";
 import { MovimientoService } from "../inventario/movimientos/movimiento.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
+import { aUnidadDeControl } from "../comun/conversion/conversion-unidad.js";
 
 interface NuevoValeSalida {
   almacenId: bigint;
   centroCostoId: bigint;
+  ordenTrabajoId?: bigint;
   destino: string;
   observaciones?: string;
-  lineas: Array<{ skuId: bigint; cantidad: string; observacion?: string }>;
+  lineas: Array<{
+    skuId: bigint;
+    cantidad: string;
+    observacion?: string;
+    enUnidadReferencia?: boolean;
+  }>;
 }
 
 @Injectable()
@@ -26,12 +33,17 @@ export class ValesService {
       include: {
         centroCosto: true,
         almacen: true,
+        ordenTrabajo: true,
         solicitante: true,
         autorizadoPor: true,
         lineas: true,
       },
       orderBy: { fecha: "desc" },
     });
+    const skus = await this.cargarSkus(
+      empresaId,
+      filas.flatMap((v) => v.lineas.map((l) => l.skuId)),
+    );
     return filas.map((v) => ({
       id: v.id.toString(),
       numero: v.numero,
@@ -41,6 +53,8 @@ export class ValesService {
       almacen: v.almacen.nombre,
       centroCostoId: v.centroCostoId.toString(),
       centroCosto: v.centroCosto.nombre,
+      ordenTrabajoId: v.ordenTrabajoId ? v.ordenTrabajoId.toString() : null,
+      ordenTrabajo: v.ordenTrabajo ? v.ordenTrabajo.numero : null,
       destino: v.destino,
       solicitanteId: v.solicitanteId.toString(),
       solicitante: v.solicitante.nombre,
@@ -50,12 +64,39 @@ export class ValesService {
       lineas: v.lineas.map((l) => ({
         id: l.id.toString(),
         skuId: l.skuId.toString(),
+        codigoSku: skus.get(l.skuId.toString())?.codigo ?? "",
+        nombreSku: skus.get(l.skuId.toString())?.nombre ?? `SKU ${l.skuId}`,
+        controlaSerie: skus.get(l.skuId.toString())?.controlaSerie ?? false,
         cantidad: l.cantidad.toString(),
         cantidadDespachada: l.cantidadDespachada.toString(),
         observacion: l.observacion,
         movimientoStockId: l.movimientoStockId ? l.movimientoStockId.toString() : null,
       })),
     }));
+  }
+
+  /** Mapa skuId -> {codigo, nombre, controlaSerie} para enriquecer las lineas. */
+  private async cargarSkus(
+    empresaId: bigint,
+    ids: bigint[],
+  ): Promise<
+    Map<string, { codigo: string; nombre: string; controlaSerie: boolean }>
+  > {
+    if (ids.length === 0) return new Map();
+    const skus = await this.prisma.sku.findMany({
+      where: { empresaId, id: { in: [...new Set(ids)] } },
+      include: { producto: true },
+    });
+    return new Map(
+      skus.map((s) => [
+        s.id.toString(),
+        {
+          codigo: s.codigoParlante,
+          nombre: s.nombre ?? s.producto.nombre,
+          controlaSerie: s.controlaSerie,
+        },
+      ]),
+    );
   }
 
   /**
@@ -73,14 +114,45 @@ export class ValesService {
     });
     if (!centro) throw new NotFoundException("Centro de costo no encontrado");
 
+    if (dto.ordenTrabajoId !== undefined) {
+      const orden = await this.prisma.ordenTrabajo.findFirst({
+        where: { id: dto.ordenTrabajoId, empresaId: usuario.empresaId },
+      });
+      if (!orden) throw new NotFoundException("Orden de trabajo no encontrada");
+      if (orden.estado !== "ABIERTA") {
+        throw new BadRequestException(
+          "No se puede imputar un vale a una orden de trabajo cerrada",
+        );
+      }
+    }
+
     const skuIds = [...new Set(dto.lineas.map((l) => l.skuId))];
     const skus = await this.prisma.sku.findMany({
       where: { id: { in: skuIds }, empresaId: usuario.empresaId },
-      select: { id: true },
+      select: { id: true, factorConversion: true, unidadReferenciaId: true },
     });
     if (skus.length !== skuIds.length) {
       throw new BadRequestException("Uno o mas SKU no pertenecen a la empresa");
     }
+    const factores = new Map(skus.map((s) => [s.id.toString(), s]));
+
+    // Normaliza cada linea a unidad de control (el stock vive en unidad de control).
+    const lineasControl = dto.lineas.map((l) => {
+      if (!l.enUnidadReferencia) {
+        return { skuId: l.skuId, cantidad: l.cantidad, observacion: l.observacion };
+      }
+      const sku = factores.get(l.skuId.toString())!;
+      if (sku.unidadReferenciaId === null || sku.factorConversion === null) {
+        throw new BadRequestException(
+          `El SKU ${l.skuId} no tiene unidad de referencia configurada para conversion`,
+        );
+      }
+      return {
+        skuId: l.skuId,
+        cantidad: aUnidadDeControl(l.cantidad, sku.factorConversion),
+        observacion: l.observacion,
+      };
+    });
 
     const id = await this.prisma.$transaction(async (tx) => {
       const correlativo = await this.correlativos.siguiente(
@@ -94,12 +166,13 @@ export class ValesService {
           numero: correlativo.formateado,
           almacenId: dto.almacenId,
           centroCostoId: dto.centroCostoId,
+          ordenTrabajoId: dto.ordenTrabajoId ?? null,
           solicitanteId: usuario.id,
           destino: dto.destino,
           estado: "BORRADOR",
           observaciones: dto.observaciones ?? null,
           lineas: {
-            create: dto.lineas.map((l) => ({
+            create: lineasControl.map((l) => ({
               empresaId: usuario.empresaId,
               skuId: l.skuId,
               cantidad: l.cantidad,
@@ -132,7 +205,11 @@ export class ValesService {
    * (consumo FIFO, valida stock). Todo dentro de una transaccion: si falta
    * stock en cualquier linea, la operacion completa revierte.
    */
-  async despachar(usuario: UsuarioRequest, id: bigint) {
+  async despachar(
+    usuario: UsuarioRequest,
+    id: bigint,
+    seriesPorSku: Map<string, string[]> = new Map(),
+  ) {
     const vale = await this.cargar(usuario.empresaId, id);
     if (vale.estado !== "AUTORIZADO") {
       throw new BadRequestException(
@@ -148,6 +225,7 @@ export class ValesService {
           cantidad: linea.cantidad.toString(),
           documentoId: vale.id,
           observaciones: `Vale de salida ${vale.numero} - ${vale.destino}`,
+          numerosSerie: seriesPorSku.get(linea.skuId.toString()),
         });
         await tx.valeSalidaLinea.update({
           where: { id: linea.id },

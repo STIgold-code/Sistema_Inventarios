@@ -1,12 +1,13 @@
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../src/comun/prisma/prisma.service.js";
 import { MovimientoService } from "../src/modulos/inventario/movimientos/movimiento.service.js";
+import { TiposCambioService } from "../src/modulos/tipos-cambio/tipos-cambio.service.js";
 import { ImportadorService } from "../src/modulos/importador/importador.service.js";
 import type { UsuarioRequest } from "../src/comun/contexto/usuario-request.js";
 
 describe("ImportadorService (integracion)", () => {
   const prisma = new PrismaService();
-  const importador = new ImportadorService(prisma, new MovimientoService(prisma));
+  const importador = new ImportadorService(prisma, new MovimientoService(prisma, new TiposCambioService(prisma)));
 
   let usuario: UsuarioRequest;
   let almacenId: bigint;

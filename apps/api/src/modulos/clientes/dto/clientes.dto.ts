@@ -1,5 +1,6 @@
 import {
   IsIn,
+  IsInt,
   IsOptional,
   IsString,
   MinLength,
@@ -35,6 +36,12 @@ export class CrearClienteDto {
   @IsOptional()
   @IsString()
   email?: string;
+
+  // Nivel de precio de venta del cliente: 1=publico, 2=distribuidor, 3, 4.
+  @IsOptional()
+  @IsInt()
+  @IsIn([1, 2, 3, 4], { message: "tipoPrecio debe ser 1, 2, 3 o 4" })
+  tipoPrecio?: number;
 }
 
 export class ActualizarClienteDto {
@@ -66,4 +73,10 @@ export class ActualizarClienteDto {
   @IsOptional()
   @IsString()
   email?: string;
+
+  // Nivel de precio de venta del cliente: 1=publico, 2=distribuidor, 3, 4.
+  @IsOptional()
+  @IsInt()
+  @IsIn([1, 2, 3, 4], { message: "tipoPrecio debe ser 1, 2, 3 o 4" })
+  tipoPrecio?: number;
 }

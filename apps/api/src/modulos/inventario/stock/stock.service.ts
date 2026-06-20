@@ -13,6 +13,10 @@ export interface LineaKardex {
   saldoCantidad: string;
   saldoCostoUnitario: string;
   saldoCostoTotal: string;
+  /** Costo unitario en USD del movimiento (null si no habia TC ese dia). */
+  costoUnitarioUsd: string | null;
+  /** Costo total en USD del movimiento (null si no habia TC ese dia). */
+  costoTotalUsd: string | null;
   documento: string;
 }
 
@@ -112,6 +116,8 @@ export class StockService {
       saldoCantidad: m.saldoCantidad.toString(),
       saldoCostoUnitario: m.saldoCostoUnitario.toString(),
       saldoCostoTotal: m.saldoCostoTotal.toString(),
+      costoUnitarioUsd: m.costoUnitarioUsd?.toString() ?? null,
+      costoTotalUsd: m.costoTotalUsd?.toString() ?? null,
       documento: `${m.tipoDocumentoSunat}-${m.serieComprobante}-${m.numeroComprobante}`,
     }));
   }

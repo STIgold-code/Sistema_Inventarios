@@ -1,10 +1,23 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from "@nestjs/common";
 import { JwtGuard } from "../../auth/jwt.guard.js";
 import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
 import { UsuarioActual } from "../../comun/decoradores/usuario-actual.decorator.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
-import { CrearProductoDto } from "./dto/crear-producto.dto.js";
+import { ClasificarAbcDto } from "./dto/clasificar-abc.dto.js";
+import {
+  ActualizarPreciosSkuDto,
+  CrearProductoDto,
+} from "./dto/crear-producto.dto.js";
 import {
   FamiliaResumen,
   PaginaSkus,
@@ -55,5 +68,24 @@ export class ProductoController {
     @Body() dto: CrearProductoDto,
   ): Promise<{ productoId: string; skuId: string }> {
     return this.productos.crearProductoConSku(usuario.empresaId, dto);
+  }
+
+  @Patch("skus/:id/precios")
+  @Permisos("producto.editar")
+  actualizarPrecios(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id") id: string,
+    @Body() dto: ActualizarPreciosSkuDto,
+  ): Promise<{ id: string }> {
+    return this.productos.actualizarPrecios(usuario.empresaId, BigInt(id), dto);
+  }
+
+  @Post("clasificar-abc")
+  @Permisos("producto.editar")
+  clasificarAbc(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Body() dto: ClasificarAbcDto,
+  ) {
+    return this.productos.clasificarAbc(usuario.empresaId, dto);
   }
 }

@@ -74,6 +74,7 @@ export class ComprasController {
         skuId: BigInt(l.skuId),
         cantidad: l.cantidad,
         costoUnitario: l.costoUnitario,
+        enUnidadReferencia: l.enUnidadReferencia,
       })),
     });
   }
@@ -108,6 +109,7 @@ export class ComprasController {
       lineas: dto.lineas.map((l) => ({
         ordenCompraLineaId: BigInt(l.ordenCompraLineaId),
         cantidad: l.cantidad,
+        numerosSerie: l.numerosSerie,
       })),
     });
   }

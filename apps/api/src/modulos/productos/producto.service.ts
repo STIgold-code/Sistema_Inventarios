@@ -1,7 +1,12 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
-import type { CrearProductoDto } from "./dto/crear-producto.dto.js";
+import { ReportesService } from "../reportes/reportes.service.js";
+import type { ClasificarAbcDto } from "./dto/clasificar-abc.dto.js";
+import type {
+  ActualizarPreciosSkuDto,
+  CrearProductoDto,
+} from "./dto/crear-producto.dto.js";
 
 const D = Prisma.Decimal;
 
@@ -26,7 +31,15 @@ export interface SkuListado {
   tipoExistencia: string;
   metodoValuacion: string;
   stockMinimo: string | null;
+  // Precios de venta por nivel (null = sin configurar para ese nivel).
+  precioPublico: string | null;
+  precioDistribuidor: string | null;
+  precioVenta3: string | null;
+  precioVenta4: string | null;
+  monedaVenta: string | null;
   activo: boolean;
+  /** Si true, el SKU exige captura de numeros de serie en entradas y salidas. */
+  controlaSerie: boolean;
   producto: {
     id: string;
     nombre: string;
@@ -42,6 +55,14 @@ export interface SkuListado {
     codigo: string;
     nombre: string;
   };
+  /** Unidad de referencia para multi-unidad (null si el SKU no la tiene). */
+  unidadReferencia: {
+    id: string;
+    codigo: string;
+    nombre: string;
+  } | null;
+  /** Cuantas unidades de control equivalen a UNA de referencia (null si no aplica). */
+  factorConversion: string | null;
 }
 
 export interface FiltroSkus {
@@ -69,7 +90,66 @@ const METODO_VALUACION_DEFECTO = "2";
  */
 @Injectable()
 export class ProductoService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reportes: ReportesService,
+  ) {}
+
+  /**
+   * Calcula la clasificacion ABC por valor de consumo y, si dto.persistir es
+   * true, escribe clasificacionAbc en cada SKU clasificado dentro de una sola
+   * transaccion. Devuelve el resultado del calculo mas el conteo persistido.
+   */
+  async clasificarAbc(empresaId: bigint, dto: ClasificarAbcDto) {
+    if (dto.hasta < dto.desde) {
+      throw new BadRequestException("hasta no puede ser anterior a desde");
+    }
+    const resultado = await this.reportes.clasificacionAbc(
+      empresaId,
+      dto.desde,
+      dto.hasta,
+    );
+
+    let persistidos = 0;
+    if (dto.persistir && resultado.filas.length > 0) {
+      await this.prisma.$transaction(
+        resultado.filas.map((f) =>
+          this.prisma.sku.update({
+            where: { id: BigInt(f.skuId) },
+            data: { clasificacionAbc: f.clasificacion },
+          }),
+        ),
+      );
+      persistidos = resultado.filas.length;
+    }
+
+    return { ...resultado, persistir: dto.persistir ?? false, persistidos };
+  }
+
+  /**
+   * Actualiza los precios de venta por nivel de un SKU. Valida pertenencia a la
+   * empresa (anti-IDOR). Solo modifica los campos enviados en el DTO.
+   */
+  async actualizarPrecios(
+    empresaId: bigint,
+    skuId: bigint,
+    dto: ActualizarPreciosSkuDto,
+  ): Promise<{ id: string }> {
+    const sku = await this.prisma.sku.findFirst({ where: { id: skuId, empresaId } });
+    if (!sku) throw new BadRequestException("El SKU no pertenece a la empresa");
+
+    const data: Prisma.SkuUpdateInput = {};
+    if (dto.precioPublico !== undefined) data.precioPublico = new D(dto.precioPublico);
+    if (dto.precioDistribuidor !== undefined) {
+      data.precioDistribuidor = new D(dto.precioDistribuidor);
+    }
+    if (dto.precioVenta3 !== undefined) data.precioVenta3 = new D(dto.precioVenta3);
+    if (dto.precioVenta4 !== undefined) data.precioVenta4 = new D(dto.precioVenta4);
+    if (dto.monedaVenta !== undefined) data.monedaVenta = dto.monedaVenta;
+
+    await this.prisma.sku.update({ where: { id: skuId }, data });
+    return { id: skuId.toString() };
+  }
 
   /** Familias de la empresa, ordenadas por codigo para navegacion estable. */
   async listarFamilias(empresaId: bigint): Promise<FamiliaResumen[]> {
@@ -123,6 +203,30 @@ export class ProductoService {
       throw new BadRequestException("La unidad indicada no pertenece a la empresa");
     }
 
+    // Multi-unidad: unidad de referencia y factor van juntos o ninguno.
+    let unidadReferenciaId: bigint | null = null;
+    let factorConversion: Prisma.Decimal | null = null;
+    if (dto.unidadReferenciaId !== undefined || dto.factorConversion !== undefined) {
+      if (dto.unidadReferenciaId === undefined || dto.factorConversion === undefined) {
+        throw new BadRequestException(
+          "unidadReferenciaId y factorConversion deben enviarse juntos",
+        );
+      }
+      unidadReferenciaId = BigInt(dto.unidadReferenciaId);
+      const unidadRef = await this.prisma.unidad.findFirst({
+        where: { id: unidadReferenciaId, empresaId },
+      });
+      if (!unidadRef) {
+        throw new BadRequestException(
+          "La unidad de referencia indicada no pertenece a la empresa",
+        );
+      }
+      factorConversion = new D(dto.factorConversion);
+      if (factorConversion.lessThanOrEqualTo(0)) {
+        throw new BadRequestException("factorConversion debe ser mayor que cero");
+      }
+    }
+
     // Regla de negocio BM: los 3 primeros digitos del codigo parlante
     // codifican la familia y deben coincidir con su codigo.
     const prefijoFamilia = dto.codigoParlante.slice(0, 3);
@@ -154,6 +258,15 @@ export class ProductoService {
           tipoExistencia: dto.tipoExistencia ?? TIPO_EXISTENCIA_DEFECTO,
           metodoValuacion: dto.metodoValuacion ?? METODO_VALUACION_DEFECTO,
           stockMinimo: dto.stockMinimo ? new D(dto.stockMinimo) : null,
+          unidadReferenciaId,
+          factorConversion,
+          precioPublico: dto.precioPublico ? new D(dto.precioPublico) : null,
+          precioDistribuidor: dto.precioDistribuidor
+            ? new D(dto.precioDistribuidor)
+            : null,
+          precioVenta3: dto.precioVenta3 ? new D(dto.precioVenta3) : null,
+          precioVenta4: dto.precioVenta4 ? new D(dto.precioVenta4) : null,
+          monedaVenta: dto.monedaVenta ?? null,
         },
       });
 
@@ -192,6 +305,7 @@ export class ProductoService {
         include: {
           producto: { include: { familia: true } },
           unidad: true,
+          unidadReferencia: true,
         },
         orderBy: { codigoParlante: "asc" },
         skip: (pagina - 1) * porPagina,
@@ -209,7 +323,15 @@ export class ProductoService {
         tipoExistencia: s.tipoExistencia,
         metodoValuacion: s.metodoValuacion,
         stockMinimo: s.stockMinimo ? s.stockMinimo.toString() : null,
+        precioPublico: s.precioPublico ? s.precioPublico.toString() : null,
+        precioDistribuidor: s.precioDistribuidor
+          ? s.precioDistribuidor.toString()
+          : null,
+        precioVenta3: s.precioVenta3 ? s.precioVenta3.toString() : null,
+        precioVenta4: s.precioVenta4 ? s.precioVenta4.toString() : null,
+        monedaVenta: s.monedaVenta,
         activo: s.activo,
+        controlaSerie: s.controlaSerie,
         producto: {
           id: s.producto.id.toString(),
           nombre: s.producto.nombre,
@@ -225,6 +347,16 @@ export class ProductoService {
           codigo: s.unidad.codigo,
           nombre: s.unidad.nombre,
         },
+        unidadReferencia: s.unidadReferencia
+          ? {
+              id: s.unidadReferencia.id.toString(),
+              codigo: s.unidadReferencia.codigo,
+              nombre: s.unidadReferencia.nombre,
+            }
+          : null,
+        factorConversion: s.factorConversion
+          ? s.factorConversion.toString()
+          : null,
       })),
       pagina,
       porPagina,

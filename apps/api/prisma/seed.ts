@@ -51,6 +51,10 @@ const PERMISOS: ReadonlyArray<{ codigo: string; nombre: string }> = [
   { codigo: "vale.autorizar", nombre: "Autorizar vales de salida" },
   { codigo: "venta.comprobante", nombre: "Emitir comprobantes de venta" },
   { codigo: "guia.gestionar", nombre: "Gestionar guias de remision" },
+  { codigo: "tipocambio.administrar", nombre: "Administrar tipo de cambio diario" },
+  { codigo: "cierre.gestionar", nombre: "Gestionar cierres mensuales de periodo" },
+  { codigo: "ot.gestionar", nombre: "Gestionar ordenes de trabajo" },
+  { codigo: "cierre.reabrir", nombre: "Reabrir periodos cerrados (solo ADMIN)" },
 ];
 
 // Centros de costo de ejemplo para la empresa BM.

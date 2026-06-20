@@ -2,6 +2,7 @@ import { Type } from "class-transformer";
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsISO8601,
@@ -108,6 +109,12 @@ export class LineaOrdenDto {
 
   @Matches(REGEX_DECIMAL, { message: "costoUnitario debe ser decimal positivo" })
   costoUnitario!: string;
+
+  // Cuando es true, cantidad/costoUnitario vienen en la unidad de referencia del
+  // SKU y el sistema los convierte a unidad de control. Default: unidad de control.
+  @IsOptional()
+  @IsBoolean()
+  enUnidadReferencia?: boolean;
 }
 
 export class CrearOrdenCompraDto {
@@ -146,6 +153,13 @@ export class LineaRecepcionDto {
 
   @Matches(REGEX_DECIMAL, { message: "cantidad debe ser decimal positivo" })
   cantidad!: string;
+
+  // Numeros de serie de la unidades recibidas. Obligatorio (cantidad exacta)
+  // cuando el SKU de la linea controla serie; debe omitirse en caso contrario.
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  numerosSerie?: string[];
 }
 
 export class RecibirDto {

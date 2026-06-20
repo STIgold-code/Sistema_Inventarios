@@ -8,6 +8,7 @@ interface NuevoCliente {
   direccion?: string;
   telefono?: string;
   email?: string;
+  tipoPrecio?: number;
 }
 
 interface CambioCliente {
@@ -17,6 +18,7 @@ interface CambioCliente {
   direccion?: string;
   telefono?: string;
   email?: string;
+  tipoPrecio?: number;
 }
 
 @Injectable()
@@ -59,6 +61,7 @@ export class ClientesService {
       direccion: c.direccion,
       telefono: c.telefono,
       email: c.email,
+      tipoPrecio: c.tipoPrecio,
     }));
   }
 }

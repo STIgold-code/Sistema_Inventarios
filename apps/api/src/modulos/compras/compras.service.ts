@@ -4,6 +4,10 @@ import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import { CorrelativoService } from "../comun/correlativo/correlativo.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { MovimientoService } from "../inventario/movimientos/movimiento.service.js";
+import {
+  aUnidadDeControl,
+  precioAUnidadDeControl,
+} from "../comun/conversion/conversion-unidad.js";
 
 const D = Prisma.Decimal;
 
@@ -45,7 +49,12 @@ interface NuevaOrden {
   moneda?: string;
   tipoCambio?: string;
   observaciones?: string;
-  lineas: Array<{ skuId: bigint; cantidad: string; costoUnitario: string }>;
+  lineas: Array<{
+    skuId: bigint;
+    cantidad: string;
+    costoUnitario: string;
+    enUnidadReferencia?: boolean;
+  }>;
 }
 
 interface Recepcion {
@@ -60,7 +69,11 @@ interface Recepcion {
   igv: string;
   total: string;
   guiaRemisionProveedor?: string;
-  lineas: Array<{ ordenCompraLineaId: bigint; cantidad: string }>;
+  lineas: Array<{
+    ordenCompraLineaId: bigint;
+    cantidad: string;
+    numerosSerie?: string[];
+  }>;
 }
 
 @Injectable()
@@ -138,8 +151,13 @@ export class ComprasService {
       }
     }
 
+    // Normaliza cada linea a la unidad de CONTROL. Cuando la linea se captura
+    // en unidad de referencia, convertimos cantidad y costo unitario para que la
+    // OC, las recepciones y el ledger queden siempre en unidad de control.
+    const lineasControl = await this.normalizarLineasACtrl(usuario.empresaId, dto.lineas);
+
     let subtotal = new D(0);
-    for (const l of dto.lineas) {
+    for (const l of lineasControl) {
       subtotal = subtotal.add(new D(l.cantidad).mul(new D(l.costoUnitario)));
     }
     const igv = subtotal.mul(IGV_TASA);
@@ -168,7 +186,7 @@ export class ComprasService {
           observaciones: dto.observaciones ?? null,
           usuarioId: usuario.id,
           lineas: {
-            create: dto.lineas.map((l) => ({
+            create: lineasControl.map((l) => ({
               empresaId: usuario.empresaId,
               skuId: l.skuId,
               cantidad: l.cantidad,
@@ -262,6 +280,7 @@ export class ComprasService {
         skuId: l.skuId.toString(),
         codigoSku: skus.get(l.skuId.toString())?.codigo ?? "",
         nombreSku: skus.get(l.skuId.toString())?.nombre ?? `SKU ${l.skuId}`,
+        controlaSerie: skus.get(l.skuId.toString())?.controlaSerie ?? false,
         cantidad: l.cantidad.toString(),
         costoUnitario: l.costoUnitario.toString(),
         cantidadRecibida: l.cantidadRecibida.toString(),
@@ -274,7 +293,9 @@ export class ComprasService {
   private async cargarSkus(
     empresaId: bigint,
     ids: bigint[],
-  ): Promise<Map<string, { codigo: string; nombre: string }>> {
+  ): Promise<
+    Map<string, { codigo: string; nombre: string; controlaSerie: boolean }>
+  > {
     if (ids.length === 0) return new Map();
     const skus = await this.prisma.sku.findMany({
       where: { empresaId, id: { in: [...new Set(ids)] } },
@@ -283,7 +304,11 @@ export class ComprasService {
     return new Map(
       skus.map((s) => [
         s.id.toString(),
-        { codigo: s.codigoParlante, nombre: s.nombre ?? s.producto.nombre },
+        {
+          codigo: s.codigoParlante,
+          nombre: s.nombre ?? s.producto.nombre,
+          controlaSerie: s.controlaSerie,
+        },
       ]),
     );
   }
@@ -367,6 +392,7 @@ export class ComprasService {
         numeroComprobante: dto.numeroComprobante,
         fechaEmisionDocumento: dto.fechaEmisionDocumento,
         observaciones: `Recepcion OC ${orden.numero}`,
+        numerosSerie: linea.numerosSerie,
       });
 
       await this.prisma.recepcionLinea.create({
@@ -388,6 +414,51 @@ export class ComprasService {
 
     await this.recalcularEstado(orden.id);
     return { recepcionId: recepcion.id.toString() };
+  }
+
+  /**
+   * Convierte las lineas capturadas en unidad de referencia a unidad de control.
+   * Solo carga factores para los SKUs marcados con enUnidadReferencia. Valida que
+   * el SKU pertenezca a la empresa (anti-IDOR) y que tenga factor definido.
+   */
+  private async normalizarLineasACtrl(
+    empresaId: bigint,
+    lineas: NuevaOrden["lineas"],
+  ): Promise<Array<{ skuId: bigint; cantidad: string; costoUnitario: string }>> {
+    const idsReferencia = [
+      ...new Set(lineas.filter((l) => l.enUnidadReferencia).map((l) => l.skuId)),
+    ];
+
+    const factores = new Map<string, Prisma.Decimal | null>();
+    if (idsReferencia.length > 0) {
+      const skus = await this.prisma.sku.findMany({
+        where: { id: { in: idsReferencia }, empresaId },
+        select: { id: true, factorConversion: true, unidadReferenciaId: true },
+      });
+      if (skus.length !== idsReferencia.length) {
+        throw new NotFoundException("Algun SKU de la orden no pertenece a la empresa");
+      }
+      for (const s of skus) {
+        if (s.unidadReferenciaId === null || s.factorConversion === null) {
+          throw new BadRequestException(
+            `El SKU ${s.id} no tiene unidad de referencia configurada para conversion`,
+          );
+        }
+        factores.set(s.id.toString(), s.factorConversion);
+      }
+    }
+
+    return lineas.map((l) => {
+      if (!l.enUnidadReferencia) {
+        return { skuId: l.skuId, cantidad: l.cantidad, costoUnitario: l.costoUnitario };
+      }
+      const factor = factores.get(l.skuId.toString()) ?? null;
+      return {
+        skuId: l.skuId,
+        cantidad: aUnidadDeControl(l.cantidad, factor),
+        costoUnitario: precioAUnidadDeControl(l.costoUnitario, factor),
+      };
+    });
   }
 
   /** Actualiza el estado de la OC segun lo recibido vs lo pedido. */

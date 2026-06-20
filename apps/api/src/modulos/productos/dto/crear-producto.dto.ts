@@ -65,4 +65,66 @@ export class CrearProductoDto {
   @IsOptional()
   @Matches(REGEX_DECIMAL, { message: "stockMinimo debe ser decimal positivo" })
   stockMinimo?: string;
+
+  // --- Multi-unidad (opcional) ---
+  // Unidad alternativa en la que se podra capturar cantidades en compras/ventas/vales.
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  unidadReferenciaId?: number;
+
+  // Cuantas unidades de control equivalen a UNA unidad de referencia (> 0).
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "factorConversion debe ser decimal positivo" })
+  factorConversion?: string;
+
+  // --- Precios de venta por nivel (opcionales) ---
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "precioPublico debe ser decimal positivo" })
+  precioPublico?: string;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "precioDistribuidor debe ser decimal positivo" })
+  precioDistribuidor?: string;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "precioVenta3 debe ser decimal positivo" })
+  precioVenta3?: string;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "precioVenta4 debe ser decimal positivo" })
+  precioVenta4?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(3)
+  monedaVenta?: string; // ISO-4217 (PEN, USD)
+}
+
+/**
+ * Actualiza los precios de venta por nivel de un SKU existente. Todos los
+ * campos son opcionales: solo se modifican los enviados (los omitidos se
+ * conservan; enviar cadena vacia no esta permitido por el regex).
+ */
+export class ActualizarPreciosSkuDto {
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "precioPublico debe ser decimal positivo" })
+  precioPublico?: string;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "precioDistribuidor debe ser decimal positivo" })
+  precioDistribuidor?: string;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "precioVenta3 debe ser decimal positivo" })
+  precioVenta3?: string;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "precioVenta4 debe ser decimal positivo" })
+  precioVenta4?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(3)
+  monedaVenta?: string; // ISO-4217 (PEN, USD)
 }

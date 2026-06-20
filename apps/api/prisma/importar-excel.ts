@@ -9,6 +9,7 @@ import { read, utils } from "xlsx";
 import { readFileSync } from "node:fs";
 import { PrismaService } from "../src/comun/prisma/prisma.service.js";
 import { MovimientoService } from "../src/modulos/inventario/movimientos/movimiento.service.js";
+import { TiposCambioService } from "../src/modulos/tipos-cambio/tipos-cambio.service.js";
 import {
   ImportadorService,
   type FilaImportacion,
@@ -44,7 +45,7 @@ async function main(): Promise<void> {
 
   const prisma = new PrismaService();
   await prisma.$connect();
-  const importador = new ImportadorService(prisma, new MovimientoService(prisma));
+  const importador = new ImportadorService(prisma, new MovimientoService(prisma, new TiposCambioService(prisma)));
 
   const empresa = await prisma.empresa.findFirstOrThrow();
   const admin = await prisma.usuario.findFirstOrThrow({ where: { empresaId: empresa.id } });

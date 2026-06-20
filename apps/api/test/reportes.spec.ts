@@ -1,12 +1,13 @@
 import { PrismaService } from "../src/comun/prisma/prisma.service.js";
 import { MovimientoService } from "../src/modulos/inventario/movimientos/movimiento.service.js";
+import { TiposCambioService } from "../src/modulos/tipos-cambio/tipos-cambio.service.js";
 import { ReportesService } from "../src/modulos/reportes/reportes.service.js";
 import type { UsuarioRequest } from "../src/comun/contexto/usuario-request.js";
 
 /** Integracion del exportador PLE SUNAT (Formatos 12.1 y 13.1). */
 describe("ReportesService PLE (integracion)", () => {
   const prisma = new PrismaService();
-  const movimientos = new MovimientoService(prisma);
+  const movimientos = new MovimientoService(prisma, new TiposCambioService(prisma));
   const reportes = new ReportesService(prisma);
 
   let usuario: UsuarioRequest;

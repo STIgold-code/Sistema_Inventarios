@@ -9,8 +9,11 @@ import {
 } from "@bm/tipos";
 import { PrismaService } from "../../../comun/prisma/prisma.service.js";
 import type { UsuarioRequest } from "../../../comun/contexto/usuario-request.js";
+import { TiposCambioService } from "../../tipos-cambio/tipos-cambio.service.js";
 import {
   InconsistenciaCapasError,
+  PeriodoCerradoError,
+  SerieInvalidaError,
   StockInsuficienteError,
 } from "./errores.js";
 
@@ -32,6 +35,8 @@ interface EntradaCompra {
   /** Fecha de emision real de la factura del proveedor (rige el periodo SUNAT). */
   fechaEmisionDocumento?: Date;
   observaciones?: string;
+  /** Numeros de serie a registrar (obligatorio si el SKU controla serie). */
+  numerosSerie?: string[];
 }
 
 interface SalidaVenta {
@@ -49,6 +54,8 @@ interface SalidaVenta {
   /** Fecha de emision real del comprobante (rige el periodo SUNAT). */
   fechaEmisionDocumento?: Date;
   observaciones?: string;
+  /** Numeros de serie a despachar (obligatorio si el SKU controla serie). */
+  numerosSerie?: string[];
 }
 
 interface ConsumoCapaTmp {
@@ -89,7 +96,26 @@ interface DatosMovimiento {
  */
 @Injectable()
 export class MovimientoService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tiposCambio: TiposCambioService,
+  ) {}
+
+  /**
+   * Tipo de cambio "venta" del dia de la fecha dada, o null si no hay TC cargado.
+   * La valuacion en USD del kardex usa la cotizacion VENTA (criterio contable
+   * para convertir costos de adquisicion). Es la unica lectura de TC del motor.
+   */
+  private async tcVentaDe(
+    tx: Tx,
+    empresaId: bigint,
+    fecha: Date,
+  ): Promise<Prisma.Decimal | null> {
+    const registro = await this.tiposCambio.obtenerPorFecha(tx, empresaId, fecha);
+    if (!registro) return null;
+    const venta = new D(registro.venta);
+    return venta.isZero() ? null : venta;
+  }
 
   /** Entrada por compra: crea una capa de costo y recalcula el promedio movil. */
   async recibirCompra(
@@ -153,6 +179,7 @@ export class MovimientoService {
           cantidadInicial: cantidad,
           cantidadRestante: cantidad,
           costoUnitario,
+          costoUnitarioUsd: mov.costoUnitarioUsd,
         },
       });
 
@@ -163,6 +190,15 @@ export class MovimientoService {
           costoPromedio: nuevoPromedio,
           version: { increment: 1 },
         },
+      });
+
+      // Trazabilidad por serie: registra una serie por cada unidad ingresada.
+      await this.registrarSeriesEntrada(tx, usuario.empresaId, {
+        skuId: dto.skuId,
+        almacenId: dto.almacenId,
+        cantidad,
+        movimientoEntradaId: mov.id,
+        numerosSerie: dto.numerosSerie,
       });
 
       return mov.id;
@@ -220,6 +256,7 @@ export class MovimientoService {
           cantidadInicial: cantidad,
           cantidadRestante: cantidad,
           costoUnitario,
+          costoUnitarioUsd: mov.costoUnitarioUsd,
         },
       });
 
@@ -338,6 +375,15 @@ export class MovimientoService {
           costoPromedio: nuevoPromedio,
           version: { increment: 1 },
         },
+      });
+
+      // Trazabilidad por serie: marca como DESPACHADO las series que salen.
+      await this.marcarSeriesSalida(tx, usuario.empresaId, {
+        skuId: dto.skuId,
+        almacenId: dto.almacenId,
+        cantidad,
+        movimientoSalidaId: mov.id,
+        numerosSerie: dto.numerosSerie,
       });
 
       return { movimientoId: mov.id, costoSalida: costoTotalMov };
@@ -471,6 +517,7 @@ export class MovimientoService {
             cantidadInicial: magnitud,
             cantidadRestante: magnitud,
             costoUnitario: costoUnit,
+            costoUnitarioUsd: mov.costoUnitarioUsd,
           },
         });
       } else {
@@ -633,7 +680,14 @@ export class MovimientoService {
   async salidaPorVale(
     usuario: UsuarioRequest,
     tx: Tx,
-    dto: { skuId: bigint; almacenId: bigint; cantidad: string; documentoId: bigint; observaciones?: string },
+    dto: {
+      skuId: bigint;
+      almacenId: bigint;
+      cantidad: string;
+      documentoId: bigint;
+      observaciones?: string;
+      numerosSerie?: string[];
+    },
   ): Promise<{ movimientoId: bigint }> {
     const cantidad = new D(dto.cantidad);
     await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
@@ -647,7 +701,166 @@ export class MovimientoService {
       tipoOperacionSunat: TIPO_OPERACION.RETIRO,
       observaciones: dto.observaciones ?? "Salida por vale",
     });
+    await this.marcarSeriesSalida(tx, usuario.empresaId, {
+      skuId: dto.skuId,
+      almacenId: dto.almacenId,
+      cantidad,
+      movimientoSalidaId: mov.id,
+      numerosSerie: dto.numerosSerie,
+    });
     return { movimientoId: mov.id };
+  }
+
+  // --- trazabilidad por serie ---
+
+  /**
+   * Registra los numeros de serie de una ENTRADA cuando el SKU controla serie.
+   * Cada serie nace DISPONIBLE, enlazada al movimiento de entrada y al almacen.
+   * Reglas: la cantidad de series debe igualar la cantidad ingresada (enteros);
+   * no se admiten series duplicadas en el lote ni ya existentes para el SKU.
+   * Si el SKU NO controla serie, no debe llegar lista de series.
+   */
+  private async registrarSeriesEntrada(
+    tx: Tx,
+    empresaId: bigint,
+    datos: {
+      skuId: bigint;
+      almacenId: bigint;
+      cantidad: Prisma.Decimal;
+      movimientoEntradaId: bigint;
+      numerosSerie?: string[];
+    },
+  ): Promise<void> {
+    const sku = await tx.sku.findUniqueOrThrow({
+      where: { id: datos.skuId },
+      select: { controlaSerie: true },
+    });
+    const series = this.normalizarSeries(datos.numerosSerie);
+
+    if (!sku.controlaSerie) {
+      if (series.length > 0) {
+        throw new SerieInvalidaError(
+          "El SKU no controla numero de serie; no se deben enviar series.",
+        );
+      }
+      return;
+    }
+
+    this.exigirSeriesCoincidenConCantidad(series, datos.cantidad);
+
+    const existentes = await tx.serieArticulo.findMany({
+      where: { empresaId, skuId: datos.skuId, numeroSerie: { in: series } },
+      select: { numeroSerie: true },
+    });
+    if (existentes.length > 0) {
+      throw new SerieInvalidaError(
+        `Ya existen series registradas para este SKU: ${existentes
+          .map((s) => s.numeroSerie)
+          .join(", ")}`,
+      );
+    }
+
+    await tx.serieArticulo.createMany({
+      data: series.map((numeroSerie) => ({
+        empresaId,
+        skuId: datos.skuId,
+        numeroSerie,
+        almacenId: datos.almacenId,
+        estado: "DISPONIBLE" as const,
+        movimientoEntradaId: datos.movimientoEntradaId,
+      })),
+    });
+  }
+
+  /**
+   * Marca como DESPACHADO los numeros de serie de una SALIDA cuando el SKU
+   * controla serie. Las series deben existir, estar DISPONIBLE y pertenecer al
+   * almacen de salida. La cantidad de series debe igualar la cantidad de salida.
+   */
+  private async marcarSeriesSalida(
+    tx: Tx,
+    empresaId: bigint,
+    datos: {
+      skuId: bigint;
+      almacenId: bigint;
+      cantidad: Prisma.Decimal;
+      movimientoSalidaId: bigint;
+      numerosSerie?: string[];
+    },
+  ): Promise<void> {
+    const sku = await tx.sku.findUniqueOrThrow({
+      where: { id: datos.skuId },
+      select: { controlaSerie: true },
+    });
+    const series = this.normalizarSeries(datos.numerosSerie);
+
+    if (!sku.controlaSerie) {
+      if (series.length > 0) {
+        throw new SerieInvalidaError(
+          "El SKU no controla numero de serie; no se deben enviar series.",
+        );
+      }
+      return;
+    }
+
+    this.exigirSeriesCoincidenConCantidad(series, datos.cantidad);
+
+    const registros = await tx.serieArticulo.findMany({
+      where: { empresaId, skuId: datos.skuId, numeroSerie: { in: series } },
+    });
+    const porNumero = new Map(registros.map((r) => [r.numeroSerie, r]));
+
+    for (const numeroSerie of series) {
+      const registro = porNumero.get(numeroSerie);
+      if (!registro) {
+        throw new SerieInvalidaError(`La serie ${numeroSerie} no existe para este SKU.`);
+      }
+      if (registro.estado !== "DISPONIBLE") {
+        throw new SerieInvalidaError(`La serie ${numeroSerie} ya fue despachada.`);
+      }
+      if (registro.almacenId !== datos.almacenId) {
+        throw new SerieInvalidaError(
+          `La serie ${numeroSerie} no pertenece al almacen de salida.`,
+        );
+      }
+    }
+
+    await tx.serieArticulo.updateMany({
+      where: { empresaId, skuId: datos.skuId, numeroSerie: { in: series } },
+      data: {
+        estado: "DESPACHADO",
+        movimientoSalidaId: datos.movimientoSalidaId,
+      },
+    });
+  }
+
+  /** Limpia, deduplica deteccion y descarta vacios de la lista de series. */
+  private normalizarSeries(numerosSerie?: string[]): string[] {
+    if (!numerosSerie) return [];
+    const limpias = numerosSerie.map((s) => s.trim()).filter((s) => s.length > 0);
+    const unicas = new Set(limpias);
+    if (unicas.size !== limpias.length) {
+      throw new SerieInvalidaError("Hay numeros de serie duplicados en la captura.");
+    }
+    return limpias;
+  }
+
+  /** La cantidad de series debe igualar la cantidad (entera) del movimiento. */
+  private exigirSeriesCoincidenConCantidad(
+    series: string[],
+    cantidad: Prisma.Decimal,
+  ): void {
+    if (!cantidad.equals(cantidad.trunc())) {
+      throw new SerieInvalidaError(
+        "Un articulo serializado solo admite cantidades enteras.",
+      );
+    }
+    const esperadas = cantidad.toNumber();
+    if (series.length !== esperadas) {
+      throw new SerieInvalidaError(
+        `Se requieren ${esperadas} numeros de serie y se recibieron ${series.length}.`,
+      );
+    }
   }
 
   // --- helpers privados ---
@@ -700,6 +913,7 @@ export class MovimientoService {
         cantidadInicial: datos.cantidad,
         cantidadRestante: datos.cantidad,
         costoUnitario: datos.costoUnitario,
+        costoUnitarioUsd: mov.costoUnitarioUsd,
       },
     });
     await tx.itemStock.update({
@@ -882,7 +1096,15 @@ export class MovimientoService {
     // provee; si no, por la fecha del movimiento (comportamiento actual).
     const fechaEmision = datos.fechaEmisionDocumento ?? ahora;
     const periodo = this.periodoDe(fechaEmision);
+    // El periodo del movimiento no puede estar contablemente cerrado.
+    await this.exigirPeriodoAbierto(tx, datos.usuario.empresaId, periodo);
     const secuencia = await this.siguienteSecuencia(tx);
+
+    // Valuacion bimoneda: si hay TC del dia, deriva el costo en USD del costo
+    // en soles. Si no hay TC, queda null sin afectar el costeo en soles.
+    const tc = await this.tcVentaDe(tx, datos.usuario.empresaId, fechaEmision);
+    const costoUnitarioUsd = tc ? datos.costoUnitario.div(tc) : null;
+    const costoTotalUsd = tc ? datos.costoTotal.div(tc) : null;
 
     return tx.movimientoStock.create({
       data: {
@@ -895,6 +1117,8 @@ export class MovimientoService {
         cantidad: datos.cantidad,
         costoUnitario: datos.costoUnitario,
         costoTotal: datos.costoTotal,
+        costoUnitarioUsd,
+        costoTotalUsd,
         saldoCantidad: datos.saldoCantidad,
         saldoCostoUnitario: datos.saldoCostoUnitario,
         saldoCostoTotal: datos.saldoCostoTotal,
@@ -914,6 +1138,21 @@ export class MovimientoService {
         observaciones: datos.observaciones ?? null,
       },
     });
+  }
+
+  /** Lanza si el periodo (AAAAMM) esta cerrado para la empresa. */
+  private async exigirPeriodoAbierto(
+    tx: Tx,
+    empresaId: bigint,
+    periodo: string,
+  ): Promise<void> {
+    const cierre = await tx.cierrePeriodo.findUnique({
+      where: { empresaId_periodo: { empresaId, periodo } },
+      select: { estado: true },
+    });
+    if (cierre?.estado === "CERRADO") {
+      throw new PeriodoCerradoError(periodo);
+    }
   }
 
   private periodoDe(fecha: Date): string {

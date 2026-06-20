@@ -71,6 +71,21 @@ enum EstadoActivo {
   EXTRAVIADO
 }
 
+enum EstadoCierrePeriodo {
+  ABIERTO
+  CERRADO
+}
+
+enum EstadoSerieArticulo {
+  DISPONIBLE
+  DESPACHADO
+}
+
+enum EstadoOrdenTrabajo {
+  ABIERTA
+  CERRADA
+}
+
 // ===========================================================================
 // NUCLEO ORGANIZACIONAL
 // ===========================================================================
@@ -93,6 +108,8 @@ model Empresa {
   correlativos  DocumentoCorrelativo[]
   clientes      Cliente[]
   guiasRemision GuiaRemision[]
+  tiposCambio   TipoCambioDiario[]
+  cierres       CierrePeriodo[]
 
   @@map("empresa")
 }
@@ -122,6 +139,7 @@ model Almacen {
   sucursal     Sucursal     @relation(fields: [sucursalId], references: [id])
   ubicaciones  Ubicacion[]
   valesSalida  ValeSalida[]
+  series       SerieArticulo[]
 
   @@unique([empresaId, codigo])
   @@index([empresaId, sucursalId])
@@ -159,6 +177,7 @@ model CentroCosto {
   empresa Empresa @relation(fields: [empresaId], references: [id])
   requerimientos RequerimientoCompra[]
   valesSalida    ValeSalida[]
+  ordenesTrabajo OrdenTrabajo[]
 
   @@unique([empresaId, codigo])
   @@index([empresaId])
@@ -181,6 +200,25 @@ model DocumentoCorrelativo {
   @@unique([empresaId, tipoDocumento, serie])
   @@index([empresaId])
   @@map("documento_correlativo")
+}
+
+/// Tipo de cambio diario por empresa (PEN respecto a USD).
+/// `compra` y `venta` son las cotizaciones publicadas (ej. SUNAT/SBS).
+/// Unico por (empresa, fecha). La valuacion en USD del kardex usa este TC.
+model TipoCambioDiario {
+  id            BigInt   @id @default(autoincrement())
+  empresaId     BigInt   @map("empresa_id")
+  fecha         DateTime @db.Date
+  compra        Decimal  @db.Decimal(20, 6)
+  venta         Decimal  @db.Decimal(20, 6)
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id])
+
+  @@unique([empresaId, fecha])
+  @@index([empresaId, fecha])
+  @@map("tipo_cambio_diario")
 }
 
 // ===========================================================================
@@ -207,8 +245,9 @@ model Unidad {
   codigo    String // Tabla 6 SUNAT: KGM, MTR, NIU...
   nombre    String
 
-  empresa Empresa @relation(fields: [empresaId], references: [id])
-  skus    Sku[]
+  empresa            Empresa @relation(fields: [empresaId], references: [id])
+  skus               Sku[]   @relation("SkuUnidadControl")
+  skusComoReferencia Sku[]   @relation("SkuUnidadReferencia")
 
   @@unique([empresaId, codigo])
   @@map("unidad")
@@ -245,23 +284,50 @@ model Sku {
   unidadId BigInt  @map("unidad_id")
   nombre   String?
 
+  // Multi-unidad: unidad de referencia opcional para captura en compras/ventas/vales.
+  // factorConversion = cuantas unidades de CONTROL (unidadId) equivalen a UNA unidad
+  // de referencia. cantidadControl = cantidadReferencia * factorConversion.
+  // Null/1 => sin conversion (la captura ya esta en unidad de control).
+  unidadReferenciaId BigInt?  @map("unidad_referencia_id")
+  factorConversion   Decimal? @map("factor_conversion") @db.Decimal(20, 8)
+
   // SUNAT
   tipoExistencia  String @default("01") @map("tipo_existencia") @db.VarChar(2) // Tabla 5
   metodoValuacion String @default("2") @map("metodo_valuacion") @db.VarChar(2) // Tabla 14 (2 = PROMEDIO)
 
+  // Precios de venta por nivel (multiples listas). El nivel aplicado al facturar
+  // o cotizar se decide por Cliente.tipoPrecio (1=publico, 2=distribuidor, 3, 4).
+  // Null = sin precio configurado para ese nivel.
+  precioPublico      Decimal? @map("precio_publico") @db.Decimal(20, 6)
+  precioDistribuidor Decimal? @map("precio_distribuidor") @db.Decimal(20, 6)
+  precioVenta3       Decimal? @map("precio_venta_3") @db.Decimal(20, 6)
+  precioVenta4       Decimal? @map("precio_venta_4") @db.Decimal(20, 6)
+  // Moneda de los precios de venta (ISO-4217: PEN, USD). Null = sin definir.
+  monedaVenta        String?  @map("moneda_venta") @db.VarChar(3)
+
   stockMinimo         Decimal? @map("stock_minimo") @db.Decimal(20, 8)
+  // Datos logisticos de reposicion (planificacion de abastecimiento).
+  stockMaximo         Decimal? @map("stock_maximo") @db.Decimal(20, 8)
+  puntoReposicion     Decimal? @map("punto_reposicion") @db.Decimal(20, 8)
+  semanasReposicion   Int?     @map("semanas_reposicion")
+  // Clasificacion ABC por valor de consumo: "A", "B" o "C". Null = sin clasificar.
+  clasificacionAbc    String?  @map("clasificacion_abc") @db.VarChar(1)
   controlaLote        Boolean  @default(false) @map("controla_lote")
   controlaSerie       Boolean  @default(false) @map("controla_serie")
   controlaVencimiento Boolean  @default(false) @map("controla_vencimiento")
   activo              Boolean  @default(true)
   creadoEn            DateTime @default(now()) @map("creado_en")
 
-  producto    Producto          @relation(fields: [productoId], references: [id])
-  unidad      Unidad            @relation(fields: [unidadId], references: [id])
+  producto         Producto @relation(fields: [productoId], references: [id])
+  unidad           Unidad   @relation("SkuUnidadControl", fields: [unidadId], references: [id])
+  unidadReferencia Unidad?  @relation("SkuUnidadReferencia", fields: [unidadReferenciaId], references: [id])
   lotes       Lote[]
   items       ItemStock[]
   movimientos MovimientoStock[]
   capas       CapaCosto[]
+  saldosPeriodo SaldoPeriodo[]
+  series        SerieArticulo[]
+  cotizaciones  CotizacionProveedor[]
 
   @@unique([empresaId, codigoParlante])
   @@index([empresaId, productoId])
@@ -331,6 +397,11 @@ model MovimientoStock {
   costoUnitario Decimal @map("costo_unitario") @db.Decimal(20, 8)
   costoTotal    Decimal @map("costo_total") @db.Decimal(20, 2)
 
+  // Valorizacion bimoneda (USD). Null cuando no hay tipo de cambio del dia.
+  // Se deriva del costo en soles: costoUsd = costoSoles / tipoCambio.
+  costoUnitarioUsd Decimal? @map("costo_unitario_usd") @db.Decimal(20, 8)
+  costoTotalUsd    Decimal? @map("costo_total_usd") @db.Decimal(20, 2)
+
   // Saldo resultante (snapshot que SUNAT exige guardar en cada movimiento).
   saldoCantidad      Decimal @map("saldo_cantidad") @db.Decimal(20, 8)
   saldoCostoUnitario Decimal @map("saldo_costo_unitario") @db.Decimal(20, 8)
@@ -361,6 +432,8 @@ model MovimientoStock {
   usuario   Usuario   @relation(fields: [usuarioId], references: [id])
   consumos  ConsumoCapa[]
   capaCreada CapaCosto?
+  seriesEntrada SerieArticulo[] @relation("SerieMovimientoEntrada")
+  seriesSalida  SerieArticulo[] @relation("SerieMovimientoSalida")
 
   @@index([empresaId, skuId, fechaMovimiento, secuencia])
   @@index([empresaId, almacenId, fechaMovimiento])
@@ -385,6 +458,8 @@ model CapaCosto {
   cantidadInicial  Decimal  @map("cantidad_inicial") @db.Decimal(20, 8)
   cantidadRestante Decimal  @map("cantidad_restante") @db.Decimal(20, 8)
   costoUnitario    Decimal  @map("costo_unitario") @db.Decimal(20, 8)
+  // Costo unitario en USD al ingreso de la capa (null si no habia TC ese dia).
+  costoUnitarioUsd Decimal? @map("costo_unitario_usd") @db.Decimal(20, 8)
   fechaIngreso     DateTime @default(now()) @map("fecha_ingreso")
   agotada          Boolean  @default(false)
 
@@ -434,6 +509,7 @@ model Usuario {
   ordenesAprobadas          OrdenCompra[]         @relation("OrdenCompraAprobador")
   valesSolicitados          ValeSalida[]          @relation("ValeSalidaSolicitante")
   valesAutorizados          ValeSalida[]          @relation("ValeSalidaAutorizador")
+  cierresRealizados         CierrePeriodo[]       @relation("CierrePeriodoCerradoPor")
 
   @@unique([empresaId, email])
   @@map("usuario")
@@ -555,6 +631,7 @@ model ValeSalida {
   fecha           DateTime         @default(now())
   almacenId       BigInt           @map("almacen_id") // almacen del que sale el stock
   centroCostoId   BigInt           @map("centro_costo_id")
+  ordenTrabajoId  BigInt?          @map("orden_trabajo_id") // OT a la que se imputa el consumo (opcional)
   solicitanteId   BigInt           @map("solicitante_id")
   autorizadoPorId BigInt?          @map("autorizado_por_id")
   destino         String // area / obra / proyecto destino del consumo
@@ -565,6 +642,7 @@ model ValeSalida {
 
   almacen     Almacen           @relation(fields: [almacenId], references: [id])
   centroCosto CentroCosto       @relation(fields: [centroCostoId], references: [id])
+  ordenTrabajo OrdenTrabajo?    @relation(fields: [ordenTrabajoId], references: [id])
   solicitante Usuario           @relation("ValeSalidaSolicitante", fields: [solicitanteId], references: [id])
   autorizadoPor Usuario?        @relation("ValeSalidaAutorizador", fields: [autorizadoPorId], references: [id])
   lineas      ValeSalidaLinea[]
@@ -572,6 +650,7 @@ model ValeSalida {
   @@unique([empresaId, numero])
   @@index([empresaId, estado])
   @@index([empresaId, almacenId])
+  @@index([empresaId, ordenTrabajoId])
   @@map("vale_salida")
 }
 
@@ -592,6 +671,33 @@ model ValeSalidaLinea {
   @@map("vale_salida_linea")
 }
 
+// ===========================================================================
+// ORDEN DE TRABAJO: agrupa el consumo de almacen imputado a un trabajo/proyecto.
+// Los vales de salida (consumo) se asocian opcionalmente a una OT para
+// obtener el consumo valorizado acumulado por OT desde el ledger.
+// ===========================================================================
+
+model OrdenTrabajo {
+  id            BigInt             @id @default(autoincrement())
+  empresaId     BigInt             @map("empresa_id")
+  numero        String // correlativo interno (tipo ORDEN_TRABAJO)
+  descripcion   String
+  centroCostoId BigInt             @map("centro_costo_id")
+  estado        EstadoOrdenTrabajo @default(ABIERTA)
+  fechaApertura DateTime           @default(now()) @map("fecha_apertura")
+  fechaCierre   DateTime?          @map("fecha_cierre")
+  creadoEn      DateTime           @default(now()) @map("creado_en")
+  actualizadoEn DateTime           @updatedAt @map("actualizado_en")
+
+  centroCosto CentroCosto  @relation(fields: [centroCostoId], references: [id])
+  valesSalida ValeSalida[]
+
+  @@unique([empresaId, numero])
+  @@index([empresaId, estado])
+  @@index([empresaId, centroCostoId])
+  @@map("orden_trabajo")
+}
+
 model Proveedor {
   id        BigInt   @id @default(autoincrement())
   empresaId BigInt   @map("empresa_id")
@@ -608,11 +714,35 @@ model Proveedor {
   activo    Boolean  @default(true)
   creadoEn  DateTime @default(now()) @map("creado_en")
 
-  ordenes OrdenCompra[]
+  ordenes     OrdenCompra[]
+  cotizaciones CotizacionProveedor[]
 
   @@unique([empresaId, ruc])
   @@index([empresaId])
   @@map("proveedor")
+}
+
+// Cotizacion proveedor-articulo: historico de precios ofertados por un proveedor
+// para un SKU. Permite consultar el ultimo precio por proveedor por articulo.
+model CotizacionProveedor {
+  id              BigInt   @id @default(autoincrement())
+  empresaId       BigInt   @map("empresa_id")
+  proveedorId     BigInt   @map("proveedor_id")
+  skuId           BigInt   @map("sku_id")
+  moneda          String   @default("PEN")
+  precioUnitario  Decimal  @map("precio_unitario") @db.Decimal(20, 6)
+  fechaCotizacion DateTime @map("fecha_cotizacion")
+  numeroCotizacion String? @map("numero_cotizacion")
+  ordenCompraRef  String?  @map("orden_compra_ref")
+  creadoEn        DateTime @default(now()) @map("creado_en")
+
+  proveedor Proveedor @relation(fields: [proveedorId], references: [id])
+  sku       Sku       @relation(fields: [skuId], references: [id])
+
+  // Orden cronologico para resolver "ultimo precio" por (proveedor, sku).
+  @@index([empresaId, skuId, fechaCotizacion])
+  @@index([empresaId, proveedorId, skuId, fechaCotizacion])
+  @@map("cotizacion_proveedor")
 }
 
 model OrdenCompra {
@@ -722,6 +852,9 @@ model Cliente {
   direccion        String?
   telefono         String?
   email            String?
+  // Nivel de precio de venta aplicado a este cliente (mapea a las listas del SKU):
+  // 1=publico, 2=distribuidor, 3, 4. Null => se asume publico (1) al sugerir precio.
+  tipoPrecio       Int?     @map("tipo_precio")
   activo           Boolean  @default(true)
   creadoEn         DateTime @default(now()) @map("creado_en")
   actualizadoEn    DateTime @updatedAt @map("actualizado_en")
@@ -996,4 +1129,86 @@ model DepreciacionActivo {
   @@unique([empresaId, activoId, periodo])
   @@index([empresaId, periodo])
   @@map("depreciacion_activo")
+}
+
+// ===========================================================================
+// CIERRE MENSUAL DE PERIODO VALORIZADO
+// ===========================================================================
+
+/// Cierre contable de un periodo (AAAAMM) por empresa. Al cerrar, se congela el
+/// saldo valorizado del inventario al fin del periodo y se bloquea el registro
+/// de movimientos con fecha dentro de ese periodo. Solo ADMIN puede reabrir.
+model CierrePeriodo {
+  id                   BigInt              @id @default(autoincrement())
+  empresaId            BigInt              @map("empresa_id")
+  periodo              String              @db.VarChar(6) // AAAAMM
+  estado               EstadoCierrePeriodo @default(ABIERTO)
+  cerradoPorId         BigInt?             @map("cerrado_por_id")
+  fechaCierre          DateTime?           @map("fecha_cierre")
+  totalValorizadoSoles Decimal             @default(0) @map("total_valorizado_soles") @db.Decimal(20, 2)
+  totalValorizadoUsd   Decimal?            @map("total_valorizado_usd") @db.Decimal(20, 2)
+  creadoEn             DateTime            @default(now()) @map("creado_en")
+  actualizadoEn        DateTime            @updatedAt @map("actualizado_en")
+
+  empresa    Empresa         @relation(fields: [empresaId], references: [id])
+  cerradoPor Usuario?        @relation("CierrePeriodoCerradoPor", fields: [cerradoPorId], references: [id])
+  saldos     SaldoPeriodo[]
+
+  @@unique([empresaId, periodo])
+  @@index([empresaId, estado])
+  @@map("cierre_periodo")
+}
+
+/// Snapshot inmutable del saldo valorizado por SKU/almacen al cierre de un
+/// periodo. Fotografia de auditoria: NO se recalcula despues del cierre.
+model SaldoPeriodo {
+  id         BigInt   @id @default(autoincrement())
+  empresaId  BigInt   @map("empresa_id")
+  cierreId   BigInt   @map("cierre_id")
+  periodo    String   @db.VarChar(6) // AAAAMM (denormalizado para consultas)
+  skuId      BigInt   @map("sku_id")
+  almacenId  BigInt   @map("almacen_id")
+  cantidad   Decimal  @db.Decimal(20, 8)
+  costoSoles Decimal  @map("costo_soles") @db.Decimal(20, 2)
+  costoUsd   Decimal? @map("costo_usd") @db.Decimal(20, 2)
+  creadoEn   DateTime @default(now()) @map("creado_en")
+
+  cierre CierrePeriodo @relation(fields: [cierreId], references: [id], onDelete: Cascade)
+  sku    Sku           @relation(fields: [skuId], references: [id])
+
+  @@unique([cierreId, skuId, almacenId])
+  @@index([empresaId, periodo])
+  @@map("saldo_periodo")
+}
+
+// ===========================================================================
+// TRAZABILIDAD POR NUMERO DE SERIE (SKUs con controlaSerie = true)
+// ===========================================================================
+
+/// Una fila por numero de serie individual de un articulo serializado. Al
+/// ingresar stock de un SKU con controlaSerie se registra cada serie como
+/// DISPONIBLE enlazada al movimiento de entrada; al despachar/vender se marca
+/// DESPACHADO enlazando el movimiento de salida. El estado/almacen son una
+/// proyeccion del ciclo de vida de la serie; los movimientos son la auditoria.
+model SerieArticulo {
+  id                  BigInt              @id @default(autoincrement())
+  empresaId           BigInt              @map("empresa_id")
+  skuId               BigInt              @map("sku_id")
+  numeroSerie         String              @map("numero_serie")
+  almacenId           BigInt?             @map("almacen_id")
+  estado              EstadoSerieArticulo @default(DISPONIBLE)
+  movimientoEntradaId BigInt?             @map("movimiento_entrada_id")
+  movimientoSalidaId  BigInt?             @map("movimiento_salida_id")
+  creadoEn            DateTime            @default(now()) @map("creado_en")
+  actualizadoEn       DateTime            @updatedAt @map("actualizado_en")
+
+  sku               Sku              @relation(fields: [skuId], references: [id])
+  almacen           Almacen?         @relation(fields: [almacenId], references: [id])
+  movimientoEntrada MovimientoStock? @relation("SerieMovimientoEntrada", fields: [movimientoEntradaId], references: [id])
+  movimientoSalida  MovimientoStock? @relation("SerieMovimientoSalida", fields: [movimientoSalidaId], references: [id])
+
+  @@unique([empresaId, skuId, numeroSerie])
+  @@index([empresaId, skuId, estado])
+  @@index([empresaId, almacenId])
+  @@map("serie_articulo")
 }

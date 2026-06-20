@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import { BadRequestException, Controller, Get, Query, UseGuards } from "@nestjs/common";
 import { JwtGuard } from "../../auth/jwt.guard.js";
 import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
@@ -27,6 +27,65 @@ export class ReportesController {
   @Permisos("reporte.ver")
   alertas(@UsuarioActual() usuario: UsuarioRequest) {
     return this.reportes.alertasStockMinimo(usuario.empresaId);
+  }
+
+  @Get("consumo")
+  @Permisos("reporte.ver")
+  consumo(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Query("desde") desde: string,
+    @Query("hasta") hasta: string,
+    @Query("agrupar") agrupar?: string,
+  ) {
+    const REGEX_FECHA = /^\d{4}-\d{2}-\d{2}$/;
+    if (!desde || !REGEX_FECHA.test(desde)) {
+      throw new BadRequestException("desde debe tener formato AAAA-MM-DD");
+    }
+    if (!hasta || !REGEX_FECHA.test(hasta)) {
+      throw new BadRequestException("hasta debe tener formato AAAA-MM-DD");
+    }
+    if (hasta < desde) {
+      throw new BadRequestException("hasta no puede ser anterior a desde");
+    }
+    const ejes = ["centroCosto", "solicitante", "ordenTrabajo"] as const;
+    const eje = agrupar ?? "centroCosto";
+    if (!ejes.includes(eje as (typeof ejes)[number])) {
+      throw new BadRequestException(
+        "agrupar debe ser centroCosto, solicitante u ordenTrabajo",
+      );
+    }
+    return this.reportes.consumoValorizado(
+      usuario.empresaId,
+      desde,
+      hasta,
+      eje as (typeof ejes)[number],
+    );
+  }
+
+  @Get("reposicion")
+  @Permisos("reporte.ver")
+  reposicion(@UsuarioActual() usuario: UsuarioRequest) {
+    return this.reportes.reposicion(usuario.empresaId);
+  }
+
+  @Get("abc")
+  @Permisos("reporte.ver")
+  abc(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Query("desde") desde: string,
+    @Query("hasta") hasta: string,
+  ) {
+    const REGEX_FECHA = /^\d{4}-\d{2}-\d{2}$/;
+    if (!desde || !REGEX_FECHA.test(desde)) {
+      throw new BadRequestException("desde debe tener formato AAAA-MM-DD");
+    }
+    if (!hasta || !REGEX_FECHA.test(hasta)) {
+      throw new BadRequestException("hasta debe tener formato AAAA-MM-DD");
+    }
+    if (hasta < desde) {
+      throw new BadRequestException("hasta no puede ser anterior a desde");
+    }
+    return this.reportes.clasificacionAbc(usuario.empresaId, desde, hasta);
   }
 
   @Get("ple/121")

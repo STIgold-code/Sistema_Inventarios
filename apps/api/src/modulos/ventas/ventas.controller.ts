@@ -33,6 +33,7 @@ export class VentasController {
         skuId: BigInt(l.skuId),
         cantidad: l.cantidad,
         precioUnitario: l.precioUnitario,
+        enUnidadReferencia: l.enUnidadReferencia,
       })),
     });
   }
@@ -56,6 +57,7 @@ export class VentasController {
       lineas: dto.lineas.map((l) => ({
         ordenVentaLineaId: BigInt(l.ordenVentaLineaId),
         cantidad: l.cantidad,
+        numerosSerie: l.numerosSerie,
       })),
     });
   }

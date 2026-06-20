@@ -76,6 +76,151 @@ export class ReportesService {
   }
 
   /**
+   * Reposicion: SKUs cuyo stock disponible esta en o por debajo del punto de
+   * reposicion (o del stock minimo si no hay punto configurado). Sugiere la
+   * cantidad a pedir para volver al stock maximo (stockMaximo - disponible);
+   * si no hay stock maximo, la sugerencia es null (no se puede calcular).
+   */
+  async reposicion(empresaId: bigint) {
+    const items = await this.prisma.itemStock.findMany({
+      where: {
+        empresaId,
+        OR: [
+          { sku: { puntoReposicion: { not: null } } },
+          { sku: { stockMinimo: { not: null } } },
+        ],
+      },
+      include: { sku: { include: { producto: true, unidad: true } } },
+    });
+
+    const filas = items
+      .map((i) => {
+        const disponible = new D(i.cantidadDisponible);
+        const punto = i.sku.puntoReposicion;
+        const minimo = i.sku.stockMinimo;
+        // Umbral efectivo: punto de reposicion si existe, si no el stock minimo.
+        const umbral = punto ?? minimo;
+        if (umbral === null) return null;
+        if (disponible.greaterThan(new D(umbral))) return null;
+
+        const maximo = i.sku.stockMaximo;
+        const sugerido =
+          maximo !== null
+            ? D.max(new D(maximo).sub(disponible), new D(0))
+            : null;
+
+        return {
+          skuId: i.skuId.toString(),
+          codigoParlante: i.sku.codigoParlante,
+          producto: i.sku.producto.nombre,
+          unidad: i.sku.unidad.codigo,
+          disponible: disponible.toFixed(8),
+          stockMinimo: minimo !== null ? new D(minimo).toFixed(8) : null,
+          stockMaximo: maximo !== null ? new D(maximo).toFixed(8) : null,
+          puntoReposicion: punto !== null ? new D(punto).toFixed(8) : null,
+          semanasReposicion: i.sku.semanasReposicion,
+          sugeridoPedir: sugerido !== null ? sugerido.toFixed(8) : null,
+        };
+      })
+      .filter((f): f is NonNullable<typeof f> => f !== null)
+      .sort((a, b) => a.codigoParlante.localeCompare(b.codigoParlante));
+
+    return { filas, total: filas.length };
+  }
+
+  /**
+   * Clasificacion ABC por valor de consumo. Suma el costo de las salidas
+   * valorizadas (todos los tipos SALIDA_*, valorizadas con costoTotal del
+   * ledger FIFO) por SKU en el rango [desde, hasta], ordena de mayor a menor
+   * valor y asigna clase por participacion acumulada: A=<=80%, B=<=95%, C=resto.
+   *
+   * Es solo CALCULO. La persistencia la decide el llamador (ProductoService).
+   */
+  async clasificacionAbc(empresaId: bigint, desde: string, hasta: string) {
+    const fechaDesde = new Date(`${desde}T00:00:00.000Z`);
+    const fechaHasta = new Date(`${hasta}T23:59:59.999Z`);
+
+    const movimientos = await this.prisma.movimientoStock.findMany({
+      where: {
+        empresaId,
+        signo: "SALIDA",
+        fechaEmisionDocumento: { gte: fechaDesde, lte: fechaHasta },
+      },
+      select: { skuId: true, costoTotal: true, cantidad: true },
+    });
+
+    interface Acumulado {
+      skuId: bigint;
+      valorConsumo: Prisma.Decimal;
+      cantidadConsumo: Prisma.Decimal;
+    }
+    const porSku = new Map<bigint, Acumulado>();
+    let valorTotal = new D(0);
+
+    for (const mov of movimientos) {
+      const acc =
+        porSku.get(mov.skuId) ??
+        ({
+          skuId: mov.skuId,
+          valorConsumo: new D(0),
+          cantidadConsumo: new D(0),
+        } satisfies Acumulado);
+      acc.valorConsumo = acc.valorConsumo.add(mov.costoTotal);
+      acc.cantidadConsumo = acc.cantidadConsumo.add(mov.cantidad);
+      porSku.set(mov.skuId, acc);
+      valorTotal = valorTotal.add(mov.costoTotal);
+    }
+
+    const ordenados = [...porSku.values()].sort((a, b) =>
+      b.valorConsumo.comparedTo(a.valorConsumo),
+    );
+
+    // Resolver nombres de SKU/producto para etiquetar el resultado.
+    const skuIds = ordenados.map((o) => o.skuId);
+    const skus = await this.prisma.sku.findMany({
+      where: { id: { in: skuIds }, empresaId },
+      include: { producto: true },
+    });
+    const skuPorId = new Map(skus.map((s) => [s.id, s]));
+
+    const usarPorcentaje = valorTotal.greaterThan(new D(0));
+    let acumulado = new D(0);
+
+    const filas = ordenados.map((o) => {
+      acumulado = acumulado.add(o.valorConsumo);
+      const participacion = usarPorcentaje
+        ? new D(o.valorConsumo).div(valorTotal).mul(100)
+        : new D(0);
+      const acumPorcentaje = usarPorcentaje
+        ? acumulado.div(valorTotal).mul(100)
+        : new D(0);
+      const clase: "A" | "B" | "C" = acumPorcentaje.lessThanOrEqualTo(80)
+        ? "A"
+        : acumPorcentaje.lessThanOrEqualTo(95)
+          ? "B"
+          : "C";
+      const sku = skuPorId.get(o.skuId);
+      return {
+        skuId: o.skuId.toString(),
+        codigoParlante: sku?.codigoParlante ?? "",
+        producto: sku?.producto.nombre ?? "",
+        cantidadConsumo: o.cantidadConsumo.toFixed(8),
+        valorConsumo: this.dinero(o.valorConsumo),
+        participacion: participacion.toFixed(2),
+        participacionAcumulada: acumPorcentaje.toFixed(2),
+        clasificacion: clase,
+      };
+    });
+
+    return {
+      desde,
+      hasta,
+      valorTotal: this.dinero(valorTotal),
+      filas,
+    };
+  }
+
+  /**
    * Genera el Registro de Inventario Permanente en UNIDADES FISICAS (Formato
    * 12.1) como texto plano PLE (campos separados por '|', pipe de cierre).
    */
@@ -185,5 +330,122 @@ export class ReportesService {
 
   private dinero(valor: Prisma.Decimal): string {
     return new D(valor).toFixed(2);
+  }
+
+  /**
+   * Consumo valorizado: salidas tipo SALIDA_CONSUMO (vales de salida) en el rango
+   * [desde, hasta], valorizadas con el costo FIFO ya congelado en el ledger
+   * (costoTotal) y agrupadas por centro de costo, solicitante u orden de trabajo.
+   *
+   * El rango filtra por fechaEmisionDocumento (fecha contable del documento).
+   * El eje de agrupacion se obtiene del vale de salida vinculado (documentoId),
+   * no del movimiento, porque centro/solicitante/OT viven en el vale.
+   */
+  async consumoValorizado(
+    empresaId: bigint,
+    desde: string,
+    hasta: string,
+    agrupar: "centroCosto" | "solicitante" | "ordenTrabajo",
+  ) {
+    const fechaDesde = new Date(`${desde}T00:00:00.000Z`);
+    const fechaHasta = new Date(`${hasta}T23:59:59.999Z`);
+
+    const movimientos = await this.prisma.movimientoStock.findMany({
+      where: {
+        empresaId,
+        tipo: "SALIDA_CONSUMO",
+        documentoTipo: "VALE_SALIDA",
+        fechaEmisionDocumento: { gte: fechaDesde, lte: fechaHasta },
+      },
+      select: {
+        documentoId: true,
+        cantidad: true,
+        costoTotal: true,
+        costoTotalUsd: true,
+      },
+    });
+
+    // Vales referenciados, para resolver el eje de agrupacion.
+    const valeIds = [
+      ...new Set(
+        movimientos
+          .map((m) => m.documentoId)
+          .filter((id): id is bigint => id !== null),
+      ),
+    ];
+    const vales = await this.prisma.valeSalida.findMany({
+      where: { id: { in: valeIds }, empresaId },
+      include: { centroCosto: true, solicitante: true, ordenTrabajo: true },
+    });
+    const valePorId = new Map(vales.map((v) => [v.id, v]));
+
+    interface Acumulado {
+      claveId: string | null;
+      etiqueta: string;
+      cantidad: Prisma.Decimal;
+      costoTotal: Prisma.Decimal;
+      costoTotalUsd: Prisma.Decimal;
+      hayUsd: boolean;
+    }
+    const grupos = new Map<string, Acumulado>();
+    let totalSoles = new D(0);
+
+    for (const mov of movimientos) {
+      const vale = mov.documentoId ? valePorId.get(mov.documentoId) : undefined;
+
+      let claveId: string | null;
+      let etiqueta: string;
+      if (agrupar === "centroCosto") {
+        claveId = vale ? vale.centroCostoId.toString() : null;
+        etiqueta = vale ? vale.centroCosto.nombre : "Sin centro de costo";
+      } else if (agrupar === "solicitante") {
+        claveId = vale ? vale.solicitanteId.toString() : null;
+        etiqueta = vale ? vale.solicitante.nombre : "Sin solicitante";
+      } else {
+        claveId = vale?.ordenTrabajoId ? vale.ordenTrabajoId.toString() : null;
+        etiqueta = vale?.ordenTrabajo
+          ? `${vale.ordenTrabajo.numero} - ${vale.ordenTrabajo.descripcion}`
+          : "Sin orden de trabajo";
+      }
+
+      const clave = claveId ?? `__${etiqueta}`;
+      const acc =
+        grupos.get(clave) ??
+        ({
+          claveId,
+          etiqueta,
+          cantidad: new D(0),
+          costoTotal: new D(0),
+          costoTotalUsd: new D(0),
+          hayUsd: false,
+        } satisfies Acumulado);
+
+      acc.cantidad = acc.cantidad.add(mov.cantidad);
+      acc.costoTotal = acc.costoTotal.add(mov.costoTotal);
+      if (mov.costoTotalUsd !== null) {
+        acc.costoTotalUsd = acc.costoTotalUsd.add(mov.costoTotalUsd);
+        acc.hayUsd = true;
+      }
+      grupos.set(clave, acc);
+      totalSoles = totalSoles.add(mov.costoTotal);
+    }
+
+    const filas = [...grupos.values()]
+      .map((g) => ({
+        claveId: g.claveId,
+        etiqueta: g.etiqueta,
+        cantidad: new D(g.cantidad).toFixed(8),
+        costoTotalSoles: this.dinero(g.costoTotal),
+        costoTotalUsd: g.hayUsd ? this.dinero(g.costoTotalUsd) : null,
+      }))
+      .sort((a, b) => new D(b.costoTotalSoles).comparedTo(new D(a.costoTotalSoles)));
+
+    return {
+      desde,
+      hasta,
+      agrupar,
+      totalSoles: this.dinero(totalSoles),
+      grupos: filas,
+    };
   }
 }

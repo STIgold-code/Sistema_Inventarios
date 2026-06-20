@@ -2,6 +2,7 @@ import { Type } from "class-transformer";
 import {
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsISO8601,
@@ -27,6 +28,12 @@ export class LineaVentaDto {
   @IsOptional()
   @Matches(REGEX_DECIMAL, { message: "precioUnitario debe ser decimal" })
   precioUnitario?: string;
+
+  // Cuando es true, cantidad/precioUnitario vienen en la unidad de referencia del
+  // SKU y el sistema los convierte a unidad de control. Default: unidad de control.
+  @IsOptional()
+  @IsBoolean()
+  enUnidadReferencia?: boolean;
 }
 
 export class CrearOrdenVentaDto {
@@ -71,6 +78,13 @@ export class LineaDespachoDto {
 
   @Matches(REGEX_DECIMAL, { message: "cantidad debe ser decimal positivo" })
   cantidad!: string;
+
+  // Numeros de serie de las unidades despachadas. Obligatorio (cantidad exacta)
+  // cuando el SKU controla serie; debe omitirse en caso contrario.
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  numerosSerie?: string[];
 }
 
 /**
