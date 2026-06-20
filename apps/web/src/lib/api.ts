@@ -1999,6 +1999,63 @@ export function crearCotizacion(
   });
 }
 
+// ── Auditoría (bitácora de acciones de gobierno): tipos ─────────────────────
+
+export interface RegistroAuditoria {
+  id: string;
+  accion: string;
+  entidad: string;
+  /** Id de la entidad afectada; null para acciones sin entidad puntual. */
+  entidadId: string | null;
+  detalle: string | null;
+  /** Fecha y hora del registro en formato ISO 8601. */
+  creadoEn: string;
+  usuario: { id: string; nombre: string };
+}
+
+export interface AuditoriaRespuesta {
+  datos: RegistroAuditoria[];
+  total: number;
+  pagina: number;
+  porPagina: number;
+}
+
+export interface FiltroAuditoria {
+  entidad?: string;
+  entidadId?: number;
+  usuarioId?: number;
+  accion?: string;
+  /** Fecha desde en formato ISO 8601 (inicio del rango). */
+  desde?: string;
+  /** Fecha hasta en formato ISO 8601 (fin del rango). */
+  hasta?: string;
+  pagina?: number;
+  porPagina?: number;
+}
+
+// ── Auditoría: funciones de dominio ─────────────────────────────────────────
+
+/** Lista la bitácora de auditoría con filtros y paginación, más reciente primero. */
+export function obtenerAuditoria(
+  filtro: FiltroAuditoria = {},
+): Promise<AuditoriaRespuesta> {
+  const params = new URLSearchParams();
+  if (filtro.entidad) params.set("entidad", filtro.entidad);
+  if (filtro.entidadId !== undefined) {
+    params.set("entidadId", String(filtro.entidadId));
+  }
+  if (filtro.usuarioId !== undefined) {
+    params.set("usuarioId", String(filtro.usuarioId));
+  }
+  if (filtro.accion) params.set("accion", filtro.accion);
+  if (filtro.desde) params.set("desde", filtro.desde);
+  if (filtro.hasta) params.set("hasta", filtro.hasta);
+  if (filtro.pagina) params.set("pagina", String(filtro.pagina));
+  if (filtro.porPagina) params.set("porPagina", String(filtro.porPagina));
+  const cadena = params.toString();
+  return apiFetch<AuditoriaRespuesta>(`/auditoria${cadena ? `?${cadena}` : ""}`);
+}
+
 // ── Contabilidad: asientos configurables (estilo CONCAR): tipos ─────────────
 
 /** Conceptos contables soportados para configurar cuentas debe/haber. */

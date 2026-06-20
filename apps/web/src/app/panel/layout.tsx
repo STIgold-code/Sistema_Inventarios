@@ -54,6 +54,7 @@ const GRUPOS: readonly GrupoNav[] = [
       { href: "/panel/activos", etiqueta: "Activos fijos" },
       { href: "/panel/almacenes", etiqueta: "Almacenes" },
       { href: "/panel/importador", etiqueta: "Importador" },
+      { href: "/panel/auditoria", etiqueta: "Auditoría" },
     ],
   },
 ];
