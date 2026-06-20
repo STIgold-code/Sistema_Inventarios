@@ -64,6 +64,47 @@ export async function apiFetch<T>(
   return (await respuesta.json()) as T;
 }
 
+/**
+ * Descarga un archivo binario (ej. .xlsx) desde la API inyectando el Bearer
+ * token. A diferencia de `apiFetch`, no parsea JSON: recibe el blob, crea un
+ * object URL temporal y dispara la descarga con un <a download>, liberando el
+ * URL despues. `nombreSugerido` es el fallback del atributo download; el
+ * nombre real lo define el backend via Content-Disposition.
+ */
+export async function descargarArchivo(
+  path: string,
+  nombreSugerido: string,
+): Promise<void> {
+  const token = leerToken();
+  const cabeceras = new Headers();
+  if (token) cabeceras.set("Authorization", `Bearer ${token}`);
+
+  const respuesta = await fetch(`${URL_BASE}${path}`, { headers: cabeceras });
+
+  if (!respuesta.ok) {
+    let cuerpo: CuerpoError | null = null;
+    try {
+      cuerpo = (await respuesta.json()) as CuerpoError;
+    } catch {
+      cuerpo = null;
+    }
+    throw new ErrorApi(extraerMensaje(cuerpo, respuesta.status), respuesta.status);
+  }
+
+  const blob = await respuesta.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const ancla = document.createElement("a");
+    ancla.href = url;
+    ancla.download = nombreSugerido;
+    document.body.appendChild(ancla);
+    ancla.click();
+    ancla.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 /** Autentica contra POST /auth/login. No usa apiFetch porque no requiere token. */
 export async function login(datos: LoginInput): Promise<RespuestaLogin> {
   const respuesta = await fetch(`${URL_BASE}/auth/login`, {

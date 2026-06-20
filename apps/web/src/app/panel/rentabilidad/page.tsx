@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import {
+  descargarArchivo,
   ErrorApi,
   obtenerRentabilidad,
   type EjeRentabilidad,
@@ -76,6 +77,38 @@ export default function PaginaRentabilidad(): React.JSX.Element {
     }
   }
 
+  const [exportando, setExportando] = useState<boolean>(false);
+
+  async function exportar(): Promise<void> {
+    setAviso(null);
+    if (!desde || !hasta) {
+      setAviso({ texto: "Selecciona un rango de fechas.", tono: "error" });
+      return;
+    }
+    if (hasta < desde) {
+      setAviso({
+        texto: "La fecha final no puede ser anterior a la inicial.",
+        tono: "error",
+      });
+      return;
+    }
+    setExportando(true);
+    try {
+      const query = new URLSearchParams({ desde, hasta, agrupar });
+      await descargarArchivo(
+        `/reportes/rentabilidad/export.xlsx?${query.toString()}`,
+        "rentabilidad.xlsx",
+      );
+    } catch (error) {
+      setAviso({
+        texto: mensajeError(error, "No se pudo exportar el reporte."),
+        tono: "error",
+      });
+    } finally {
+      setExportando(false);
+    }
+  }
+
   const etiquetaGrupo =
     EJES.find((e) => e.id === (reporte?.agrupar ?? agrupar))?.etiqueta ?? "Grupo";
 
@@ -89,15 +122,25 @@ export default function PaginaRentabilidad(): React.JSX.Element {
       <section className="panel mt-6">
         <div className="panel-cabecera">
           <span className="panel-titulo">Margen de ventas</span>
-          {reporte && (
-            <span className="text-sm text-texto-sec">
-              Margen total:{" "}
-              <span className="font-mono text-base font-semibold text-tinta">
-                {formatearSoles(reporte.margenTotal)}
-              </span>{" "}
-              ({formatearPorcentaje(reporte.margenPorcentajeTotal)})
-            </span>
-          )}
+          <div className="flex items-center gap-4">
+            {reporte && (
+              <span className="text-sm text-texto-sec">
+                Margen total:{" "}
+                <span className="font-mono text-base font-semibold text-tinta">
+                  {formatearSoles(reporte.margenTotal)}
+                </span>{" "}
+                ({formatearPorcentaje(reporte.margenPorcentajeTotal)})
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => void exportar()}
+              disabled={exportando || cargando}
+              className="btn btn-contorno"
+            >
+              {exportando ? "Exportando…" : "Exportar a Excel"}
+            </button>
+          </div>
         </div>
 
         <div className="space-y-4 p-5">

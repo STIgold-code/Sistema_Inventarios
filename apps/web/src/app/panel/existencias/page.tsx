@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import {
+  descargarArchivo,
   ErrorApi,
   obtenerExistencias,
   type Almacen,
@@ -96,6 +97,30 @@ export default function PaginaExistencias(): React.JSX.Element {
   function cambiarAlmacen(valor: string): void {
     setAlmacenId(valor);
     setPagina(1);
+  }
+
+  const [exportando, setExportando] = useState<boolean>(false);
+
+  async function exportar(): Promise<void> {
+    setExportando(true);
+    setError(null);
+    try {
+      const query = new URLSearchParams();
+      if (terminoActivo) query.set("busqueda", terminoActivo);
+      if (vista === "almacen" && almacenId) query.set("almacenId", almacenId);
+      if (filtroRenovable !== "") query.set("esRenovable", filtroRenovable);
+      const cadena = query.toString();
+      await descargarArchivo(
+        `/inventario/existencias/export.xlsx${cadena ? `?${cadena}` : ""}`,
+        "existencias_valorizadas.xlsx",
+      );
+    } catch (e) {
+      setError(
+        e instanceof ErrorApi ? e.message : "No se pudo exportar el reporte.",
+      );
+    } finally {
+      setExportando(false);
+    }
   }
 
   const totalPaginas = Math.max(1, Math.ceil(total / POR_PAGINA));
@@ -192,6 +217,15 @@ export default function PaginaExistencias(): React.JSX.Element {
                 Buscar
               </button>
             </form>
+
+            <button
+              type="button"
+              onClick={() => void exportar()}
+              disabled={exportando}
+              className="btn btn-contorno"
+            >
+              {exportando ? "Exportando…" : "Exportar a Excel"}
+            </button>
           </div>
         </div>
 

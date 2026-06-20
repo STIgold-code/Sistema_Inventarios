@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import {
+  descargarArchivo as descargarArchivoApi,
   ErrorApi,
   obtenerAlertasStock,
   obtenerConsumo,
@@ -116,6 +117,42 @@ export default function PaginaReportes(): React.JSX.Element {
       });
     } finally {
       setCargandoConsumo(false);
+    }
+  }
+
+  const [exportandoConsumo, setExportandoConsumo] = useState<boolean>(false);
+
+  async function exportarConsumo(): Promise<void> {
+    setAvisoConsumo(null);
+    if (!consumoDesde || !consumoHasta) {
+      setAvisoConsumo({ texto: "Selecciona un rango de fechas.", tono: "error" });
+      return;
+    }
+    if (consumoHasta < consumoDesde) {
+      setAvisoConsumo({
+        texto: "La fecha final no puede ser anterior a la inicial.",
+        tono: "error",
+      });
+      return;
+    }
+    setExportandoConsumo(true);
+    try {
+      const query = new URLSearchParams({
+        desde: consumoDesde,
+        hasta: consumoHasta,
+        agrupar: ejeConsumo,
+      });
+      await descargarArchivoApi(
+        `/reportes/consumo/export.xlsx?${query.toString()}`,
+        "consumo_valorizado.xlsx",
+      );
+    } catch (error) {
+      setAvisoConsumo({
+        texto: mensajeError(error, "No se pudo exportar el reporte."),
+        tono: "error",
+      });
+    } finally {
+      setExportandoConsumo(false);
     }
   }
 
@@ -321,14 +358,24 @@ export default function PaginaReportes(): React.JSX.Element {
         <section className="panel mt-6">
           <div className="panel-cabecera">
             <span className="panel-titulo">Consumo de materiales valorizado</span>
-            {consumo && (
-              <span className="text-sm text-texto-sec">
-                Total consumido:{" "}
-                <span className="font-mono text-base font-semibold text-tinta">
-                  {formatearSoles(consumo.totalSoles)}
+            <div className="flex items-center gap-4">
+              {consumo && (
+                <span className="text-sm text-texto-sec">
+                  Total consumido:{" "}
+                  <span className="font-mono text-base font-semibold text-tinta">
+                    {formatearSoles(consumo.totalSoles)}
+                  </span>
                 </span>
-              </span>
-            )}
+              )}
+              <button
+                type="button"
+                onClick={() => void exportarConsumo()}
+                disabled={exportandoConsumo || cargandoConsumo}
+                className="btn btn-contorno"
+              >
+                {exportandoConsumo ? "Exportando…" : "Exportar a Excel"}
+              </button>
+            </div>
           </div>
           <div className="space-y-4 p-5">
             <p className="text-sm text-texto-sec">

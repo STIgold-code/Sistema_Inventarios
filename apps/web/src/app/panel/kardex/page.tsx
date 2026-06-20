@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { SelectorSku } from "@/componentes/selector-sku";
 import {
+  descargarArchivo,
   ErrorApi,
   obtenerAlmacenes,
   obtenerKardex,
@@ -82,6 +83,28 @@ export default function PaginaKardex(): React.JSX.Element {
     [filas],
   );
   const valorizado = tipoKardex === "valorizado";
+
+  const [exportando, setExportando] = useState<boolean>(false);
+
+  async function exportar(): Promise<void> {
+    if (!sku) return;
+    setExportando(true);
+    setError(null);
+    try {
+      const query = new URLSearchParams({ skuId: String(sku.id) });
+      if (almacenId !== null) query.set("almacenId", String(almacenId));
+      await descargarArchivo(
+        `/inventario/kardex/export.xlsx?${query.toString()}`,
+        "kardex.xlsx",
+      );
+    } catch (e) {
+      setError(
+        e instanceof ErrorApi ? e.message : "No se pudo exportar el kardex.",
+      );
+    } finally {
+      setExportando(false);
+    }
+  }
 
   return (
     <div>
@@ -174,6 +197,16 @@ export default function PaginaKardex(): React.JSX.Element {
             />
             Ver valores en USD
           </label>
+        )}
+        {consultado && filas.length > 0 && (
+          <button
+            type="button"
+            onClick={() => void exportar()}
+            disabled={exportando}
+            className="btn btn-contorno ml-auto"
+          >
+            {exportando ? "Exportando…" : "Exportar a Excel"}
+          </button>
         )}
       </div>
 

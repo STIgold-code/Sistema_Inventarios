@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
 import {
+  descargarArchivo,
   ErrorApi,
   clasificarAbc,
   obtenerAbc,
@@ -140,6 +141,47 @@ export default function PaginaReposicion(): React.JSX.Element {
     }
   }
 
+  const [exportandoRepo, setExportandoRepo] = useState<boolean>(false);
+  const [exportandoAbc, setExportandoAbc] = useState<boolean>(false);
+
+  async function exportarReposicion(): Promise<void> {
+    setExportandoRepo(true);
+    setAvisoRepo(null);
+    try {
+      await descargarArchivo(
+        "/reportes/reposicion/export.xlsx",
+        "reposicion.xlsx",
+      );
+    } catch (error) {
+      setAvisoRepo({
+        texto: mensajeError(error, "No se pudo exportar el reporte."),
+        tono: "error",
+      });
+    } finally {
+      setExportandoRepo(false);
+    }
+  }
+
+  async function exportarAbc(): Promise<void> {
+    setAvisoAbc(null);
+    if (rangoInvalido()) return;
+    setExportandoAbc(true);
+    try {
+      const query = new URLSearchParams({ desde: abcDesde, hasta: abcHasta });
+      await descargarArchivo(
+        `/reportes/abc/export.xlsx?${query.toString()}`,
+        "clasificacion_abc.xlsx",
+      );
+    } catch (error) {
+      setAvisoAbc({
+        texto: mensajeError(error, "No se pudo exportar la clasificación ABC."),
+        tono: "error",
+      });
+    } finally {
+      setExportandoAbc(false);
+    }
+  }
+
   return (
     <div>
       <EncabezadoPagina
@@ -184,6 +226,14 @@ export default function PaginaReposicion(): React.JSX.Element {
                 </span>
               )}
             </span>
+            <button
+              type="button"
+              onClick={() => void exportarReposicion()}
+              disabled={exportandoRepo || cargandoRepo}
+              className="btn btn-contorno"
+            >
+              {exportandoRepo ? "Exportando…" : "Exportar a Excel"}
+            </button>
           </div>
 
           {avisoRepo && (
@@ -343,6 +393,16 @@ export default function PaginaReposicion(): React.JSX.Element {
                   className="btn btn-primario w-full"
                 >
                   {persistiendo ? "Guardando…" : "Guardar clasificación"}
+                </button>
+              </div>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={() => void exportarAbc()}
+                  disabled={cargandoAbc || persistiendo || exportandoAbc}
+                  className="btn btn-contorno w-full"
+                >
+                  {exportandoAbc ? "Exportando…" : "Exportar a Excel"}
                 </button>
               </div>
             </div>
