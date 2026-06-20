@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import { CorrelativoService } from "../comun/correlativo/correlativo.service.js";
 import { MovimientoService } from "../inventario/movimientos/movimiento.service.js";
@@ -44,7 +45,45 @@ export class ValesService {
       empresaId,
       filas.flatMap((v) => v.lineas.map((l) => l.skuId)),
     );
-    return filas.map((v) => ({
+    return filas.map((v) => this.mapearVale(v, skus));
+  }
+
+  /** Obtiene un vale por id con el detalle completo para imprimir. */
+  async obtener(empresaId: bigint, id: bigint) {
+    const vale = await this.prisma.valeSalida.findFirst({
+      where: { id, empresaId },
+      include: {
+        centroCosto: true,
+        almacen: true,
+        ordenTrabajo: true,
+        solicitante: true,
+        autorizadoPor: true,
+        lineas: true,
+      },
+    });
+    if (!vale) throw new NotFoundException("Vale de salida no encontrado");
+    const skus = await this.cargarSkus(
+      empresaId,
+      vale.lineas.map((l) => l.skuId),
+    );
+    return this.mapearVale(vale, skus);
+  }
+
+  /** Da forma al vale para la API. Reutilizado por listar() y obtener(). */
+  private mapearVale(
+    v: Prisma.ValeSalidaGetPayload<{
+      include: {
+        centroCosto: true;
+        almacen: true;
+        ordenTrabajo: true;
+        solicitante: true;
+        autorizadoPor: true;
+        lineas: true;
+      };
+    }>,
+    skus: Map<string, { codigo: string; nombre: string; controlaSerie: boolean }>,
+  ) {
+    return {
       id: v.id.toString(),
       numero: v.numero,
       fecha: v.fecha.toISOString(),
@@ -72,7 +111,7 @@ export class ValesService {
         observacion: l.observacion,
         movimientoStockId: l.movimientoStockId ? l.movimientoStockId.toString() : null,
       })),
-    }));
+    };
   }
 
   /** Mapa skuId -> {codigo, nombre, controlaSerie} para enriquecer las lineas. */

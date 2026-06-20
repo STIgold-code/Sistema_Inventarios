@@ -18,6 +18,12 @@ export class RequerimientosController {
     return this.requerimientos.listar(usuario.empresaId);
   }
 
+  @Get(":id")
+  @Permisos("requerimiento.crear")
+  obtener(@UsuarioActual() usuario: UsuarioRequest, @Param("id") id: string) {
+    return this.requerimientos.obtener(usuario.empresaId, BigInt(id));
+  }
+
   @Post()
   @Permisos("requerimiento.crear")
   crear(

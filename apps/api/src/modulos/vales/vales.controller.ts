@@ -18,6 +18,12 @@ export class ValesController {
     return this.vales.listar(usuario.empresaId);
   }
 
+  @Get(":id")
+  @Permisos("vale.crear")
+  obtener(@UsuarioActual() usuario: UsuarioRequest, @Param("id") id: string) {
+    return this.vales.obtener(usuario.empresaId, BigInt(id));
+  }
+
   @Post()
   @Permisos("vale.crear")
   crear(

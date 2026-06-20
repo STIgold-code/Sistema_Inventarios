@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Post, UseGuards } from "@nestjs/common";
-import { IsInt, IsString, MinLength } from "class-validator";
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { IsBoolean, IsInt, IsOptional, IsString, MinLength } from "class-validator";
 import { JwtGuard } from "../../auth/jwt.guard.js";
 import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
@@ -16,6 +16,19 @@ class CrearAlmacenDto {
   @IsInt() sucursalId!: number;
   @IsString() @MinLength(1) codigo!: string;
   @IsString() @MinLength(1) nombre!: string;
+}
+
+class CrearZonaDto {
+  @IsString() @MinLength(1) codigo!: string;
+  @IsString() @MinLength(1) nombre!: string;
+  @IsOptional() @IsString() descripcion?: string;
+}
+
+class ActualizarZonaDto {
+  @IsOptional() @IsString() @MinLength(1) codigo?: string;
+  @IsOptional() @IsString() @MinLength(1) nombre?: string;
+  @IsOptional() @IsString() descripcion?: string;
+  @IsOptional() @IsBoolean() activo?: boolean;
 }
 
 @Controller("almacenes")
@@ -49,5 +62,42 @@ export class AlmacenesController {
       codigo: dto.codigo,
       nombre: dto.nombre,
     });
+  }
+
+  @Get(":id/zonas")
+  @Permisos("inventario.ver")
+  listarZonas(@UsuarioActual() usuario: UsuarioRequest, @Param("id") id: string) {
+    return this.almacenes.listarZonas(usuario.empresaId, BigInt(id));
+  }
+
+  @Post(":id/zonas")
+  @Permisos("almacen.administrar")
+  crearZona(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id") id: string,
+    @Body() dto: CrearZonaDto,
+  ) {
+    return this.almacenes.crearZona(usuario.empresaId, BigInt(id), dto);
+  }
+
+  @Patch(":id/zonas/:zonaId")
+  @Permisos("almacen.administrar")
+  actualizarZona(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id") id: string,
+    @Param("zonaId") zonaId: string,
+    @Body() dto: ActualizarZonaDto,
+  ) {
+    return this.almacenes.actualizarZona(usuario.empresaId, BigInt(id), BigInt(zonaId), dto);
+  }
+
+  @Patch(":id/zonas/:zonaId/baja")
+  @Permisos("almacen.administrar")
+  darBajaZona(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id") id: string,
+    @Param("zonaId") zonaId: string,
+  ) {
+    return this.almacenes.darBajaZona(usuario.empresaId, BigInt(id), BigInt(zonaId));
   }
 }

@@ -67,6 +67,105 @@ export class AlmacenesService {
     }
   }
 
+  // ── Zonas (ubicaciones gestionables dentro de un almacén) ──────────────
+
+  async listarZonas(empresaId: bigint, almacenId: bigint) {
+    await this.obtenerAlmacen(empresaId, almacenId);
+    const zonas = await this.prisma.ubicacion.findMany({
+      where: { empresaId, almacenId },
+      orderBy: { codigo: "asc" },
+    });
+    return zonas.map((z) => this.mapearZona(z));
+  }
+
+  async crearZona(
+    empresaId: bigint,
+    almacenId: bigint,
+    dto: { codigo: string; nombre: string; descripcion?: string },
+  ) {
+    await this.obtenerAlmacen(empresaId, almacenId);
+    try {
+      const zona = await this.prisma.ubicacion.create({
+        data: {
+          empresaId,
+          almacenId,
+          codigo: dto.codigo,
+          nombre: dto.nombre,
+          descripcion: dto.descripcion ?? null,
+        },
+      });
+      return this.mapearZona(zona);
+    } catch (error) {
+      throw this.traducirError(error, "Ya existe una zona con ese código en este almacén.");
+    }
+  }
+
+  async actualizarZona(
+    empresaId: bigint,
+    almacenId: bigint,
+    zonaId: bigint,
+    dto: { codigo?: string; nombre?: string; descripcion?: string | null; activo?: boolean },
+  ) {
+    await this.obtenerZona(empresaId, almacenId, zonaId);
+    try {
+      const zona = await this.prisma.ubicacion.update({
+        where: { id: zonaId },
+        data: {
+          ...(dto.codigo !== undefined ? { codigo: dto.codigo } : {}),
+          ...(dto.nombre !== undefined ? { nombre: dto.nombre } : {}),
+          ...(dto.descripcion !== undefined ? { descripcion: dto.descripcion } : {}),
+          ...(dto.activo !== undefined ? { activo: dto.activo } : {}),
+        },
+      });
+      return this.mapearZona(zona);
+    } catch (error) {
+      throw this.traducirError(error, "Ya existe una zona con ese código en este almacén.");
+    }
+  }
+
+  async darBajaZona(empresaId: bigint, almacenId: bigint, zonaId: bigint) {
+    await this.obtenerZona(empresaId, almacenId, zonaId);
+    const zona = await this.prisma.ubicacion.update({
+      where: { id: zonaId },
+      data: { activo: false },
+    });
+    return this.mapearZona(zona);
+  }
+
+  private async obtenerAlmacen(empresaId: bigint, almacenId: bigint) {
+    const almacen = await this.prisma.almacen.findFirst({
+      where: { id: almacenId, empresaId },
+    });
+    if (!almacen) throw new NotFoundException("Almacén no encontrado.");
+    return almacen;
+  }
+
+  private async obtenerZona(empresaId: bigint, almacenId: bigint, zonaId: bigint) {
+    const zona = await this.prisma.ubicacion.findFirst({
+      where: { id: zonaId, empresaId, almacenId },
+    });
+    if (!zona) throw new NotFoundException("Zona no encontrada.");
+    return zona;
+  }
+
+  private mapearZona(z: {
+    id: bigint;
+    almacenId: bigint;
+    codigo: string;
+    nombre: string;
+    descripcion: string | null;
+    activo: boolean;
+  }) {
+    return {
+      id: z.id.toString(),
+      almacenId: z.almacenId.toString(),
+      codigo: z.codigo,
+      nombre: z.nombre,
+      descripcion: z.descripcion,
+      activo: z.activo,
+    };
+  }
+
   private traducirError(error: unknown, mensajeUnico: string): Error {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return new BadRequestException(mensajeUnico);

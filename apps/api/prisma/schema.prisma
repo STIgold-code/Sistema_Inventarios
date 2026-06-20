@@ -153,16 +153,22 @@ model Almacen {
   @@map("almacen")
 }
 
+// Zona / ubicacion gestionable dentro de un almacen (pasillos, estantes, areas).
+// El nombre de modelo se conserva como Ubicacion porque la columna ubicacion_id
+// ya es el discriminador de posicion en item_stock y movimiento_stock.
 model Ubicacion {
   id          BigInt  @id @default(autoincrement())
   empresaId   BigInt  @map("empresa_id")
   almacenId   BigInt  @map("almacen_id")
   codigo      String
+  nombre      String
   descripcion String?
+  activo      Boolean @default(true)
 
-  almacen Almacen @relation(fields: [almacenId], references: [id])
+  almacen Almacen     @relation(fields: [almacenId], references: [id])
+  items   ItemStock[]
 
-  @@unique([almacenId, codigo])
+  @@unique([empresaId, almacenId, codigo])
   @@index([empresaId, almacenId])
   @@map("ubicacion")
 }
@@ -382,6 +388,7 @@ model ItemStock {
   actualizadoEn DateTime @updatedAt @map("actualizado_en")
 
   sku         Sku               @relation(fields: [skuId], references: [id])
+  ubicacion   Ubicacion?        @relation(fields: [ubicacionId], references: [id])
   movimientos MovimientoStock[]
 
   @@unique([empresaId, skuId, almacenId, ubicacionId, loteId, serie], name: "posicion")
