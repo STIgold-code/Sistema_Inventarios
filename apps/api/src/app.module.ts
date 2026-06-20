@@ -10,6 +10,7 @@ import { CotizacionesModule } from "./modulos/cotizaciones/cotizaciones.module.j
 import { VentasModule } from "./modulos/ventas/ventas.module.js";
 import { ClientesModule } from "./modulos/clientes/clientes.module.js";
 import { ReportesModule } from "./modulos/reportes/reportes.module.js";
+import { ContabilidadModule } from "./modulos/contabilidad/contabilidad.module.js";
 import { ActivosModule } from "./modulos/activos/activos.module.js";
 import { ImportadorModule } from "./modulos/importador/importador.module.js";
 import { TrasladosModule } from "./modulos/traslados/traslados.module.js";
@@ -23,6 +24,7 @@ import { TiposCambioModule } from "./modulos/tipos-cambio/tipos-cambio.module.js
 import { CierresModule } from "./modulos/cierres/cierres.module.js";
 import { OrdenesTrabajoModule } from "./modulos/ordenes-trabajo/ordenes-trabajo.module.js";
 import { SeriesModule } from "./modulos/series/series.module.js";
+import { DevolucionesModule } from "./modulos/devoluciones/devoluciones.module.js";
 
 @Module({
   imports: [
@@ -40,6 +42,7 @@ import { SeriesModule } from "./modulos/series/series.module.js";
     VentasModule,
     ClientesModule,
     ReportesModule,
+    ContabilidadModule,
     ActivosModule,
     ImportadorModule,
     TrasladosModule,
@@ -53,6 +56,7 @@ import { SeriesModule } from "./modulos/series/series.module.js";
     CierresModule,
     OrdenesTrabajoModule,
     SeriesModule,
+    DevolucionesModule,
   ],
 })
 export class AppModule {}

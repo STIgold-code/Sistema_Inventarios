@@ -711,6 +711,51 @@ export class MovimientoService {
     return { movimientoId: mov.id };
   }
 
+  /**
+   * Entrada por devolucion de venta (reverso de despacho): reingresa stock al
+   * almacen al costo vigente del sistema (costo promedio del item). El ledger es
+   * inmutable: esto es un movimiento NUEVO, nunca un borrado del original. Crea
+   * una capa de costo nueva (FIFO). Opera DENTRO de la transaccion de la
+   * devolucion: si cualquier linea falla, toda la operacion revierte.
+   * Operacion SUNAT 05 (devolucion recibida). Devuelve el costo unitario usado.
+   */
+  async entradaPorDevolucion(
+    usuario: UsuarioRequest,
+    tx: Tx,
+    dto: {
+      skuId: bigint;
+      almacenId: bigint;
+      cantidad: string;
+      documentoId: bigint;
+      fechaEmisionDocumento?: Date;
+      observaciones?: string;
+      numerosSerie?: string[];
+    },
+  ): Promise<{ movimientoId: bigint; costoUnitario: Prisma.Decimal }> {
+    const cantidad = new D(dto.cantidad);
+    await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const item = await this.obtenerOcrearItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const costoUnitario = new D(item.costoPromedio);
+    const mov = await this.aplicarEntrada(tx, usuario, item, {
+      cantidad,
+      costoUnitario,
+      tipo: TIPO_MOVIMIENTO.ENTRADA_DEVOLUCION,
+      documentoTipo: "DEVOLUCION_VENTA",
+      documentoId: dto.documentoId,
+      tipoOperacionSunat: TIPO_OPERACION.DEVOLUCION_RECIBIDA,
+      fechaEmisionDocumento: dto.fechaEmisionDocumento,
+      observaciones: dto.observaciones ?? "Devolucion de venta",
+    });
+    await this.reingresarSeriesDevolucion(tx, usuario.empresaId, {
+      skuId: dto.skuId,
+      almacenId: dto.almacenId,
+      cantidad,
+      movimientoEntradaId: mov.id,
+      numerosSerie: dto.numerosSerie,
+    });
+    return { movimientoId: mov.id, costoUnitario };
+  }
+
   // --- trazabilidad por serie ---
 
   /**
@@ -834,6 +879,68 @@ export class MovimientoService {
     });
   }
 
+  /**
+   * Reingresa numeros de serie en una DEVOLUCION cuando el SKU controla serie.
+   * Las series deben existir, estar DESPACHADO y pertenecer al SKU. Vuelven a
+   * DISPONIBLE en el almacen de reingreso y se reenlazan al movimiento de
+   * entrada de la devolucion. La cantidad de series debe igualar la cantidad.
+   */
+  private async reingresarSeriesDevolucion(
+    tx: Tx,
+    empresaId: bigint,
+    datos: {
+      skuId: bigint;
+      almacenId: bigint;
+      cantidad: Prisma.Decimal;
+      movimientoEntradaId: bigint;
+      numerosSerie?: string[];
+    },
+  ): Promise<void> {
+    const sku = await tx.sku.findUniqueOrThrow({
+      where: { id: datos.skuId },
+      select: { controlaSerie: true },
+    });
+    const series = this.normalizarSeries(datos.numerosSerie);
+
+    if (!sku.controlaSerie) {
+      if (series.length > 0) {
+        throw new SerieInvalidaError(
+          "El SKU no controla numero de serie; no se deben enviar series.",
+        );
+      }
+      return;
+    }
+
+    this.exigirSeriesCoincidenConCantidad(series, datos.cantidad);
+
+    const registros = await tx.serieArticulo.findMany({
+      where: { empresaId, skuId: datos.skuId, numeroSerie: { in: series } },
+    });
+    const porNumero = new Map(registros.map((r) => [r.numeroSerie, r]));
+
+    for (const numeroSerie of series) {
+      const registro = porNumero.get(numeroSerie);
+      if (!registro) {
+        throw new SerieInvalidaError(`La serie ${numeroSerie} no existe para este SKU.`);
+      }
+      if (registro.estado !== "DESPACHADO") {
+        throw new SerieInvalidaError(
+          `La serie ${numeroSerie} no esta despachada; no se puede devolver.`,
+        );
+      }
+    }
+
+    await tx.serieArticulo.updateMany({
+      where: { empresaId, skuId: datos.skuId, numeroSerie: { in: series } },
+      data: {
+        estado: "DISPONIBLE",
+        almacenId: datos.almacenId,
+        movimientoEntradaId: datos.movimientoEntradaId,
+        movimientoSalidaId: null,
+      },
+    });
+  }
+
   /** Limpia, deduplica deteccion y descarta vacios de la lista de series. */
   private normalizarSeries(numerosSerie?: string[]): string[] {
     if (!numerosSerie) return [];
@@ -875,7 +982,9 @@ export class MovimientoService {
       costoUnitario: Prisma.Decimal;
       tipo: string;
       documentoTipo: string;
+      documentoId?: bigint;
       tipoOperacionSunat: string;
+      fechaEmisionDocumento?: Date;
       observaciones?: string;
     },
   ) {
@@ -899,8 +1008,10 @@ export class MovimientoService {
       saldoCostoUnitario: nuevoPromedio,
       saldoCostoTotal: nuevoValor,
       documentoTipo: datos.documentoTipo,
+      documentoId: datos.documentoId,
       tipoOperacionSunat: datos.tipoOperacionSunat,
       tipoDocumentoSunat: TIPO_DOCUMENTO.OTROS,
+      fechaEmisionDocumento: datos.fechaEmisionDocumento,
       observaciones: datos.observaciones,
     });
 

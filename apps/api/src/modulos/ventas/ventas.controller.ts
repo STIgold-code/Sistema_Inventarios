@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from "@nestjs/common";
 import { JwtGuard } from "../../auth/jwt.guard.js";
 import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
@@ -16,6 +16,20 @@ export class VentasController {
   @Permisos("venta.gestionar")
   listar(@UsuarioActual() usuario: UsuarioRequest) {
     return this.ventas.listarOrdenes(usuario.empresaId);
+  }
+
+  @Get("precio-sugerido")
+  @Permisos("venta.gestionar")
+  precioSugerido(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Query("skuId") skuId: string,
+    @Query("clienteId") clienteId?: string,
+  ) {
+    return this.ventas.precioSugerido(
+      usuario.empresaId,
+      BigInt(skuId),
+      clienteId ? BigInt(clienteId) : undefined,
+    );
   }
 
   @Post("ordenes")

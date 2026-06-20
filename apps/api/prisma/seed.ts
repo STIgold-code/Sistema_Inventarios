@@ -55,6 +55,7 @@ const PERMISOS: ReadonlyArray<{ codigo: string; nombre: string }> = [
   { codigo: "cierre.gestionar", nombre: "Gestionar cierres mensuales de periodo" },
   { codigo: "ot.gestionar", nombre: "Gestionar ordenes de trabajo" },
   { codigo: "cierre.reabrir", nombre: "Reabrir periodos cerrados (solo ADMIN)" },
+  { codigo: "contabilidad.exportar", nombre: "Configurar cuentas y exportar asientos contables" },
 ];
 
 // Centros de costo de ejemplo para la empresa BM.

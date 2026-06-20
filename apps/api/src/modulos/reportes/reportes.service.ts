@@ -221,6 +221,186 @@ export class ReportesService {
   }
 
   /**
+   * Rentabilidad de ventas: precio de venta vs costo. Recorre las salidas por
+   * venta (movimientos SALIDA_VENTA, documentoTipo VENTA) en el rango
+   * [desde, hasta] y por cada una calcula:
+   *   - venta  = precioUnitario de la linea de la orden (por SKU) x cantidad
+   *   - costo  = costoTotal del movimiento (costeo FIFO/promedio congelado en el ledger)
+   *   - margen = venta - costo
+   * Agrupa por articulo (SKU) o por cliente y devuelve el margen y el % de margen
+   * sobre la venta de cada grupo, mas el total general.
+   *
+   * El rango filtra por fechaEmisionDocumento. El precio vive en la
+   * OrdenVentaLinea; se resuelve via comprobante (documentoId) -> orden -> linea
+   * con el mismo SKU. Si una venta no puede emparejarse con una linea (dato
+   * incompleto) se valoriza su venta en 0 y se contabiliza en sinPrecio.
+   */
+  async rentabilidad(
+    empresaId: bigint,
+    desde: string,
+    hasta: string,
+    agrupar: "articulo" | "cliente",
+  ) {
+    const fechaDesde = new Date(`${desde}T00:00:00.000Z`);
+    const fechaHasta = new Date(`${hasta}T23:59:59.999Z`);
+
+    const movimientos = await this.prisma.movimientoStock.findMany({
+      where: {
+        empresaId,
+        tipo: "SALIDA_VENTA",
+        documentoTipo: "VENTA",
+        fechaEmisionDocumento: { gte: fechaDesde, lte: fechaHasta },
+      },
+      select: {
+        skuId: true,
+        documentoId: true,
+        cantidad: true,
+        costoTotal: true,
+      },
+    });
+
+    // El documentoId de SALIDA_VENTA apunta al ComprobanteVenta. De ahi se
+    // obtienen la orden (precio por linea) y el cliente (agrupacion).
+    const comprobanteIds = [
+      ...new Set(
+        movimientos
+          .map((m) => m.documentoId)
+          .filter((id): id is bigint => id !== null),
+      ),
+    ];
+    const comprobantes = await this.prisma.comprobanteVenta.findMany({
+      where: { id: { in: comprobanteIds }, empresaId },
+      include: {
+        cliente: true,
+        ordenVenta: { include: { lineas: true } },
+      },
+    });
+    const comprobantePorId = new Map(comprobantes.map((c) => [c.id, c]));
+
+    interface Acumulado {
+      claveId: string | null;
+      etiqueta: string;
+      cantidad: Prisma.Decimal;
+      venta: Prisma.Decimal;
+      costo: Prisma.Decimal;
+    }
+    const grupos = new Map<string, Acumulado>();
+    let ventaTotal = new D(0);
+    let costoTotal = new D(0);
+    let sinPrecio = 0;
+
+    for (const mov of movimientos) {
+      const comprobante = mov.documentoId
+        ? comprobantePorId.get(mov.documentoId)
+        : undefined;
+
+      // Precio: linea de la orden con el mismo SKU. Si hay varias lineas con el
+      // mismo SKU se toma la primera (el modelo no liga el movimiento a una
+      // linea concreta).
+      const linea = comprobante?.ordenVenta.lineas.find(
+        (l) => l.skuId === mov.skuId,
+      );
+      const precioUnitario = linea ? new D(linea.precioUnitario) : null;
+      if (precioUnitario === null) sinPrecio += 1;
+      const venta = precioUnitario
+        ? precioUnitario.mul(new D(mov.cantidad))
+        : new D(0);
+      const costo = new D(mov.costoTotal);
+
+      let claveId: string | null;
+      let etiqueta: string;
+      if (agrupar === "articulo") {
+        claveId = mov.skuId.toString();
+        etiqueta = ""; // se resuelve abajo con el maestro de SKU
+      } else {
+        const cli = comprobante?.cliente;
+        claveId = cli ? cli.id.toString() : null;
+        etiqueta = cli ? cli.razonSocial : "Sin cliente";
+      }
+
+      const clave =
+        agrupar === "articulo"
+          ? `sku_${claveId}`
+          : (claveId ?? "__sin_cliente");
+      const acc =
+        grupos.get(clave) ??
+        ({
+          claveId,
+          etiqueta,
+          cantidad: new D(0),
+          venta: new D(0),
+          costo: new D(0),
+        } satisfies Acumulado);
+
+      acc.cantidad = acc.cantidad.add(mov.cantidad);
+      acc.venta = acc.venta.add(venta);
+      acc.costo = acc.costo.add(costo);
+      grupos.set(clave, acc);
+
+      ventaTotal = ventaTotal.add(venta);
+      costoTotal = costoTotal.add(costo);
+    }
+
+    // Etiquetas de articulo: codigo parlante + nombre del producto.
+    if (agrupar === "articulo") {
+      const skuIds = [...grupos.values()]
+        .map((g) => (g.claveId ? BigInt(g.claveId) : null))
+        .filter((id): id is bigint => id !== null);
+      const skus = await this.prisma.sku.findMany({
+        where: { id: { in: skuIds }, empresaId },
+        include: { producto: true },
+      });
+      const skuPorId = new Map(skus.map((s) => [s.id, s]));
+      for (const g of grupos.values()) {
+        if (!g.claveId) continue;
+        const sku = skuPorId.get(BigInt(g.claveId));
+        g.etiqueta = sku
+          ? `${sku.codigoParlante} - ${sku.producto.nombre}`
+          : g.claveId;
+      }
+    }
+
+    const filas = [...grupos.values()]
+      .map((g) => {
+        const margen = g.venta.sub(g.costo);
+        const margenPorcentaje = g.venta.greaterThan(new D(0))
+          ? margen.div(g.venta).mul(100)
+          : null;
+        return {
+          claveId: g.claveId,
+          etiqueta: g.etiqueta,
+          cantidad: new D(g.cantidad).toFixed(8),
+          venta: this.dinero(g.venta),
+          costo: this.dinero(g.costo),
+          margen: this.dinero(margen),
+          margenPorcentaje:
+            margenPorcentaje !== null ? margenPorcentaje.toFixed(2) : null,
+        };
+      })
+      .sort((a, b) => new D(b.margen).comparedTo(new D(a.margen)));
+
+    const margenTotal = ventaTotal.sub(costoTotal);
+    const margenPorcentajeTotal = ventaTotal.greaterThan(new D(0))
+      ? margenTotal.div(ventaTotal).mul(100)
+      : null;
+
+    return {
+      desde,
+      hasta,
+      agrupar,
+      ventaTotal: this.dinero(ventaTotal),
+      costoTotal: this.dinero(costoTotal),
+      margenTotal: this.dinero(margenTotal),
+      margenPorcentajeTotal:
+        margenPorcentajeTotal !== null
+          ? margenPorcentajeTotal.toFixed(2)
+          : null,
+      sinPrecio,
+      filas,
+    };
+  }
+
+  /**
    * Genera el Registro de Inventario Permanente en UNIDADES FISICAS (Formato
    * 12.1) como texto plano PLE (campos separados por '|', pipe de cierre).
    */

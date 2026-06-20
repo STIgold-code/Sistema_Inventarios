@@ -88,6 +88,37 @@ export class ReportesController {
     return this.reportes.clasificacionAbc(usuario.empresaId, desde, hasta);
   }
 
+  @Get("rentabilidad")
+  @Permisos("venta.gestionar")
+  rentabilidad(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Query("desde") desde: string,
+    @Query("hasta") hasta: string,
+    @Query("agrupar") agrupar?: string,
+  ) {
+    const REGEX_FECHA = /^\d{4}-\d{2}-\d{2}$/;
+    if (!desde || !REGEX_FECHA.test(desde)) {
+      throw new BadRequestException("desde debe tener formato AAAA-MM-DD");
+    }
+    if (!hasta || !REGEX_FECHA.test(hasta)) {
+      throw new BadRequestException("hasta debe tener formato AAAA-MM-DD");
+    }
+    if (hasta < desde) {
+      throw new BadRequestException("hasta no puede ser anterior a desde");
+    }
+    const ejes = ["articulo", "cliente"] as const;
+    const eje = agrupar ?? "articulo";
+    if (!ejes.includes(eje as (typeof ejes)[number])) {
+      throw new BadRequestException("agrupar debe ser articulo o cliente");
+    }
+    return this.reportes.rentabilidad(
+      usuario.empresaId,
+      desde,
+      hasta,
+      eje as (typeof ejes)[number],
+    );
+  }
+
   @Get("ple/121")
   @Permisos("reporte.ver")
   async ple121(

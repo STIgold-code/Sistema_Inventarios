@@ -43,6 +43,12 @@ enum TipoDocumentoOrigen {
   CONTEO_FISICO
   INICIAL
   VALE_SALIDA
+  DEVOLUCION_VENTA
+}
+
+enum EstadoDevolucionVenta {
+  REGISTRADA
+  ANULADA
 }
 
 enum EstadoValeSalida {
@@ -110,6 +116,7 @@ model Empresa {
   guiasRemision GuiaRemision[]
   tiposCambio   TipoCambioDiario[]
   cierres       CierrePeriodo[]
+  cuentasContables CuentaContableConfig[]
 
   @@map("empresa")
 }
@@ -889,6 +896,7 @@ model OrdenVenta {
   lineas       OrdenVentaLinea[]
   comprobantes ComprobanteVenta[]
   guiasRemision GuiaRemision[]
+  devoluciones DevolucionVenta[]
 
   @@unique([empresaId, numero])
   @@index([empresaId, estado])
@@ -932,10 +940,58 @@ model ComprobanteVenta {
 
   ordenVenta OrdenVenta @relation(fields: [ordenVentaId], references: [id])
   cliente    Cliente    @relation(fields: [clienteId], references: [id])
+  devoluciones DevolucionVenta[]
 
   @@unique([empresaId, tipoDocumentoSunat, serie, numero])
   @@index([empresaId, ordenVentaId])
   @@map("comprobante_venta")
+}
+
+/// Devolucion (reverso) de una venta despachada. Reingresa stock al almacen
+/// mediante movimientos de ENTRADA por devolucion (ledger inmutable: el reverso
+/// es un movimiento NUEVO, nunca un borrado). Referencia obligatoria a la
+/// OrdenVenta y, opcionalmente, al ComprobanteVenta y/o GuiaRemision originales.
+model DevolucionVenta {
+  id                 BigInt                @id @default(autoincrement())
+  empresaId          BigInt                @map("empresa_id")
+  almacenId          BigInt                @map("almacen_id")
+  ordenVentaId       BigInt                @map("orden_venta_id")
+  comprobanteVentaId BigInt?               @map("comprobante_venta_id")
+  guiaRemisionId     BigInt?               @map("guia_remision_id")
+  numero             String
+  estado             EstadoDevolucionVenta @default(REGISTRADA)
+  fecha              DateTime              @default(now())
+  motivo             String?
+  usuarioId          BigInt                @map("usuario_id")
+  creadoEn           DateTime              @default(now()) @map("creado_en")
+
+  ordenVenta       OrdenVenta            @relation(fields: [ordenVentaId], references: [id])
+  comprobanteVenta ComprobanteVenta?     @relation(fields: [comprobanteVentaId], references: [id])
+  guiaRemision     GuiaRemision?         @relation(fields: [guiaRemisionId], references: [id])
+  lineas           DevolucionVentaLinea[]
+
+  @@unique([empresaId, numero])
+  @@index([empresaId, ordenVentaId])
+  @@map("devolucion_venta")
+}
+
+model DevolucionVentaLinea {
+  id            BigInt  @id @default(autoincrement())
+  empresaId     BigInt  @map("empresa_id")
+  devolucionId  BigInt  @map("devolucion_id")
+  ordenVentaLineaId BigInt? @map("orden_venta_linea_id")
+  skuId         BigInt  @map("sku_id")
+  cantidad      Decimal @db.Decimal(20, 8) // cantidad devuelta (unidad de control)
+  motivo        String?
+  /// Costo unitario con el que reingreso el stock (vigente al momento).
+  costoUnitario Decimal @default(0) @map("costo_unitario") @db.Decimal(20, 8)
+  movimientoEntradaId BigInt? @map("movimiento_entrada_id")
+
+  devolucion DevolucionVenta @relation(fields: [devolucionId], references: [id])
+
+  @@index([devolucionId])
+  @@index([empresaId, skuId])
+  @@map("devolucion_venta_linea")
 }
 
 // ===========================================================================
@@ -1038,6 +1094,7 @@ model GuiaRemision {
   empresa    Empresa     @relation(fields: [empresaId], references: [id])
   traslado   Traslado?   @relation(fields: [trasladoId], references: [id])
   ordenVenta OrdenVenta? @relation(fields: [ordenVentaId], references: [id])
+  devoluciones DevolucionVenta[]
 
   @@unique([empresaId, serie, numero])
   @@index([empresaId, trasladoId])
@@ -1211,4 +1268,36 @@ model SerieArticulo {
   @@index([empresaId, skuId, estado])
   @@index([empresaId, almacenId])
   @@map("serie_articulo")
+}
+
+// ===========================================================================
+// CONTABILIDAD: configuracion de cuentas para asientos (estilo CONCAR)
+// ===========================================================================
+
+/// Conceptos contables soportados para la generacion de asientos. Cada concepto
+/// se mapea a una cuenta debe y una cuenta haber que BM configura (NO hardcode).
+enum ConceptoContable {
+  COSTO_VENTA
+  CONSUMO
+  COMPRA
+  DEVOLUCION
+}
+
+/// Configuracion por empresa: que cuenta contable usar al debe y al haber para
+/// cada concepto. Una sola fila por (empresa, concepto). Las cuentas las llena BM
+/// desde el mantenimiento (no se hardcodean en el codigo).
+model CuentaContableConfig {
+  id          BigInt           @id @default(autoincrement())
+  empresaId   BigInt           @map("empresa_id")
+  concepto    ConceptoContable
+  cuentaDebe  String           @map("cuenta_debe")
+  cuentaHaber String           @map("cuenta_haber")
+  creadoEn    DateTime         @default(now()) @map("creado_en")
+  actualizadoEn DateTime       @updatedAt @map("actualizado_en")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id])
+
+  @@unique([empresaId, concepto])
+  @@index([empresaId])
+  @@map("cuenta_contable_config")
 }

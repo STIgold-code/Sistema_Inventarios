@@ -185,6 +185,73 @@ export class VentasService {
     });
   }
 
+  /**
+   * Precio de venta sugerido para un SKU segun el nivel de precio del cliente.
+   * El nivel se decide por Cliente.tipoPrecio (1=publico, 2=distribuidor, 3, 4);
+   * si el cliente no esta identificado o no tiene tipoPrecio, se asume publico (1).
+   * Si el nivel resuelto no tiene precio configurado, cae al primer nivel con
+   * precio en orden de prioridad (publico, distribuidor, 3, 4). Valida pertenencia
+   * a la empresa (anti-IDOR). Devuelve null en precio si ningun nivel tiene valor.
+   */
+  async precioSugerido(
+    empresaId: bigint,
+    skuId: bigint,
+    clienteId?: bigint,
+  ): Promise<{
+    skuId: string;
+    nivel: number;
+    precio: string | null;
+    monedaVenta: string | null;
+  }> {
+    const sku = await this.prisma.sku.findFirst({
+      where: { id: skuId, empresaId },
+      select: {
+        id: true,
+        precioPublico: true,
+        precioDistribuidor: true,
+        precioVenta3: true,
+        precioVenta4: true,
+        monedaVenta: true,
+      },
+    });
+    if (!sku) throw new NotFoundException("SKU no encontrado");
+
+    let nivel = 1;
+    if (clienteId !== undefined) {
+      const cliente = await this.prisma.cliente.findFirst({
+        where: { id: clienteId, empresaId },
+        select: { tipoPrecio: true },
+      });
+      if (!cliente) throw new NotFoundException("Cliente no encontrado");
+      if (cliente.tipoPrecio !== null) nivel = cliente.tipoPrecio;
+    }
+
+    const porNivel = new Map<number, Prisma.Decimal | null>([
+      [1, sku.precioPublico],
+      [2, sku.precioDistribuidor],
+      [3, sku.precioVenta3],
+      [4, sku.precioVenta4],
+    ]);
+
+    // Nivel solicitado primero; si no tiene valor, fallback por prioridad.
+    const orden = [nivel, 1, 2, 3, 4];
+    let precio: Prisma.Decimal | null = null;
+    for (const n of orden) {
+      const valor = porNivel.get(n);
+      if (valor !== undefined && valor !== null) {
+        precio = valor;
+        break;
+      }
+    }
+
+    return {
+      skuId: sku.id.toString(),
+      nivel,
+      precio: precio !== null ? precio.toString() : null,
+      monedaVenta: sku.monedaVenta,
+    };
+  }
+
   async listarOrdenes(empresaId: bigint) {
     const ordenes = await this.prisma.ordenVenta.findMany({
       where: { empresaId },
