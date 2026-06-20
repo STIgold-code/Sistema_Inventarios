@@ -1,10 +1,16 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Post, Query, Res, UseGuards } from "@nestjs/common";
+import type { Response } from "express";
 import { IsBoolean, IsInt, IsOptional, IsString, Matches } from "class-validator";
 import { JwtGuard } from "../../auth/jwt.guard.js";
 import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
 import { UsuarioActual } from "../../comun/decoradores/usuario-actual.decorator.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
+import {
+  ExcelExportService,
+  type ColumnaExport,
+} from "../comun/export/excel-export.service.js";
+import { enviarXlsx, fechaArchivo } from "../comun/export/enviar-xlsx.js";
 import { ConsultarKardexDto } from "./movimientos/dto/registrar-movimiento.dto.js";
 import { MovimientoService } from "./movimientos/movimiento.service.js";
 import { StockService } from "./stock/stock.service.js";
@@ -47,6 +53,7 @@ export class InventarioController {
   constructor(
     private readonly movimientos: MovimientoService,
     private readonly stock: StockService,
+    private readonly excel: ExcelExportService,
   ) {}
 
   @Post("ajustes")
@@ -143,5 +150,103 @@ export class InventarioController {
       almacenId: dto.almacenId ? BigInt(dto.almacenId) : undefined,
       esRenovable: dto.esRenovable,
     });
+  }
+
+  @Get("existencias/export.xlsx")
+  @Permisos("inventario.ver")
+  async existenciasExport(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Query() dto: ExistenciasDto,
+    @Res() res: Response,
+  ): Promise<void> {
+    // Se exporta el universo filtrado completo, no solo una pagina de pantalla.
+    const respuesta = await this.stock.existencias(usuario.empresaId, {
+      pagina: 1,
+      porPagina: 100_000,
+      busqueda: dto.busqueda,
+      almacenId: dto.almacenId ? BigInt(dto.almacenId) : undefined,
+      esRenovable: dto.esRenovable,
+    });
+
+    const almacenPorId = new Map(
+      respuesta.almacenes.map((a) => [a.id, a.codigo]),
+    );
+
+    // Una fila por posicion (SKU x almacen) para mostrar el detalle valorizado.
+    const filas = respuesta.datos.flatMap((sku) =>
+      sku.stocks.map((stock) => ({
+        codigo: sku.codigoParlante,
+        producto: sku.nombre,
+        unidad: sku.unidad,
+        almacen: almacenPorId.get(stock.almacenId) ?? stock.almacenId,
+        disponible: Number(stock.disponible),
+        comprometido: Number(stock.comprometido),
+        costoPromedio: Number(stock.costoPromedio),
+        valor: Number(stock.valorTotal),
+      })),
+    );
+
+    const columnas: ColumnaExport[] = [
+      { header: "Codigo", key: "codigo", width: 16 },
+      { header: "Producto", key: "producto", width: 40 },
+      { header: "Unidad", key: "unidad", width: 10, align: "center" },
+      { header: "Almacen", key: "almacen", width: 16 },
+      { header: "Disponible", key: "disponible", width: 14, align: "right" },
+      { header: "Comprometido", key: "comprometido", width: 14, align: "right" },
+      { header: "Costo promedio", key: "costoPromedio", width: 16, align: "right" },
+      { header: "Valor S/", key: "valor", width: 16, align: "right", total: true },
+    ];
+
+    const buffer = await this.excel.construir({
+      titulo: "Existencias valorizadas",
+      columnas,
+      filas,
+    });
+    enviarXlsx(
+      res,
+      buffer,
+      `existencias_valorizadas_${fechaArchivo()}.xlsx`,
+    );
+  }
+
+  @Get("kardex/export.xlsx")
+  @Permisos("inventario.ver")
+  async kardexExport(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Query() dto: ConsultarKardexDto,
+    @Res() res: Response,
+  ): Promise<void> {
+    const lineas = await this.stock.kardex(
+      usuario.empresaId,
+      BigInt(dto.skuId),
+      dto.almacenId ? BigInt(dto.almacenId) : undefined,
+    );
+
+    const filas = lineas.map((l) => ({
+      fecha: l.fecha,
+      referencia: l.referencia,
+      entradas: Number(l.cantidadEntrada),
+      salidas: Number(l.cantidadSalida),
+      saldo: Number(l.saldoCantidad),
+      costoUnitario: Number(l.costoUnitario),
+      costoTotal: Number(l.costoTotal),
+    }));
+
+    const columnas: ColumnaExport[] = [
+      { header: "Fecha", key: "fecha", width: 22 },
+      { header: "Referencia", key: "referencia", width: 36 },
+      { header: "Entradas", key: "entradas", width: 14, align: "right" },
+      { header: "Salidas", key: "salidas", width: 14, align: "right" },
+      { header: "Saldo", key: "saldo", width: 14, align: "right" },
+      { header: "Costo unitario", key: "costoUnitario", width: 16, align: "right" },
+      { header: "Costo total", key: "costoTotal", width: 16, align: "right" },
+    ];
+
+    const buffer = await this.excel.construir({
+      titulo: "Kardex",
+      columnas,
+      filas,
+    });
+    enviarXlsx(res, buffer, `kardex_${fechaArchivo()}.xlsx`);
   }
 }
