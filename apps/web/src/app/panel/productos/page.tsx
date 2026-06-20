@@ -28,6 +28,9 @@ interface EstadoFormulario {
   semanasReposicion: string;
   unidadReferenciaId: string;
   factorConversion: string;
+  precioPublico: string;
+  precioDistribuidor: string;
+  monedaVenta: string;
 }
 
 const FORMULARIO_INICIAL: EstadoFormulario = {
@@ -42,6 +45,9 @@ const FORMULARIO_INICIAL: EstadoFormulario = {
   semanasReposicion: "",
   unidadReferenciaId: "",
   factorConversion: "",
+  precioPublico: "",
+  precioDistribuidor: "",
+  monedaVenta: "PEN",
 };
 
 export default function PaginaProductos(): React.JSX.Element {
@@ -166,6 +172,12 @@ export default function PaginaProductos(): React.JSX.Element {
           : undefined,
         unidadReferenciaId: tieneRef ? Number(form.unidadReferenciaId) : undefined,
         factorConversion: tieneRef ? form.factorConversion.trim() : undefined,
+        precioPublico: form.precioPublico.trim() || undefined,
+        precioDistribuidor: form.precioDistribuidor.trim() || undefined,
+        monedaVenta:
+          form.precioPublico.trim() || form.precioDistribuidor.trim()
+            ? form.monedaVenta
+            : undefined,
       });
       setExito(`Producto creado correctamente (SKU #${respuesta.skuId}).`);
       setForm(FORMULARIO_INICIAL);
@@ -372,6 +384,68 @@ export default function PaginaProductos(): React.JSX.Element {
                   inputMode="numeric"
                   className="campo font-mono"
                 />
+              </div>
+
+              <div className="sm:col-span-2">
+                <fieldset className="grid gap-4 rounded-md border border-borde bg-panel-alt p-4 sm:grid-cols-3">
+                  <legend className="px-1 text-sm font-medium text-texto">
+                    Precios de venta <span className="text-texto-ter">(opcional)</span>
+                  </legend>
+                  <div>
+                    <label htmlFor="precioPublico" className="etiqueta-campo">
+                      Precio público
+                    </label>
+                    <input
+                      id="precioPublico"
+                      value={form.precioPublico}
+                      onChange={(e) =>
+                        actualizar(
+                          "precioPublico",
+                          e.target.value.replace(/[^\d.]/g, ""),
+                        )
+                      }
+                      inputMode="decimal"
+                      placeholder="Ej. 25.90"
+                      className="campo font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="precioDistribuidor" className="etiqueta-campo">
+                      Precio distribuidor
+                    </label>
+                    <input
+                      id="precioDistribuidor"
+                      value={form.precioDistribuidor}
+                      onChange={(e) =>
+                        actualizar(
+                          "precioDistribuidor",
+                          e.target.value.replace(/[^\d.]/g, ""),
+                        )
+                      }
+                      inputMode="decimal"
+                      placeholder="Ej. 21.50"
+                      className="campo font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="monedaVenta" className="etiqueta-campo">
+                      Moneda
+                    </label>
+                    <select
+                      id="monedaVenta"
+                      value={form.monedaVenta}
+                      onChange={(e) => actualizar("monedaVenta", e.target.value)}
+                      className="campo"
+                    >
+                      <option value="PEN">PEN — Soles</option>
+                      <option value="USD">USD — Dólares</option>
+                    </select>
+                  </div>
+                  <p className="text-xs text-texto-ter sm:col-span-3">
+                    Estos precios alimentan la sugerencia automática al armar una
+                    orden de venta, según el nivel de precio del cliente.
+                  </p>
+                </fieldset>
               </div>
 
               <div className="sm:col-span-2">

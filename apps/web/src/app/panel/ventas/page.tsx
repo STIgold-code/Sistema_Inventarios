@@ -13,6 +13,7 @@ import {
   crearOrdenVenta,
   obtenerClientes,
   obtenerOrdenesVenta,
+  obtenerPrecioSugerido,
   type Cliente,
   type EstadoOrdenVenta,
   type OrdenVenta,
@@ -37,6 +38,8 @@ interface LineaBorrador {
   cantidad: string;
   precioUnitario: string;
   enUnidadReferencia: boolean;
+  /** True si el usuario editó el precio a mano: ya no se autocompleta el sugerido. */
+  precioTocado: boolean;
 }
 
 interface DespachoBorrador {
@@ -60,7 +63,13 @@ const INSIGNIA_ESTADO: Record<EstadoOrdenVenta, string> = {
 };
 
 function lineaVacia(): LineaBorrador {
-  return { sku: null, cantidad: "", precioUnitario: "", enUnidadReferencia: false };
+  return {
+    sku: null,
+    cantidad: "",
+    precioUnitario: "",
+    enUnidadReferencia: false,
+    precioTocado: false,
+  };
 }
 
 function mensajeError(error: unknown, porDefecto: string): string {
@@ -170,6 +179,64 @@ export default function PaginaVentas(): React.JSX.Element {
       indice,
       tieneReferencia ? { sku } : { sku, enUnidadReferencia: false },
     );
+    if (sku) void prellenarPrecioLinea(indice, sku.id);
+  }
+
+  // Consulta el precio sugerido (segun el nivel del cliente) y lo aplica solo si
+  // el usuario no editó el precio a mano. Es de lectura: el usuario puede ajustarlo.
+  async function prellenarPrecioLinea(indice: number, skuId: number): Promise<void> {
+    try {
+      const sugerido = await obtenerPrecioSugerido(
+        skuId,
+        clienteId ? Number(clienteId) : undefined,
+      );
+      if (sugerido.precio === null) return;
+      setLineas((previas) =>
+        previas.map((linea, i) =>
+          i === indice && !linea.precioTocado
+            ? { ...linea, precioUnitario: sugerido.precio ?? "" }
+            : linea,
+        ),
+      );
+    } catch {
+      // El precio sugerido es una ayuda opcional: si falla, el usuario lo ingresa.
+    }
+  }
+
+  // Al cambiar el cliente, re-sugiere el precio de las lineas con SKU que aun no
+  // fueron editadas manualmente (el nivel de precio depende del cliente).
+  function cambiarCliente(nuevoClienteId: string): void {
+    setClienteId(nuevoClienteId);
+    lineas.forEach((linea, indice) => {
+      if (linea.sku && !linea.precioTocado) {
+        void prellenarPrecioLineaPara(indice, linea.sku.id, nuevoClienteId);
+      }
+    });
+  }
+
+  // Variante que recibe el clienteId explicito para evitar leer el estado previo
+  // dentro del mismo ciclo de render (clienteId aun no se actualizó al llamar).
+  async function prellenarPrecioLineaPara(
+    indice: number,
+    skuId: number,
+    clienteIdParam: string,
+  ): Promise<void> {
+    try {
+      const sugerido = await obtenerPrecioSugerido(
+        skuId,
+        clienteIdParam ? Number(clienteIdParam) : undefined,
+      );
+      if (sugerido.precio === null) return;
+      setLineas((previas) =>
+        previas.map((linea, i) =>
+          i === indice && !linea.precioTocado
+            ? { ...linea, precioUnitario: sugerido.precio ?? "" }
+            : linea,
+        ),
+      );
+    } catch {
+      // Ayuda opcional: si falla, el usuario ingresa el precio manualmente.
+    }
   }
 
   function agregarLinea(): void {
@@ -461,7 +528,7 @@ export default function PaginaVentas(): React.JSX.Element {
                   <select
                     id="cliente"
                     value={clienteId}
-                    onChange={(e) => setClienteId(e.target.value)}
+                    onChange={(e) => cambiarCliente(e.target.value)}
                     disabled={cargandoBase}
                     required
                     className="campo"
@@ -574,7 +641,10 @@ export default function PaginaVentas(): React.JSX.Element {
                         id={`linea-precio-${indice}`}
                         value={linea.precioUnitario}
                         onChange={(e) =>
-                          actualizarLinea(indice, { precioUnitario: e.target.value })
+                          actualizarLinea(indice, {
+                            precioUnitario: e.target.value,
+                            precioTocado: true,
+                          })
                         }
                         inputMode="decimal"
                         className="campo w-32 font-mono"

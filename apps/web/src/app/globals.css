@@ -212,4 +212,5 @@ h1, h2, h3, h4 {
   }
   .aviso-peligro { background: var(--peligro-tenue); border-color: #f0b3b8; color: #8a1c25; }
   .aviso-exito   { background: var(--exito-tenue); border-color: #abd5b8; color: #145523; }
+  .aviso-aviso   { background: var(--aviso-tenue); border-color: #e6cf8c; color: #7a5b00; }
 }

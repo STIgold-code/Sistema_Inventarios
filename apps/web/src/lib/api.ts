@@ -115,6 +115,12 @@ export interface Sku {
   factorConversion: string | null;
   /** Si true, el SKU exige captura de numeros de serie en entradas y salidas. */
   controlaSerie: boolean;
+  /** Precio de venta nivel 1 (publico). Null si no esta configurado. */
+  precioPublico: string | null;
+  /** Precio de venta nivel 2 (distribuidor). Null si no esta configurado. */
+  precioDistribuidor: string | null;
+  /** Moneda de los precios de venta (ISO-4217: PEN, USD). Null si no aplica. */
+  monedaVenta: string | null;
 }
 
 export interface CrearProductoInput {
@@ -134,6 +140,12 @@ export interface CrearProductoInput {
   unidadReferenciaId?: number;
   /** Cuantas unidades de control equivalen a UNA de referencia (decimal > 0). */
   factorConversion?: string;
+  /** Precio de venta nivel 1 (publico). Decimal positivo en texto. */
+  precioPublico?: string;
+  /** Precio de venta nivel 2 (distribuidor). Decimal positivo en texto. */
+  precioDistribuidor?: string;
+  /** Moneda de los precios de venta (ISO-4217: PEN, USD). */
+  monedaVenta?: string;
 }
 
 export interface CrearProductoRespuesta {
@@ -665,6 +677,8 @@ export interface Cliente {
   direccion?: string | null;
   telefono?: string | null;
   email?: string | null;
+  /** Nivel de precio de venta aplicado al cliente (1=publico, 2=distribuidor, 3, 4). */
+  tipoPrecio?: number | null;
 }
 
 export interface CrearClienteInput {
@@ -674,6 +688,8 @@ export interface CrearClienteInput {
   direccion?: string;
   telefono?: string;
   email?: string;
+  /** Nivel de precio de venta (1=publico, 2=distribuidor, 3, 4). */
+  tipoPrecio?: number;
 }
 
 /** Mismos campos que CrearClienteInput, todos opcionales para edicion parcial. */
@@ -1018,6 +1034,29 @@ export function obtenerOrdenesVenta(): Promise<OrdenVenta[]> {
   return apiFetch<OrdenVenta[]>("/ventas/ordenes");
 }
 
+export interface PrecioSugerido {
+  skuId: string;
+  /** Nivel de precio resuelto (1=publico, 2=distribuidor, 3, 4). */
+  nivel: number;
+  /** Precio sugerido en texto decimal; null si ningun nivel tiene valor. */
+  precio: string | null;
+  /** Moneda de los precios de venta del SKU (null si no aplica). */
+  monedaVenta: string | null;
+}
+
+/**
+ * Precio de venta sugerido para un SKU segun el nivel de precio del cliente.
+ * Si no se pasa cliente, el backend asume el nivel publico (1).
+ */
+export function obtenerPrecioSugerido(
+  skuId: number,
+  clienteId?: number,
+): Promise<PrecioSugerido> {
+  const params = new URLSearchParams({ skuId: String(skuId) });
+  if (clienteId !== undefined) params.set("clienteId", String(clienteId));
+  return apiFetch<PrecioSugerido>(`/ventas/precio-sugerido?${params.toString()}`);
+}
+
 export function crearOrdenVenta(
   datos: CrearOrdenVentaInput,
 ): Promise<CrearOrdenVentaRespuesta> {
@@ -1041,6 +1080,73 @@ export function anularOrdenVenta(
 ): Promise<AnularOrdenVentaRespuesta> {
   return apiFetch<AnularOrdenVentaRespuesta>(`/ventas/ordenes/${id}/anular`, {
     method: "POST",
+  });
+}
+
+// ── Devoluciones de venta (reverso de despacho): tipos ──────────────────────
+
+export type EstadoDevolucionVenta = "REGISTRADA" | "ANULADA";
+
+export interface LineaDevolucionVenta {
+  id: string;
+  skuId: string;
+  cantidad: string;
+  motivo: string | null;
+  costoUnitario: string;
+  movimientoEntradaId: string;
+}
+
+export interface DevolucionVenta {
+  id: string;
+  numero: string;
+  estado: EstadoDevolucionVenta;
+  fecha: string;
+  motivo: string | null;
+  ordenVentaId: string;
+  ordenVentaNumero: string;
+  comprobanteVentaId: string | null;
+  guiaRemisionId: string | null;
+  lineas: LineaDevolucionVenta[];
+}
+
+export interface CrearDevolucionLineaInput {
+  /** Linea de la orden de venta (opcional; si viene valida pertenencia + SKU). */
+  ordenVentaLineaId?: number;
+  skuId: number;
+  cantidad: string;
+  motivo?: string;
+  /** Series a reingresar. Obligatorio si el SKU controla serie. */
+  numerosSerie?: string[];
+}
+
+export interface CrearDevolucionInput {
+  /** Orden de venta DESPACHADA o PARCIAL a la que pertenece la devolucion. */
+  ordenVentaId: number;
+  comprobanteVentaId?: number;
+  guiaRemisionId?: number;
+  motivo?: string;
+  /** Fecha de la devolucion en formato ISO 8601 (opcional; default ahora). */
+  fecha?: string;
+  lineas: CrearDevolucionLineaInput[];
+}
+
+export interface CrearDevolucionRespuesta {
+  id: string;
+  numero: string;
+}
+
+// ── Devoluciones de venta: funciones de dominio ─────────────────────────────
+
+export function obtenerDevoluciones(): Promise<DevolucionVenta[]> {
+  return apiFetch<DevolucionVenta[]>("/devoluciones");
+}
+
+export function crearDevolucion(
+  datos: CrearDevolucionInput,
+): Promise<CrearDevolucionRespuesta> {
+  return apiFetch<CrearDevolucionRespuesta>("/devoluciones", {
+    method: "POST",
+    body: JSON.stringify(datos),
   });
 }
 
@@ -1201,6 +1307,46 @@ export function obtenerPle(
   return apiFetch<ArchivoPle>(
     `/reportes/ple/${formato}?${params.toString()}`,
   );
+}
+
+// ── Rentabilidad: tipos ─────────────────────────────────────────────────────
+
+export type EjeRentabilidad = "articulo" | "cliente";
+
+export interface FilaRentabilidad {
+  claveId: string | null;
+  etiqueta: string;
+  cantidad: string;
+  venta: string;
+  costo: string;
+  margen: string;
+  /** Porcentaje de margen sobre la venta del grupo; null si la venta es 0. */
+  margenPorcentaje: string | null;
+}
+
+export interface ReporteRentabilidad {
+  desde: string;
+  hasta: string;
+  agrupar: EjeRentabilidad;
+  ventaTotal: string;
+  costoTotal: string;
+  margenTotal: string;
+  /** Porcentaje de margen total; null si la venta total es 0. */
+  margenPorcentajeTotal: string | null;
+  /** Movimientos de venta que no se pudieron emparejar con su linea de orden. */
+  sinPrecio: number;
+  filas: FilaRentabilidad[];
+}
+
+// ── Rentabilidad: funciones de dominio ──────────────────────────────────────
+
+export function obtenerRentabilidad(
+  desde: string,
+  hasta: string,
+  agrupar: EjeRentabilidad,
+): Promise<ReporteRentabilidad> {
+  const params = new URLSearchParams({ desde, hasta, agrupar });
+  return apiFetch<ReporteRentabilidad>(`/reportes/rentabilidad?${params.toString()}`);
 }
 
 // ── Reposicion y clasificacion ABC: tipos ──────────────────────────────────────
@@ -1648,4 +1794,96 @@ export function crearCotizacion(
     method: "POST",
     body: JSON.stringify(datos),
   });
+}
+
+// ── Contabilidad: asientos configurables (estilo CONCAR): tipos ─────────────
+
+/** Conceptos contables soportados para configurar cuentas debe/haber. */
+export type ConceptoContable =
+  | "COSTO_VENTA"
+  | "CONSUMO"
+  | "COMPRA"
+  | "DEVOLUCION";
+
+/** Tipos de asiento que se pueden generar (conceptos con movimientos valorizados). */
+export type TipoAsiento = "COSTO_VENTA" | "CONSUMO";
+
+export interface CuentaContable {
+  concepto: ConceptoContable;
+  cuentaDebe: string;
+  cuentaHaber: string;
+}
+
+export interface ActualizarCuentasInput {
+  cuentas: CuentaContable[];
+}
+
+export interface LineaAsiento {
+  /** Fecha del movimiento en formato AAAA-MM-DD. */
+  fecha: string;
+  cuentaDebe: string;
+  cuentaHaber: string;
+  /** Importe del movimiento (string decimal, 2 decimales). */
+  importe: string;
+  glosa: string;
+  /** Centro de costo (solo CONSUMO); null en COSTO_VENTA. */
+  centroCosto: string | null;
+}
+
+export interface Asiento {
+  periodo: string;
+  tipo: TipoAsiento;
+  concepto: ConceptoContable;
+  cuentaDebe: string;
+  cuentaHaber: string;
+  /** Total del asiento (string decimal, 2 decimales). */
+  totalImporte: string;
+  lineas: LineaAsiento[];
+}
+
+export interface ArchivoAsiento {
+  nombre: string;
+  contenido: string;
+}
+
+/** Separador de columnas para el archivo de texto del asiento. */
+export type SeparadorAsiento = "pipe" | "coma";
+
+// ── Contabilidad: funciones de dominio ──────────────────────────────────────
+
+export function obtenerCuentasContables(): Promise<CuentaContable[]> {
+  return apiFetch<CuentaContable[]>("/contabilidad/cuentas");
+}
+
+export function guardarCuentasContables(
+  datos: ActualizarCuentasInput,
+): Promise<CuentaContable[]> {
+  return apiFetch<CuentaContable[]>("/contabilidad/cuentas", {
+    method: "PUT",
+    body: JSON.stringify(datos),
+  });
+}
+
+/** Genera el asiento del periodo (AAAAMM) y tipo, en formato JSON para previsualizar. */
+export function obtenerAsiento(
+  periodo: string,
+  tipo: TipoAsiento,
+): Promise<Asiento> {
+  const params = new URLSearchParams({ periodo, tipo });
+  return apiFetch<Asiento>(`/contabilidad/asientos?${params.toString()}`);
+}
+
+/** Genera el asiento como archivo de texto descargable (TXT/CSV). */
+export function obtenerAsientoArchivo(
+  periodo: string,
+  tipo: TipoAsiento,
+  separador: SeparadorAsiento,
+): Promise<ArchivoAsiento> {
+  const params = new URLSearchParams({
+    periodo,
+    tipo,
+    formato: "texto",
+    separador,
+  });
+  return apiFetch<ArchivoAsiento>(`/contabilidad/asientos?${params.toString()}`);
 }

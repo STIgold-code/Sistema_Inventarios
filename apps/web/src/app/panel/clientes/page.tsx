@@ -24,7 +24,14 @@ interface FormCliente {
   direccion: string;
   telefono: string;
   email: string;
+  tipoPrecio: string;
 }
+
+/** Niveles de precio de venta aplicables a un cliente. */
+const TIPOS_PRECIO: readonly { valor: string; etiqueta: string }[] = [
+  { valor: "1", etiqueta: "Público" },
+  { valor: "2", etiqueta: "Distribuidor" },
+];
 
 /** Tabla 2 SUNAT — tipos de documento de identidad mas usados en clientes. */
 const TIPOS_DOC_IDENTIDAD: readonly { codigo: string; etiqueta: string }[] = [
@@ -46,6 +53,7 @@ const CLIENTE_VACIO: FormCliente = {
   direccion: "",
   telefono: "",
   email: "",
+  tipoPrecio: "1",
 };
 
 function mensajeError(error: unknown, porDefecto: string): string {
@@ -60,6 +68,7 @@ function clienteAForm(c: Cliente): FormCliente {
     direccion: c.direccion ?? "",
     telefono: c.telefono ?? "",
     email: c.email ?? "",
+    tipoPrecio: c.tipoPrecio != null ? String(c.tipoPrecio) : "1",
   };
 }
 
@@ -132,6 +141,7 @@ export default function PaginaClientes(): React.JSX.Element {
         direccion: form.direccion || undefined,
         telefono: form.telefono || undefined,
         email: form.email || undefined,
+        tipoPrecio: form.tipoPrecio ? Number(form.tipoPrecio) : undefined,
       };
       if (editandoId !== null) {
         await actualizarCliente(editandoId, datos);
@@ -279,6 +289,28 @@ export default function PaginaClientes(): React.JSX.Element {
                   className="campo"
                 />
               </div>
+            </div>
+            <div>
+              <label htmlFor="tipo-precio" className="etiqueta-campo">
+                Nivel de precio
+              </label>
+              <select
+                id="tipo-precio"
+                value={form.tipoPrecio}
+                onChange={(e) => actualizarForm("tipoPrecio", e.target.value)}
+                aria-describedby="tipo-precio-ayuda"
+                className="campo sm:max-w-xs"
+              >
+                {TIPOS_PRECIO.map((tipo) => (
+                  <option key={tipo.valor} value={tipo.valor}>
+                    {tipo.etiqueta}
+                  </option>
+                ))}
+              </select>
+              <p id="tipo-precio-ayuda" className="mt-1.5 text-xs text-texto-ter">
+                Define qué precio del producto se sugiere al crear órdenes de venta
+                para este cliente.
+              </p>
             </div>
             <div className="flex gap-3">
               <button type="submit" disabled={guardando} className="btn btn-primario">
