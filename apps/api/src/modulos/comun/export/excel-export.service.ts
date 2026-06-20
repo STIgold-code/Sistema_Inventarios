@@ -43,7 +43,26 @@ const COLOR_DORADO = "FFF6B60B";
 const COLOR_BLANCO = "FFFFFFFF";
 const COLOR_GRAFITO_SUAVE = "FF3A3F45";
 
-const RUTA_LOGO = join(__dirname, "..", "..", "..", "..", "assets", "logo-bm.png");
+/**
+ * Rutas candidatas del logo: en dev __dirname cae en src/, en prod en dist/,
+ * y la WORKDIR del contenedor es apps/api. Se prueba la primera que exista.
+ */
+const CANDIDATOS_LOGO = [
+  join(__dirname, "..", "..", "..", "..", "assets", "logo-bm.png"),
+  join(__dirname, "..", "..", "..", "..", "..", "assets", "logo-bm.png"),
+  join(__dirname, "..", "..", "..", "assets", "logo-bm.png"),
+  join(process.cwd(), "assets", "logo-bm.png"),
+  join(process.cwd(), "apps", "api", "assets", "logo-bm.png"),
+];
+
+function resolverLogo(): string | null {
+  for (const ruta of CANDIDATOS_LOGO) {
+    if (existsSync(ruta)) return ruta;
+  }
+  return null;
+}
+
+const RUTA_LOGO = resolverLogo();
 
 /**
  * Servicio reutilizable que genera libros de Excel con la identidad visual
@@ -109,8 +128,8 @@ export class ExcelExportService {
     opts: OpcionesExport,
     ultimaColumnaLetra: string,
   ): number {
-    // Logo arriba a la izquierda, si existe.
-    if (existsSync(RUTA_LOGO)) {
+    // Logo arriba a la izquierda, si se encontro en alguna ruta candidata.
+    if (RUTA_LOGO) {
       const imagenId = workbook.addImage({
         buffer: readFileSync(RUTA_LOGO),
         extension: "png",
