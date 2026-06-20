@@ -30,6 +30,7 @@ const GRUPOS: readonly GrupoNav[] = [
       { href: "/panel/requerimientos", etiqueta: "Requerimientos" },
       { href: "/panel/vales", etiqueta: "Vales de salida" },
       { href: "/panel/ordenes-trabajo", etiqueta: "Órdenes de trabajo" },
+      { href: "/panel/proveedores", etiqueta: "Proveedores" },
       { href: "/panel/compras", etiqueta: "Compras" },
       { href: "/panel/clientes", etiqueta: "Clientes" },
       { href: "/panel/ventas", etiqueta: "Ventas" },
@@ -41,6 +42,7 @@ const GRUPOS: readonly GrupoNav[] = [
   {
     titulo: "Gestión",
     enlaces: [
+      { href: "/panel/familias", etiqueta: "Familias" },
       { href: "/panel/guias", etiqueta: "Guías de remisión" },
       { href: "/panel/tipo-cambio", etiqueta: "Tipo de cambio" },
       { href: "/panel/cierres", etiqueta: "Cierre mensual" },

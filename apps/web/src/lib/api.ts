@@ -115,6 +115,8 @@ export interface Sku {
   factorConversion: string | null;
   /** Si true, el SKU exige captura de numeros de serie en entradas y salidas. */
   controlaSerie: boolean;
+  /** Renovabilidad: true = se repone/consume; false = no; null = sin clasificar. */
+  esRenovable: boolean | null;
   /** Precio de venta nivel 1 (publico). Null si no esta configurado. */
   precioPublico: string | null;
   /** Precio de venta nivel 2 (distribuidor). Null si no esta configurado. */
@@ -146,6 +148,8 @@ export interface CrearProductoInput {
   precioDistribuidor?: string;
   /** Moneda de los precios de venta (ISO-4217: PEN, USD). */
   monedaVenta?: string;
+  /** Renovabilidad de la existencia (true/false). Omitido = sin clasificar. */
+  esRenovable?: boolean;
 }
 
 export interface CrearProductoRespuesta {
@@ -186,6 +190,12 @@ export interface FilaKardex {
   tipo: string;
   tipoOperacionSunat: string;
   cantidad: string;
+  /** Cantidad del movimiento si fue entrada; "0" si fue salida. */
+  cantidadEntrada: string;
+  /** Cantidad del movimiento si fue salida; "0" si fue entrada. */
+  cantidadSalida: string;
+  /** Documento de origen legible (ej. "Compra F001-123", "Vale de salida N° 5"). */
+  referencia: string;
   costoUnitario: string;
   costoTotal: string;
   saldoCantidad: string;
@@ -208,16 +218,71 @@ export function obtenerUnidades(): Promise<Unidad[]> {
   return apiFetch<Unidad[]>("/productos/unidades");
 }
 
+// ── Familias (CRUD independiente bajo /familias): tipos ──────────────────────
+
+export interface FamiliaGestion {
+  id: string;
+  codigo: string;
+  nombre: string;
+  activo: boolean;
+}
+
+export interface CrearFamiliaInput {
+  /** Codigo de exactamente 3 digitos numericos; es la llave de negocio. */
+  codigo: string;
+  nombre: string;
+}
+
+/** El codigo no es editable por ser llave de negocio; solo nombre y estado. */
+export interface ActualizarFamiliaInput {
+  nombre?: string;
+  activo?: boolean;
+}
+
+// ── Familias: funciones de dominio ──────────────────────────────────────────
+
+export function obtenerFamiliasGestion(
+  incluirInactivas = false,
+): Promise<FamiliaGestion[]> {
+  const cadena = incluirInactivas ? "?incluirInactivas=true" : "";
+  return apiFetch<FamiliaGestion[]>(`/familias${cadena}`);
+}
+
+export function crearFamilia(
+  datos: CrearFamiliaInput,
+): Promise<FamiliaGestion> {
+  return apiFetch<FamiliaGestion>("/familias", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function actualizarFamilia(
+  id: string,
+  datos: ActualizarFamiliaInput,
+): Promise<FamiliaGestion> {
+  return apiFetch<FamiliaGestion>(`/familias/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function darDeBajaFamilia(id: string): Promise<FamiliaGestion> {
+  return apiFetch<FamiliaGestion>(`/familias/${id}`, { method: "DELETE" });
+}
+
 export function obtenerSkus(
   pagina: number,
   porPagina: number,
   busqueda: string,
+  esRenovable?: boolean,
 ): Promise<RespuestaPaginada<Sku>> {
   const params = new URLSearchParams({
     pagina: String(pagina),
     porPagina: String(porPagina),
     busqueda,
   });
+  if (esRenovable !== undefined) params.set("esRenovable", String(esRenovable));
   return apiFetch<RespuestaPaginada<Sku>>(`/productos/skus?${params.toString()}`);
 }
 
@@ -324,6 +389,10 @@ export interface StockEnAlmacen {
   almacenId: string;
   disponible: string;
   comprometido: string;
+  /** Costo promedio ponderado del SKU en este almacén. */
+  costoPromedio: string;
+  /** Valorización (disponible × costoPromedio) agregada por almacén. */
+  valorTotal: string;
 }
 
 export interface ExistenciaSku {
@@ -332,9 +401,15 @@ export interface ExistenciaSku {
   nombre: string;
   unidad: string;
   stockMinimo: string | null;
+  /** Renovabilidad: true = se repone/consume; false = no; null = sin clasificar. */
+  esRenovable: boolean | null;
   stocks: StockEnAlmacen[];
   totalDisponible: string;
   totalComprometido: string;
+  /** Costo promedio ponderado del SKU sobre todos sus almacenes. */
+  costoPromedio: string;
+  /** Valorización total del SKU (suma de valorTotal de sus almacenes). */
+  valorTotal: string;
 }
 
 export interface ExistenciasRespuesta {
@@ -343,6 +418,8 @@ export interface ExistenciasRespuesta {
   pagina: number;
   porPagina: number;
   almacenes: Almacen[];
+  /** Suma de valorTotal de todos los SKUs de la página actual. */
+  valorizadoTotal: string;
 }
 
 export function obtenerExistencias(parametros: {
@@ -350,12 +427,16 @@ export function obtenerExistencias(parametros: {
   porPagina?: number;
   busqueda?: string;
   almacenId?: number;
+  esRenovable?: boolean;
 }): Promise<ExistenciasRespuesta> {
   const query = new URLSearchParams();
   if (parametros.pagina) query.set("pagina", String(parametros.pagina));
   if (parametros.porPagina) query.set("porPagina", String(parametros.porPagina));
   if (parametros.busqueda) query.set("busqueda", parametros.busqueda);
   if (parametros.almacenId) query.set("almacenId", String(parametros.almacenId));
+  if (parametros.esRenovable !== undefined) {
+    query.set("esRenovable", String(parametros.esRenovable));
+  }
   const cadena = query.toString();
   return apiFetch<ExistenciasRespuesta>(
     `/inventario/existencias${cadena ? `?${cadena}` : ""}`,
@@ -864,13 +945,13 @@ export interface CrearRecepcionRespuesta {
 // ── Compras: funciones de dominio ───────────────────────────────────────────
 
 export function obtenerProveedores(): Promise<Proveedor[]> {
-  return apiFetch<Proveedor[]>("/compras/proveedores");
+  return apiFetch<Proveedor[]>("/proveedores");
 }
 
 export function crearProveedor(
   datos: CrearProveedorInput,
 ): Promise<CrearProveedorRespuesta> {
-  return apiFetch<CrearProveedorRespuesta>("/compras/proveedores", {
+  return apiFetch<CrearProveedorRespuesta>("/proveedores", {
     method: "POST",
     body: JSON.stringify(datos),
   });
@@ -880,7 +961,7 @@ export function actualizarProveedor(
   id: number,
   datos: ActualizarProveedorInput,
 ): Promise<{ id: number }> {
-  return apiFetch<{ id: number }>(`/compras/proveedores/${id}`, {
+  return apiFetch<{ id: number }>(`/proveedores/${id}`, {
     method: "PATCH",
     body: JSON.stringify(datos),
   });
@@ -890,7 +971,7 @@ export function desactivarProveedor(
   id: number,
 ): Promise<{ id: number; activo: false }> {
   return apiFetch<{ id: number; activo: false }>(
-    `/compras/proveedores/${id}/desactivar`,
+    `/proveedores/${id}/desactivar`,
     { method: "POST" },
   );
 }

@@ -11,7 +11,7 @@ import {
   type FilaKardex,
   type Sku,
 } from "@/lib/api";
-import { formatearDolares, formatearSoles } from "@/lib/formato";
+import { formatearDolares, formatearNumero, formatearSoles } from "@/lib/formato";
 
 /** Convierte una fecha ISO a "dd/mm/aaaa hh:mm". */
 function formatearFecha(iso: string): string {
@@ -183,8 +183,9 @@ export default function PaginaKardex(): React.JSX.Element {
                     <th>Almacén</th>
                     <th>Tipo</th>
                     <th>Op. SUNAT</th>
-                    <th>Documento</th>
-                    <th className="num">Cantidad</th>
+                    <th>Referencia</th>
+                    <th className="num">Entradas</th>
+                    <th className="num">Salidas</th>
                     <th className="num">{enUsd ? "Costo unit. USD" : "Costo unit."}</th>
                     <th className="num">{enUsd ? "Costo total USD" : "Costo total"}</th>
                     <th className="num border-l border-borde">Saldo cant.</th>
@@ -201,8 +202,17 @@ export default function PaginaKardex(): React.JSX.Element {
                       <td className="font-mono text-xs text-texto-sec">{fila.almacen}</td>
                       <td className="whitespace-nowrap text-tinta">{fila.tipo}</td>
                       <td className="font-mono text-texto-sec">{fila.tipoOperacionSunat}</td>
-                      <td className="font-mono text-xs text-texto-sec">{fila.documento}</td>
-                      <td className="num text-texto">{fila.cantidad}</td>
+                      <td className="text-xs text-texto-sec">{fila.referencia}</td>
+                      <td className="num text-texto">
+                        {Number(fila.cantidadEntrada) > 0
+                          ? formatearNumero(fila.cantidadEntrada)
+                          : "—"}
+                      </td>
+                      <td className="num text-texto">
+                        {Number(fila.cantidadSalida) > 0
+                          ? formatearNumero(fila.cantidadSalida)
+                          : "—"}
+                      </td>
                       <td className="num text-texto">
                         {enUsd
                           ? fila.costoUnitarioUsd === null

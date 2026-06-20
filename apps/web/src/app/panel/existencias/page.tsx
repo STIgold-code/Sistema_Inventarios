@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import {
   ErrorApi,
@@ -8,7 +8,7 @@ import {
   type Almacen,
   type ExistenciaSku,
 } from "@/lib/api";
-import { formatearNumero } from "@/lib/formato";
+import { formatearNumero, formatearSoles } from "@/lib/formato";
 
 const POR_PAGINA = 50;
 
@@ -20,6 +20,12 @@ function disponibleEn(sku: ExistenciaSku, almacenId: string): string {
   return fila ? fila.disponible : "0";
 }
 
+/** Valorización de un SKU en un almacén dado (0 si no tiene posición). */
+function valorEn(sku: ExistenciaSku, almacenId: string): string {
+  const fila = sku.stocks.find((s) => s.almacenId === almacenId);
+  return fila ? fila.valorTotal : "0";
+}
+
 export default function PaginaExistencias(): React.JSX.Element {
   const [vista, setVista] = useState<Vista>("almacen");
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
@@ -27,16 +33,25 @@ export default function PaginaExistencias(): React.JSX.Element {
 
   const [datos, setDatos] = useState<ExistenciaSku[]>([]);
   const [total, setTotal] = useState<number>(0);
+  const [valorizadoTotal, setValorizadoTotal] = useState<string>("0");
   const [pagina, setPagina] = useState<number>(1);
 
   const [busqueda, setBusqueda] = useState<string>("");
   const [terminoActivo, setTerminoActivo] = useState<string>("");
+  // "" = todas, "true" = solo renovables, "false" = solo no renovables.
+  const [filtroRenovable, setFiltroRenovable] = useState<string>("");
 
   const [cargando, setCargando] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const cargar = useCallback(
-    async (paginaPedida: number, termino: string, almacen: string, modo: Vista): Promise<void> => {
+    async (
+      paginaPedida: number,
+      termino: string,
+      almacen: string,
+      modo: Vista,
+      renovable: string,
+    ): Promise<void> => {
       setCargando(true);
       setError(null);
       try {
@@ -45,9 +60,11 @@ export default function PaginaExistencias(): React.JSX.Element {
           porPagina: POR_PAGINA,
           busqueda: termino || undefined,
           almacenId: modo === "almacen" && almacen ? Number(almacen) : undefined,
+          esRenovable: renovable === "" ? undefined : renovable === "true",
         });
         setDatos(respuesta.datos);
         setTotal(respuesta.total);
+        setValorizadoTotal(respuesta.valorizadoTotal);
         if (almacenes.length === 0) setAlmacenes(respuesta.almacenes);
       } catch (e) {
         setError(
@@ -61,8 +78,8 @@ export default function PaginaExistencias(): React.JSX.Element {
   );
 
   useEffect(() => {
-    void cargar(pagina, terminoActivo, almacenId, vista);
-  }, [cargar, pagina, terminoActivo, almacenId, vista]);
+    void cargar(pagina, terminoActivo, almacenId, vista, filtroRenovable);
+  }, [cargar, pagina, terminoActivo, almacenId, vista, filtroRenovable]);
 
   function buscar(evento: FormEvent<HTMLFormElement>): void {
     evento.preventDefault();
@@ -146,6 +163,20 @@ export default function PaginaExistencias(): React.JSX.Element {
               </select>
             )}
 
+            <select
+              aria-label="Renovabilidad"
+              value={filtroRenovable}
+              onChange={(e) => {
+                setPagina(1);
+                setFiltroRenovable(e.target.value);
+              }}
+              className="campo w-44"
+            >
+              <option value="">Renovables y no</option>
+              <option value="true">Solo renovables</option>
+              <option value="false">Solo no renovables</option>
+            </select>
+
             <form onSubmit={buscar} className="flex gap-2" role="search">
               <label htmlFor="busqueda" className="sr-only">
                 Buscar producto
@@ -176,9 +207,13 @@ export default function PaginaExistencias(): React.JSX.Element {
               No se encontraron existencias.
             </p>
           ) : vista === "almacen" ? (
-            <TablaPorAlmacen datos={datos} />
+            <TablaPorAlmacen datos={datos} valorizadoTotal={valorizadoTotal} />
           ) : (
-            <TablaMatriz datos={datos} almacenes={almacenes} />
+            <TablaMatriz
+              datos={datos}
+              almacenes={almacenes}
+              valorizadoTotal={valorizadoTotal}
+            />
           )}
         </div>
 
@@ -212,8 +247,14 @@ export default function PaginaExistencias(): React.JSX.Element {
   );
 }
 
-/** Vista lista: una fila por SKU con su disponible y comprometido totales. */
-function TablaPorAlmacen({ datos }: { datos: ExistenciaSku[] }): React.JSX.Element {
+/** Vista lista: una fila por SKU con su disponible, comprometido, costo y valor. */
+function TablaPorAlmacen({
+  datos,
+  valorizadoTotal,
+}: {
+  datos: ExistenciaSku[];
+  valorizadoTotal: string;
+}): React.JSX.Element {
   return (
     <table className="tabla-datos">
       <thead>
@@ -223,6 +264,8 @@ function TablaPorAlmacen({ datos }: { datos: ExistenciaSku[] }): React.JSX.Eleme
           <th>Unidad</th>
           <th className="text-right">Disponible</th>
           <th className="text-right">Comprometido</th>
+          <th className="text-right">Costo prom. (S/)</th>
+          <th className="text-right">Valor (S/)</th>
         </tr>
       </thead>
       <tbody>
@@ -237,33 +280,67 @@ function TablaPorAlmacen({ datos }: { datos: ExistenciaSku[] }): React.JSX.Eleme
             <td className="text-right font-mono text-texto-sec">
               {formatearNumero(sku.totalComprometido)}
             </td>
+            <td className="text-right font-mono text-texto-sec">
+              {formatearSoles(sku.costoPromedio)}
+            </td>
+            <td className="text-right font-mono text-tinta">
+              {formatearSoles(sku.valorTotal)}
+            </td>
           </tr>
         ))}
       </tbody>
+      <tfoot>
+        <tr>
+          <td colSpan={6} className="text-right font-semibold text-texto-sec">
+            Total valorizado
+          </td>
+          <td className="text-right font-mono font-semibold text-tinta">
+            {formatearSoles(valorizadoTotal)}
+          </td>
+        </tr>
+      </tfoot>
     </table>
   );
 }
 
-/** Vista matriz: una columna por almacén + total. */
+/**
+ * Vista matriz: por almacén muestra disponible y valor (S/), más el total de
+ * unidades y el total valorizado por SKU.
+ */
 function TablaMatriz({
   datos,
   almacenes,
+  valorizadoTotal,
 }: {
   datos: ExistenciaSku[];
   almacenes: Almacen[];
+  valorizadoTotal: string;
 }): React.JSX.Element {
   return (
     <table className="tabla-datos">
       <thead>
         <tr>
-          <th>Código</th>
-          <th>Producto</th>
+          <th rowSpan={2}>Código</th>
+          <th rowSpan={2}>Producto</th>
           {almacenes.map((a) => (
-            <th key={a.id} className="text-right" title={a.nombre}>
+            <th key={a.id} className="text-center" colSpan={2} title={a.nombre}>
               {a.codigo}
             </th>
           ))}
-          <th className="text-right">Total</th>
+          <th className="text-right" rowSpan={2}>
+            Total unid.
+          </th>
+          <th className="text-right" rowSpan={2}>
+            Valor (S/)
+          </th>
+        </tr>
+        <tr>
+          {almacenes.map((a) => (
+            <Fragment key={a.id}>
+              <th className="text-right">Unid.</th>
+              <th className="text-right">S/</th>
+            </Fragment>
+          ))}
         </tr>
       </thead>
       <tbody>
@@ -272,16 +349,34 @@ function TablaMatriz({
             <td className="font-mono text-texto">{sku.codigoParlante}</td>
             <td className="text-tinta">{sku.nombre}</td>
             {almacenes.map((a) => (
-              <td key={a.id} className="text-right font-mono text-texto-sec">
-                {formatearNumero(disponibleEn(sku, a.id))}
-              </td>
+              <Fragment key={a.id}>
+                <td className="text-right font-mono text-texto-sec">
+                  {formatearNumero(disponibleEn(sku, a.id))}
+                </td>
+                <td className="text-right font-mono text-texto-ter">
+                  {formatearSoles(valorEn(sku, a.id))}
+                </td>
+              </Fragment>
             ))}
             <td className="text-right font-mono font-semibold text-tinta">
               {formatearNumero(sku.totalDisponible)}
             </td>
+            <td className="text-right font-mono font-semibold text-tinta">
+              {formatearSoles(sku.valorTotal)}
+            </td>
           </tr>
         ))}
       </tbody>
+      <tfoot>
+        <tr>
+          <td colSpan={2 + almacenes.length * 2 + 1} className="text-right font-semibold text-texto-sec">
+            Total valorizado
+          </td>
+          <td className="text-right font-mono font-semibold text-tinta">
+            {formatearSoles(valorizadoTotal)}
+          </td>
+        </tr>
+      </tfoot>
     </table>
   );
 }

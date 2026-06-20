@@ -31,6 +31,8 @@ interface EstadoFormulario {
   precioPublico: string;
   precioDistribuidor: string;
   monedaVenta: string;
+  // "" = sin clasificar, "true" = renovable, "false" = no renovable.
+  esRenovable: string;
 }
 
 const FORMULARIO_INICIAL: EstadoFormulario = {
@@ -48,12 +50,15 @@ const FORMULARIO_INICIAL: EstadoFormulario = {
   precioPublico: "",
   precioDistribuidor: "",
   monedaVenta: "PEN",
+  esRenovable: "",
 };
 
 export default function PaginaProductos(): React.JSX.Element {
   const [skus, setSkus] = useState<Sku[]>([]);
   const [total, setTotal] = useState<number>(0);
   const [busqueda, setBusqueda] = useState<string>("");
+  // "" = todos, "true" = solo renovables, "false" = solo no renovables.
+  const [filtroRenovable, setFiltroRenovable] = useState<string>("");
   const [cargandoLista, setCargandoLista] = useState<boolean>(true);
   const [errorLista, setErrorLista] = useState<string | null>(null);
 
@@ -65,11 +70,17 @@ export default function PaginaProductos(): React.JSX.Element {
   const [errorForm, setErrorForm] = useState<string | null>(null);
   const [exito, setExito] = useState<string | null>(null);
 
-  const cargarSkus = useCallback(async (termino: string): Promise<void> => {
+  const cargarSkus = useCallback(
+    async (termino: string, renovable: string): Promise<void> => {
     setCargandoLista(true);
     setErrorLista(null);
     try {
-      const respuesta = await obtenerSkus(1, POR_PAGINA, termino);
+      const respuesta = await obtenerSkus(
+        1,
+        POR_PAGINA,
+        termino,
+        renovable === "" ? undefined : renovable === "true",
+      );
       setSkus(respuesta.datos);
       setTotal(respuesta.total);
     } catch (error) {
@@ -81,10 +92,12 @@ export default function PaginaProductos(): React.JSX.Element {
     } finally {
       setCargandoLista(false);
     }
-  }, []);
+  },
+    [],
+  );
 
   useEffect(() => {
-    void cargarSkus("");
+    void cargarSkus("", "");
     void (async (): Promise<void> => {
       try {
         const [fam, uni] = await Promise.all([
@@ -101,7 +114,7 @@ export default function PaginaProductos(): React.JSX.Element {
 
   function manejarBusqueda(evento: FormEvent<HTMLFormElement>): void {
     evento.preventDefault();
-    void cargarSkus(busqueda.trim());
+    void cargarSkus(busqueda.trim(), filtroRenovable);
   }
 
   function actualizar(campo: keyof EstadoFormulario, valor: string): void {
@@ -178,10 +191,12 @@ export default function PaginaProductos(): React.JSX.Element {
           form.precioPublico.trim() || form.precioDistribuidor.trim()
             ? form.monedaVenta
             : undefined,
+        esRenovable:
+          form.esRenovable === "" ? undefined : form.esRenovable === "true",
       });
       setExito(`Producto creado correctamente (SKU #${respuesta.skuId}).`);
       setForm(FORMULARIO_INICIAL);
-      await cargarSkus(busqueda.trim());
+      await cargarSkus(busqueda.trim(), filtroRenovable);
     } catch (error) {
       setErrorForm(
         error instanceof ErrorApi
@@ -386,6 +401,30 @@ export default function PaginaProductos(): React.JSX.Element {
                 />
               </div>
 
+              <div>
+                <label htmlFor="esRenovable" className="etiqueta-campo">
+                  Renovabilidad
+                </label>
+                <select
+                  id="esRenovable"
+                  value={form.esRenovable}
+                  onChange={(e) => actualizar("esRenovable", e.target.value)}
+                  aria-describedby="esRenovable-ayuda"
+                  className="campo"
+                >
+                  <option value="">Sin clasificar</option>
+                  <option value="true">Renovable</option>
+                  <option value="false">No renovable</option>
+                </select>
+                <p
+                  id="esRenovable-ayuda"
+                  className="mt-1.5 text-xs text-texto-ter"
+                >
+                  Una existencia renovable se repone, se consume y se vuelve a
+                  comprar.
+                </p>
+              </div>
+
               <div className="sm:col-span-2">
                 <fieldset className="grid gap-4 rounded-md border border-borde bg-panel-alt p-4 sm:grid-cols-3">
                   <legend className="px-1 text-sm font-medium text-texto">
@@ -526,6 +565,22 @@ export default function PaginaProductos(): React.JSX.Element {
               </span>
             </span>
             <form onSubmit={manejarBusqueda} className="flex gap-2" role="search">
+              <label htmlFor="filtroRenovable" className="sr-only">
+                Filtrar por renovabilidad
+              </label>
+              <select
+                id="filtroRenovable"
+                value={filtroRenovable}
+                onChange={(e) => {
+                  setFiltroRenovable(e.target.value);
+                  void cargarSkus(busqueda.trim(), e.target.value);
+                }}
+                className="campo"
+              >
+                <option value="">Todas</option>
+                <option value="true">Renovables</option>
+                <option value="false">No renovables</option>
+              </select>
               <label htmlFor="busqueda" className="sr-only">
                 Buscar SKU
               </label>
@@ -565,6 +620,7 @@ export default function PaginaProductos(): React.JSX.Element {
                     <th>Familia</th>
                     <th>Unidad</th>
                     <th>Unidad ref.</th>
+                    <th>Renovable</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -581,6 +637,15 @@ export default function PaginaProductos(): React.JSX.Element {
                         {sku.unidadReferencia && sku.factorConversion
                           ? `${sku.unidadReferencia.codigo} (×${sku.factorConversion})`
                           : "—"}
+                      </td>
+                      <td>
+                        {sku.esRenovable === null ? (
+                          <span className="text-texto-ter">—</span>
+                        ) : sku.esRenovable ? (
+                          <span className="insignia insignia-exito">Sí</span>
+                        ) : (
+                          <span className="insignia insignia-neutra">No</span>
+                        )}
                       </td>
                     </tr>
                   ))}
