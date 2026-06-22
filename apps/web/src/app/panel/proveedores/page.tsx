@@ -3,10 +3,8 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
-import {
-  SelectorBusqueda,
-  type OpcionSelector,
-} from "@/componentes/selector-busqueda";
+import { PanelLateral } from "@/componentes/panel-lateral";
+import type { OpcionSelector } from "@/componentes/selector-busqueda";
 import {
   ErrorApi,
   actualizarProveedor,
@@ -74,14 +72,31 @@ function proveedorAForm(p: Proveedor): FormProveedor {
   };
 }
 
+function AvisoLinea({ aviso }: { aviso: Aviso }): React.JSX.Element {
+  return (
+    <div
+      role={aviso.tono === "error" ? "alert" : "status"}
+      className={`aviso ${aviso.tono === "error" ? "aviso-peligro" : "aviso-exito"}`}
+    >
+      <span>{aviso.texto}</span>
+    </div>
+  );
+}
+
 export default function PaginaProveedores(): React.JSX.Element {
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
+  const [busqueda, setBusqueda] = useState<string>("");
 
+  const [panelAbierto, setPanelAbierto] = useState<boolean>(false);
   const [form, setForm] = useState<FormProveedor>(PROVEEDOR_VACIO);
   const [editandoId, setEditandoId] = useState<number | null>(null);
   const [guardando, setGuardando] = useState<boolean>(false);
-  const [aviso, setAviso] = useState<Aviso | null>(null);
+
+  // Aviso de lista (arriba de la tabla) y aviso del formulario (dentro del panel).
+  const [avisoLista, setAvisoLista] = useState<Aviso | null>(null);
+  const [avisoForm, setAvisoForm] = useState<Aviso | null>(null);
+
   const [proveedorADesactivar, setProveedorADesactivar] = useState<Proveedor | null>(null);
   const [desactivando, setDesactivando] = useState<boolean>(false);
 
@@ -90,7 +105,7 @@ export default function PaginaProveedores(): React.JSX.Element {
       try {
         setProveedores(await obtenerProveedores());
       } catch (error) {
-        setAviso({
+        setAvisoLista({
           texto: mensajeError(error, "No se pudieron cargar los proveedores."),
           tono: "error",
         });
@@ -112,26 +127,33 @@ export default function PaginaProveedores(): React.JSX.Element {
     setForm((previo) => ({ ...previo, [campo]: valor }));
   }
 
-  function iniciarEdicion(proveedor: Proveedor): void {
-    setEditandoId(proveedor.id);
-    setForm(proveedorAForm(proveedor));
-    setAviso(null);
-    if (typeof window !== "undefined") {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
-  }
-
-  function cancelarEdicion(): void {
+  function abrirNuevo(): void {
     setEditandoId(null);
     setForm(PROVEEDOR_VACIO);
-    setAviso(null);
+    setAvisoForm(null);
+    setPanelAbierto(true);
+  }
+
+  function abrirEdicion(proveedor: Proveedor): void {
+    setEditandoId(proveedor.id);
+    setForm(proveedorAForm(proveedor));
+    setAvisoForm(null);
+    setPanelAbierto(true);
+  }
+
+  function cerrarPanel(): void {
+    if (guardando) return;
+    setPanelAbierto(false);
+    setEditandoId(null);
+    setForm(PROVEEDOR_VACIO);
+    setAvisoForm(null);
   }
 
   async function manejarProveedor(evento: FormEvent<HTMLFormElement>): Promise<void> {
     evento.preventDefault();
-    setAviso(null);
+    setAvisoForm(null);
     if (editandoId === null && !/^\d{11}$/.test(form.ruc)) {
-      setAviso({ texto: "El RUC debe tener 11 dígitos.", tono: "error" });
+      setAvisoForm({ texto: "El RUC debe tener 11 dígitos.", tono: "error" });
       return;
     }
     setGuardando(true);
@@ -149,19 +171,20 @@ export default function PaginaProveedores(): React.JSX.Element {
       };
       if (editandoId !== null) {
         await actualizarProveedor(editandoId, camposOpcionales);
-        setAviso({ texto: "Proveedor actualizado.", tono: "exito" });
+        setAvisoLista({ texto: "Proveedor actualizado.", tono: "exito" });
       } else {
         const respuesta = await crearProveedor({ ruc: form.ruc, ...camposOpcionales });
-        setAviso({
+        setAvisoLista({
           texto: `Proveedor registrado (#${respuesta.id}).`,
           tono: "exito",
         });
       }
+      setPanelAbierto(false);
       setEditandoId(null);
       setForm(PROVEEDOR_VACIO);
       await refrescarProveedores();
     } catch (error) {
-      setAviso({
+      setAvisoForm({
         texto: mensajeError(error, "No se pudo guardar el proveedor."),
         tono: "error",
       });
@@ -173,18 +196,16 @@ export default function PaginaProveedores(): React.JSX.Element {
   async function confirmarDesactivacion(): Promise<void> {
     if (!proveedorADesactivar) return;
     setDesactivando(true);
-    setAviso(null);
     try {
       await desactivarProveedor(proveedorADesactivar.id);
-      setAviso({
+      setAvisoLista({
         texto: `Proveedor ${proveedorADesactivar.razonSocial} desactivado.`,
         tono: "exito",
       });
-      if (editandoId === proveedorADesactivar.id) cancelarEdicion();
       setProveedorADesactivar(null);
       await refrescarProveedores();
     } catch (error) {
-      setAviso({
+      setAvisoLista({
         texto: mensajeError(error, "No se pudo desactivar el proveedor."),
         tono: "error",
       });
@@ -193,6 +214,16 @@ export default function PaginaProveedores(): React.JSX.Element {
     }
   }
 
+  const termino = busqueda.trim().toLowerCase();
+  const visibles = termino
+    ? proveedores.filter(
+        (p) =>
+          p.razonSocial.toLowerCase().includes(termino) ||
+          p.ruc.includes(termino) ||
+          (p.contactoNombre ?? "").toLowerCase().includes(termino),
+      )
+    : proveedores;
+
   return (
     <div>
       <EncabezadoPagina
@@ -200,256 +231,274 @@ export default function PaginaProveedores(): React.JSX.Element {
         descripcion="Registra y administra los proveedores de la empresa."
       />
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <section className="panel">
-          <div className="panel-cabecera">
-            <span className="panel-titulo">
-              {editandoId !== null ? "Editar proveedor" : "Nuevo proveedor"}
-            </span>
-          </div>
-          <form onSubmit={manejarProveedor} className="space-y-4 p-5">
-            {aviso && (
-              <div
-                role={aviso.tono === "error" ? "alert" : "status"}
-                className={`aviso ${
-                  aviso.tono === "error" ? "aviso-peligro" : "aviso-exito"
-                }`}
-              >
-                <span>{aviso.texto}</span>
-              </div>
-            )}
-            <div>
-              <label htmlFor="ruc" className="etiqueta-campo">
-                RUC
-              </label>
-              <input
-                id="ruc"
-                value={form.ruc}
-                onChange={(e) => actualizarForm("ruc", e.target.value)}
-                inputMode="numeric"
-                maxLength={11}
-                required
-                disabled={editandoId !== null}
-                className="campo font-mono disabled:opacity-60"
-              />
-              {editandoId !== null && (
-                <p className="mt-1.5 text-xs text-texto-ter">
-                  El RUC no se puede modificar.
-                </p>
-              )}
-            </div>
-            <div>
-              <label htmlFor="razon-social" className="etiqueta-campo">
-                Razón social
-              </label>
-              <input
-                id="razon-social"
-                value={form.razonSocial}
-                onChange={(e) => actualizarForm("razonSocial", e.target.value)}
-                required
-                className="campo"
-              />
-            </div>
-            <div>
-              <label htmlFor="direccion" className="etiqueta-campo">
-                Dirección <span className="text-texto-ter">(opcional)</span>
-              </label>
-              <input
-                id="direccion"
-                value={form.direccion}
-                onChange={(e) => actualizarForm("direccion", e.target.value)}
-                className="campo"
-              />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label htmlFor="telefono" className="etiqueta-campo">
-                  Teléfono <span className="text-texto-ter">(opcional)</span>
-                </label>
-                <input
-                  id="telefono"
-                  value={form.telefono}
-                  onChange={(e) => actualizarForm("telefono", e.target.value)}
-                  inputMode="tel"
-                  className="campo font-mono"
-                />
-              </div>
-              <div>
-                <label htmlFor="email-proveedor" className="etiqueta-campo">
-                  Email <span className="text-texto-ter">(opcional)</span>
-                </label>
-                <input
-                  id="email-proveedor"
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => actualizarForm("email", e.target.value)}
-                  className="campo"
-                />
-              </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label htmlFor="condicion-pago" className="etiqueta-campo">
-                  Condición de pago <span className="text-texto-ter">(opcional)</span>
-                </label>
-                <input
-                  id="condicion-pago"
-                  value={form.condicionPago}
-                  onChange={(e) => actualizarForm("condicionPago", e.target.value)}
-                  placeholder="Ej. Crédito 30 días"
-                  className="campo"
-                />
-              </div>
-              <div>
-                <label htmlFor="moneda-habitual" className="etiqueta-campo">
-                  Moneda habitual <span className="text-texto-ter">(opcional)</span>
-                </label>
-                <select
-                  id="moneda-habitual"
-                  value={form.monedaHabitual}
-                  onChange={(e) => actualizarForm("monedaHabitual", e.target.value)}
-                  className="campo"
-                >
-                  <option value="">Sin definir</option>
-                  <option value="PEN">PEN — Soles</option>
-                  <option value="USD">USD — Dólares</option>
-                </select>
-              </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label htmlFor="cci" className="etiqueta-campo">
-                  CCI <span className="text-texto-ter">(opcional)</span>
-                </label>
-                <input
-                  id="cci"
-                  value={form.cci}
-                  onChange={(e) => actualizarForm("cci", e.target.value)}
-                  inputMode="numeric"
-                  className="campo font-mono"
-                />
-              </div>
-              <div>
-                <label htmlFor="tipo-doc-identidad" className="etiqueta-campo">
-                  Tipo doc. identidad <span className="text-texto-ter">(opcional)</span>
-                </label>
-                <SelectorBusqueda
-                  id="tipo-doc-identidad"
-                  opciones={OPCIONES_TIPO_DOC_IDENTIDAD}
-                  valor={form.tipoDocIdentidad}
-                  onCambio={(valor) => actualizarForm("tipoDocIdentidad", valor)}
-                  placeholder="Sin definir"
-                  ariaLabel="Tipo de documento de identidad"
-                />
-              </div>
-            </div>
-            <div>
-              <label htmlFor="contacto-nombre" className="etiqueta-campo">
-                Nombre de contacto <span className="text-texto-ter">(opcional)</span>
-              </label>
-              <input
-                id="contacto-nombre"
-                value={form.contactoNombre}
-                onChange={(e) => actualizarForm("contactoNombre", e.target.value)}
-                className="campo"
-              />
-            </div>
-            <div className="flex gap-3">
-              <button
-                type="submit"
-                disabled={guardando}
-                className="btn btn-primario"
-              >
-                {guardando
-                  ? "Guardando…"
-                  : editandoId !== null
-                    ? "Guardar cambios"
-                    : "Registrar proveedor"}
-              </button>
-              {editandoId !== null && (
-                <button type="button" onClick={cancelarEdicion} className="btn btn-contorno">
-                  Cancelar
-                </button>
-              )}
-            </div>
-          </form>
-        </section>
+      {avisoLista && (
+        <div className="mt-4">
+          <AvisoLinea aviso={avisoLista} />
+        </div>
+      )}
 
-        <section className="panel">
-          <div className="panel-cabecera">
-            <span className="panel-titulo">Proveedores registrados</span>
+      <section className="panel mt-6">
+        <div className="panel-cabecera flex-wrap gap-3">
+          <span className="panel-titulo">
+            Proveedores registrados
+            <span className="ml-2 font-mono text-sm font-normal text-texto-ter">
+              ({proveedores.length})
+            </span>
+          </span>
+          <div className="flex items-center gap-2">
+            <label htmlFor="buscar-prov" className="sr-only">
+              Buscar proveedor
+            </label>
+            <input
+              id="buscar-prov"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar por RUC, razón social o contacto…"
+              className="campo w-72"
+            />
+            <button type="button" onClick={abrirNuevo} className="btn btn-primario whitespace-nowrap">
+              Nuevo proveedor
+            </button>
           </div>
-          <div className="overflow-x-auto">
-            <table className="tabla-datos">
-              <thead>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="tabla-datos">
+            <thead>
+              <tr>
+                <th>RUC</th>
+                <th>Razón social</th>
+                <th>Contacto</th>
+                <th>Condición de pago</th>
+                <th>Moneda</th>
+                <th>Estado</th>
+                <th className="text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cargando ? (
                 <tr>
-                  <th>RUC</th>
-                  <th>Razón social</th>
-                  <th>Contacto</th>
-                  <th>Condición</th>
-                  <th>Estado</th>
-                  <th>Acciones</th>
+                  <td colSpan={7} className="text-texto-ter">
+                    Cargando…
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {cargando ? (
-                  <tr>
-                    <td colSpan={6} className="text-texto-ter">
-                      Cargando…
+              ) : visibles.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-texto-ter">
+                    {termino ? "Sin coincidencias." : "Sin proveedores registrados."}
+                  </td>
+                </tr>
+              ) : (
+                visibles.map((proveedor) => (
+                  <tr key={proveedor.id}>
+                    <td className="num">{proveedor.ruc}</td>
+                    <td className="text-tinta">{proveedor.razonSocial}</td>
+                    <td className="text-texto-sec">
+                      {proveedor.contactoNombre || proveedor.telefono || "—"}
                     </td>
-                  </tr>
-                ) : proveedores.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="text-texto-ter">
-                      Sin proveedores registrados.
+                    <td className="text-texto-sec">{proveedor.condicionPago || "—"}</td>
+                    <td className="text-texto-sec">{proveedor.monedaHabitual || "—"}</td>
+                    <td>
+                      <span
+                        className={`insignia ${
+                          proveedor.activo ? "insignia-exito" : "insignia-neutra"
+                        }`}
+                      >
+                        {proveedor.activo ? "Activo" : "Inactivo"}
+                      </span>
                     </td>
-                  </tr>
-                ) : (
-                  proveedores.map((proveedor) => (
-                    <tr key={proveedor.id}>
-                      <td className="num">{proveedor.ruc}</td>
-                      <td className="text-tinta">{proveedor.razonSocial}</td>
-                      <td className="text-texto-sec">
-                        {proveedor.contactoNombre || proveedor.telefono || "—"}
-                      </td>
-                      <td className="text-texto-sec">{proveedor.condicionPago || "—"}</td>
-                      <td>
-                        <span
-                          className={`insignia ${
-                            proveedor.activo ? "insignia-exito" : "insignia-neutra"
-                          }`}
+                    <td>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => abrirEdicion(proveedor)}
+                          className="btn btn-contorno h-8"
                         >
-                          {proveedor.activo ? "Activo" : "Inactivo"}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="flex gap-2">
+                          Editar
+                        </button>
+                        {proveedor.activo && (
                           <button
                             type="button"
-                            onClick={() => iniciarEdicion(proveedor)}
-                            className="btn btn-contorno h-8"
+                            onClick={() => setProveedorADesactivar(proveedor)}
+                            className="btn btn-peligro h-8"
                           >
-                            Editar
+                            Desactivar
                           </button>
-                          {proveedor.activo && (
-                            <button
-                              type="button"
-                              onClick={() => setProveedorADesactivar(proveedor)}
-                              className="btn btn-peligro h-8"
-                            >
-                              Desactivar
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <PanelLateral
+        abierto={panelAbierto}
+        titulo={editandoId !== null ? "Editar proveedor" : "Nuevo proveedor"}
+        descripcion={
+          editandoId !== null
+            ? "Modifica los datos del proveedor."
+            : "Registra un proveedor nuevo."
+        }
+        onCerrar={cerrarPanel}
+      >
+        <form onSubmit={manejarProveedor} className="space-y-4">
+          {avisoForm && <AvisoLinea aviso={avisoForm} />}
+          <div>
+            <label htmlFor="ruc" className="etiqueta-campo">
+              RUC
+            </label>
+            <input
+              id="ruc"
+              value={form.ruc}
+              onChange={(e) => actualizarForm("ruc", e.target.value)}
+              inputMode="numeric"
+              maxLength={11}
+              required
+              disabled={editandoId !== null}
+              className="campo font-mono disabled:opacity-60"
+            />
+            {editandoId !== null && (
+              <p className="mt-1.5 text-xs text-texto-ter">El RUC no se puede modificar.</p>
+            )}
           </div>
-        </section>
-      </div>
+          <div>
+            <label htmlFor="razon-social" className="etiqueta-campo">
+              Razón social
+            </label>
+            <input
+              id="razon-social"
+              value={form.razonSocial}
+              onChange={(e) => actualizarForm("razonSocial", e.target.value)}
+              required
+              className="campo"
+            />
+          </div>
+          <div>
+            <label htmlFor="direccion" className="etiqueta-campo">
+              Dirección <span className="text-texto-ter">(opcional)</span>
+            </label>
+            <input
+              id="direccion"
+              value={form.direccion}
+              onChange={(e) => actualizarForm("direccion", e.target.value)}
+              className="campo"
+            />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="telefono" className="etiqueta-campo">
+                Teléfono <span className="text-texto-ter">(opcional)</span>
+              </label>
+              <input
+                id="telefono"
+                value={form.telefono}
+                onChange={(e) => actualizarForm("telefono", e.target.value)}
+                inputMode="tel"
+                className="campo font-mono"
+              />
+            </div>
+            <div>
+              <label htmlFor="email-proveedor" className="etiqueta-campo">
+                Email <span className="text-texto-ter">(opcional)</span>
+              </label>
+              <input
+                id="email-proveedor"
+                type="email"
+                value={form.email}
+                onChange={(e) => actualizarForm("email", e.target.value)}
+                className="campo"
+              />
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="condicion-pago" className="etiqueta-campo">
+                Condición de pago <span className="text-texto-ter">(opcional)</span>
+              </label>
+              <input
+                id="condicion-pago"
+                value={form.condicionPago}
+                onChange={(e) => actualizarForm("condicionPago", e.target.value)}
+                placeholder="Ej. Crédito 30 días"
+                className="campo"
+              />
+            </div>
+            <div>
+              <label htmlFor="moneda-habitual" className="etiqueta-campo">
+                Moneda habitual <span className="text-texto-ter">(opcional)</span>
+              </label>
+              <select
+                id="moneda-habitual"
+                value={form.monedaHabitual}
+                onChange={(e) => actualizarForm("monedaHabitual", e.target.value)}
+                className="campo"
+              >
+                <option value="">Sin definir</option>
+                <option value="PEN">PEN — Soles</option>
+                <option value="USD">USD — Dólares</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="cci" className="etiqueta-campo">
+                CCI <span className="text-texto-ter">(opcional)</span>
+              </label>
+              <input
+                id="cci"
+                value={form.cci}
+                onChange={(e) => actualizarForm("cci", e.target.value)}
+                inputMode="numeric"
+                className="campo font-mono"
+              />
+            </div>
+            <div>
+              <label htmlFor="tipo-doc-identidad" className="etiqueta-campo">
+                Tipo doc. identidad <span className="text-texto-ter">(opcional)</span>
+              </label>
+              <select
+                id="tipo-doc-identidad"
+                value={form.tipoDocIdentidad}
+                onChange={(e) => actualizarForm("tipoDocIdentidad", e.target.value)}
+                className="campo"
+              >
+                <option value="">Sin definir</option>
+                {OPCIONES_TIPO_DOC_IDENTIDAD.map((o) => (
+                  <option key={o.valor} value={o.valor}>
+                    {o.etiqueta}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label htmlFor="contacto-nombre" className="etiqueta-campo">
+              Nombre de contacto <span className="text-texto-ter">(opcional)</span>
+            </label>
+            <input
+              id="contacto-nombre"
+              value={form.contactoNombre}
+              onChange={(e) => actualizarForm("contactoNombre", e.target.value)}
+              className="campo"
+            />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="submit" disabled={guardando} className="btn btn-primario">
+              {guardando
+                ? "Guardando…"
+                : editandoId !== null
+                  ? "Guardar cambios"
+                  : "Registrar proveedor"}
+            </button>
+            <button type="button" onClick={cerrarPanel} className="btn btn-contorno">
+              Cancelar
+            </button>
+          </div>
+        </form>
+      </PanelLateral>
 
       <ModalConfirmacion
         abierto={proveedorADesactivar !== null}
