@@ -1,7 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
+import {
+  SelectorBusqueda,
+  type OpcionSelector,
+} from "@/componentes/selector-busqueda";
 import {
   ErrorApi,
   crearProducto,
@@ -111,6 +115,35 @@ export default function PaginaProductos(): React.JSX.Element {
       }
     })();
   }, [cargarSkus]);
+
+  const opcionesFamilia = useMemo<OpcionSelector[]>(
+    () =>
+      familias.map((f) => ({
+        valor: String(f.id),
+        etiqueta: `${f.codigo} — ${f.nombre}`,
+      })),
+    [familias],
+  );
+
+  const opcionesUnidad = useMemo<OpcionSelector[]>(
+    () =>
+      unidades.map((u) => ({
+        valor: String(u.id),
+        etiqueta: `${u.codigo} — ${u.nombre}`,
+      })),
+    [unidades],
+  );
+
+  const opcionesUnidadReferencia = useMemo<OpcionSelector[]>(
+    () =>
+      unidades
+        .filter((u) => String(u.id) !== form.unidadId)
+        .map((u) => ({
+          valor: String(u.id),
+          etiqueta: `${u.codigo} — ${u.nombre}`,
+        })),
+    [unidades, form.unidadId],
+  );
 
   function manejarBusqueda(evento: FormEvent<HTMLFormElement>): void {
     evento.preventDefault();
@@ -240,40 +273,30 @@ export default function PaginaProductos(): React.JSX.Element {
                 <label htmlFor="familia" className="etiqueta-campo">
                   Familia
                 </label>
-                <select
+                <SelectorBusqueda
                   id="familia"
-                  value={form.familiaId}
-                  onChange={(e) => actualizar("familiaId", e.target.value)}
-                  required
-                  className="campo"
-                >
-                  <option value="">Selecciona…</option>
-                  {familias.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.codigo} — {f.nombre}
-                    </option>
-                  ))}
-                </select>
+                  opciones={opcionesFamilia}
+                  valor={form.familiaId}
+                  onCambio={(valor) => actualizar("familiaId", valor)}
+                  placeholder="Selecciona…"
+                  requerido
+                  ariaLabel="Familia"
+                />
               </div>
 
               <div>
                 <label htmlFor="unidad" className="etiqueta-campo">
                   Unidad
                 </label>
-                <select
+                <SelectorBusqueda
                   id="unidad"
-                  value={form.unidadId}
-                  onChange={(e) => actualizar("unidadId", e.target.value)}
-                  required
-                  className="campo"
-                >
-                  <option value="">Selecciona…</option>
-                  {unidades.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.codigo} — {u.nombre}
-                    </option>
-                  ))}
-                </select>
+                  opciones={opcionesUnidad}
+                  valor={form.unidadId}
+                  onCambio={(valor) => actualizar("unidadId", valor)}
+                  placeholder="Selecciona…"
+                  requerido
+                  ariaLabel="Unidad"
+                />
               </div>
 
               <div>
@@ -496,23 +519,16 @@ export default function PaginaProductos(): React.JSX.Element {
                     <label htmlFor="unidadReferencia" className="etiqueta-campo">
                       Unidad de referencia
                     </label>
-                    <select
+                    <SelectorBusqueda
                       id="unidadReferencia"
-                      value={form.unidadReferenciaId}
-                      onChange={(e) =>
-                        actualizar("unidadReferenciaId", e.target.value)
+                      opciones={opcionesUnidadReferencia}
+                      valor={form.unidadReferenciaId}
+                      onCambio={(valor) =>
+                        actualizar("unidadReferenciaId", valor)
                       }
-                      className="campo"
-                    >
-                      <option value="">Sin unidad de referencia</option>
-                      {unidades
-                        .filter((u) => String(u.id) !== form.unidadId)
-                        .map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.codigo} — {u.nombre}
-                          </option>
-                        ))}
-                    </select>
+                      placeholder="Sin unidad de referencia"
+                      ariaLabel="Unidad de referencia"
+                    />
                   </div>
                   <div>
                     <label htmlFor="factorConversion" className="etiqueta-campo">

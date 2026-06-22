@@ -5,6 +5,7 @@ import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { CapturaSeriesEntrada } from "@/componentes/captura-series";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
 import { SelectorSku } from "@/componentes/selector-sku";
+import { SelectorBusqueda } from "@/componentes/selector-busqueda";
 import { SelectorUnidadLinea } from "@/componentes/selector-unidad-linea";
 import {
   ErrorApi,
@@ -583,20 +584,17 @@ export default function PaginaCompras(): React.JSX.Element {
                   Desde requerimiento aprobado{" "}
                   <span className="text-texto-ter">(opcional)</span>
                 </label>
-                <select
+                <SelectorBusqueda
                   id="requerimiento-origen"
-                  value={requerimientoOrigen}
-                  onChange={(e) => aplicarRequerimiento(e.target.value)}
+                  valor={requerimientoOrigen}
+                  onCambio={(v) => aplicarRequerimiento(v)}
                   disabled={cargandoBase}
-                  className="campo"
-                >
-                  <option value="">Sin requerimiento de origen</option>
-                  {requerimientosAprobados.map((req) => (
-                    <option key={req.id} value={req.id}>
-                      {req.numero} — {req.centroCosto}
-                    </option>
-                  ))}
-                </select>
+                  placeholder="Sin requerimiento de origen"
+                  opciones={requerimientosAprobados.map((req) => ({
+                    valor: String(req.id),
+                    etiqueta: `${req.numero} — ${req.centroCosto}`,
+                  }))}
+                />
                 {requerimientoOrigen && (
                   <p className="mt-1.5 text-xs text-texto-ter">
                     Se prellenaron las cantidades. Selecciona el SKU y completa el costo
@@ -610,23 +608,20 @@ export default function PaginaCompras(): React.JSX.Element {
                   <label htmlFor="proveedor-orden" className="etiqueta-campo">
                     Proveedor
                   </label>
-                  <select
+                  <SelectorBusqueda
                     id="proveedor-orden"
-                    value={proveedorOrden}
-                    onChange={(e) => setProveedorOrden(e.target.value)}
+                    valor={proveedorOrden}
+                    onCambio={(v) => setProveedorOrden(v)}
                     disabled={cargandoBase}
-                    required
-                    className="campo"
-                  >
-                    <option value="">{cargandoBase ? "Cargando…" : "Selecciona…"}</option>
-                    {proveedores
+                    requerido
+                    placeholder={cargandoBase ? "Cargando…" : "Selecciona…"}
+                    opciones={proveedores
                       .filter((p) => p.activo)
-                      .map((proveedor) => (
-                        <option key={proveedor.id} value={proveedor.id}>
-                          {proveedor.ruc} — {proveedor.razonSocial}
-                        </option>
-                      ))}
-                  </select>
+                      .map((proveedor) => ({
+                        valor: String(proveedor.id),
+                        etiqueta: `${proveedor.ruc} — ${proveedor.razonSocial}`,
+                      }))}
+                  />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -890,26 +885,23 @@ export default function PaginaCompras(): React.JSX.Element {
               <label htmlFor="orden-recepcion" className="etiqueta-campo">
                 Orden de compra
               </label>
-              <select
+              <SelectorBusqueda
                 id="orden-recepcion"
-                value={ordenRecepcion}
-                onChange={(e) => {
-                  setOrdenRecepcion(e.target.value);
+                valor={ordenRecepcion}
+                onCambio={(v) => {
+                  setOrdenRecepcion(v);
                   limpiarRecepcion();
                   setAvisoRecepcion(null);
                 }}
                 disabled={cargandoBase}
-                className="campo"
-              >
-                <option value="">
-                  {cargandoBase ? "Cargando…" : "Selecciona una orden pendiente…"}
-                </option>
-                {ordenesRecepcionables.map((orden) => (
-                  <option key={orden.id} value={orden.id}>
-                    {orden.numero} — {orden.proveedor} ({orden.estado})
-                  </option>
-                ))}
-              </select>
+                placeholder={
+                  cargandoBase ? "Cargando…" : "Selecciona una orden pendiente…"
+                }
+                opciones={ordenesRecepcionables.map((orden) => ({
+                  valor: String(orden.id),
+                  etiqueta: `${orden.numero} — ${orden.proveedor} (${orden.estado})`,
+                }))}
+              />
               {!cargandoBase && ordenesRecepcionables.length === 0 && (
                 <p className="mt-1.5 text-xs text-texto-ter">
                   No hay órdenes en estado Emitida o Parcial para recibir.
@@ -995,20 +987,17 @@ export default function PaginaCompras(): React.JSX.Element {
                       <label htmlFor="tipo-documento" className="etiqueta-campo">
                         Tipo de comprobante
                       </label>
-                      <select
+                      <SelectorBusqueda
                         id="tipo-documento"
-                        value={tipoDocumento}
-                        onChange={(e) => setTipoDocumento(e.target.value)}
-                        required
-                        className="campo"
-                      >
-                        <option value="">Selecciona…</option>
-                        {COMPROBANTES_COMPRA.map((opcion) => (
-                          <option key={opcion.codigo} value={opcion.codigo}>
-                            {opcion.codigo} — {opcion.etiqueta}
-                          </option>
-                        ))}
-                      </select>
+                        valor={tipoDocumento}
+                        onCambio={(v) => setTipoDocumento(v)}
+                        requerido
+                        placeholder="Selecciona…"
+                        opciones={COMPROBANTES_COMPRA.map((opcion) => ({
+                          valor: opcion.codigo,
+                          etiqueta: `${opcion.codigo} — ${opcion.etiqueta}`,
+                        }))}
+                      />
                     </div>
                     <div>
                       <label htmlFor="serie" className="etiqueta-campo">
@@ -1228,25 +1217,20 @@ export default function PaginaCompras(): React.JSX.Element {
                     <label htmlFor="proveedor-cot" className="etiqueta-campo">
                       Proveedor
                     </label>
-                    <select
+                    <SelectorBusqueda
                       id="proveedor-cot"
-                      value={proveedorCot}
-                      onChange={(e) => setProveedorCot(e.target.value)}
+                      valor={proveedorCot}
+                      onCambio={(v) => setProveedorCot(v)}
                       disabled={cargandoBase}
-                      required
-                      className="campo"
-                    >
-                      <option value="">
-                        {cargandoBase ? "Cargando…" : "Selecciona…"}
-                      </option>
-                      {proveedores
+                      requerido
+                      placeholder={cargandoBase ? "Cargando…" : "Selecciona…"}
+                      opciones={proveedores
                         .filter((p) => p.activo)
-                        .map((proveedor) => (
-                          <option key={proveedor.id} value={proveedor.id}>
-                            {proveedor.ruc} — {proveedor.razonSocial}
-                          </option>
-                        ))}
-                    </select>
+                        .map((proveedor) => ({
+                          valor: String(proveedor.id),
+                          etiqueta: `${proveedor.ruc} — ${proveedor.razonSocial}`,
+                        }))}
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>

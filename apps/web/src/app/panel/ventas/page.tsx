@@ -5,6 +5,7 @@ import { SelectorSeriesSalida } from "@/componentes/captura-series";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { FormularioGuia } from "@/componentes/formulario-guia";
 import { SelectorSku } from "@/componentes/selector-sku";
+import { SelectorBusqueda } from "@/componentes/selector-busqueda";
 import { SelectorUnidadLinea } from "@/componentes/selector-unidad-linea";
 import {
   ErrorApi,
@@ -525,21 +526,18 @@ export default function PaginaVentas(): React.JSX.Element {
                   <label htmlFor="cliente" className="etiqueta-campo">
                     Cliente
                   </label>
-                  <select
+                  <SelectorBusqueda
                     id="cliente"
-                    value={clienteId}
-                    onChange={(e) => cambiarCliente(e.target.value)}
+                    valor={clienteId}
+                    onCambio={(v) => cambiarCliente(v)}
                     disabled={cargandoBase}
-                    required
-                    className="campo"
-                  >
-                    <option value="">{cargandoBase ? "Cargando…" : "Selecciona…"}</option>
-                    {clientes.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.numeroDoc} — {c.razonSocial}
-                      </option>
-                    ))}
-                  </select>
+                    requerido
+                    placeholder={cargandoBase ? "Cargando…" : "Selecciona…"}
+                    opciones={clientes.map((c) => ({
+                      valor: String(c.id),
+                      etiqueta: `${c.numeroDoc} — ${c.razonSocial}`,
+                    }))}
+                  />
                   {!cargandoBase && clientes.length === 0 && (
                     <p className="mt-1.5 text-xs text-texto-ter">
                       No hay clientes registrados. Crea uno en el módulo Clientes.
@@ -817,26 +815,23 @@ export default function PaginaVentas(): React.JSX.Element {
               <label htmlFor="orden-despacho" className="etiqueta-campo">
                 Orden de venta
               </label>
-              <select
+              <SelectorBusqueda
                 id="orden-despacho"
-                value={ordenDespacho}
-                onChange={(e) => {
-                  setOrdenDespacho(e.target.value);
+                valor={ordenDespacho}
+                onCambio={(v) => {
+                  setOrdenDespacho(v);
                   limpiarComprobante();
                   setAvisoDespacho(null);
                 }}
                 disabled={cargandoBase}
-                className="campo"
-              >
-                <option value="">
-                  {cargandoBase ? "Cargando…" : "Selecciona una orden pendiente…"}
-                </option>
-                {ordenesDespachables.map((orden) => (
-                  <option key={orden.id} value={orden.id}>
-                    {orden.numero} — {orden.cliente ?? "Sin cliente"} ({orden.estado})
-                  </option>
-                ))}
-              </select>
+                placeholder={
+                  cargandoBase ? "Cargando…" : "Selecciona una orden pendiente…"
+                }
+                opciones={ordenesDespachables.map((orden) => ({
+                  valor: String(orden.id),
+                  etiqueta: `${orden.numero} — ${orden.cliente ?? "Sin cliente"} (${orden.estado})`,
+                }))}
+              />
               {!cargandoBase && ordenesDespachables.length === 0 && (
                 <p className="mt-1.5 text-xs text-texto-ter">
                   No hay órdenes pendientes de despacho.
@@ -923,20 +918,17 @@ export default function PaginaVentas(): React.JSX.Element {
                       <label htmlFor="tipo-documento" className="etiqueta-campo">
                         Tipo de comprobante
                       </label>
-                      <select
+                      <SelectorBusqueda
                         id="tipo-documento"
-                        value={tipoDocumento}
-                        onChange={(e) => setTipoDocumento(e.target.value)}
-                        required
-                        className="campo"
-                      >
-                        <option value="">Selecciona…</option>
-                        {COMPROBANTES_VENTA.map((opcion) => (
-                          <option key={opcion.codigo} value={opcion.codigo}>
-                            {opcion.codigo} — {opcion.etiqueta}
-                          </option>
-                        ))}
-                      </select>
+                        valor={tipoDocumento}
+                        onCambio={(v) => setTipoDocumento(v)}
+                        requerido
+                        placeholder="Selecciona…"
+                        opciones={COMPROBANTES_VENTA.map((opcion) => ({
+                          valor: opcion.codigo,
+                          etiqueta: `${opcion.codigo} — ${opcion.etiqueta}`,
+                        }))}
+                      />
                     </div>
                     <div>
                       <label htmlFor="serie" className="etiqueta-campo">

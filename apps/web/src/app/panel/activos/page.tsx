@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
+import { SelectorBusqueda } from "@/componentes/selector-busqueda";
 import {
   ErrorApi,
   crearActivo,
@@ -378,22 +379,18 @@ export default function PaginaActivos(): React.JSX.Element {
                   <label htmlFor="act-categoria" className="etiqueta-campo">
                     Categoría
                   </label>
-                  <select
+                  <SelectorBusqueda
                     id="act-categoria"
-                    value={actCategoriaId}
-                    onChange={(e) => setActCategoriaId(e.target.value)}
+                    ariaLabel="Categoría"
+                    placeholder={cargandoBase ? "Cargando…" : "Selecciona…"}
                     disabled={cargandoBase}
-                    className="campo"
-                  >
-                    <option value="">
-                      {cargandoBase ? "Cargando…" : "Selecciona…"}
-                    </option>
-                    {categorias.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.nombre}
-                      </option>
-                    ))}
-                  </select>
+                    opciones={categorias.map((cat) => ({
+                      valor: String(cat.id),
+                      etiqueta: cat.nombre,
+                    }))}
+                    valor={actCategoriaId}
+                    onCambio={setActCategoriaId}
+                  />
                 </div>
                 <div>
                   <label htmlFor="act-codigo" className="etiqueta-campo">

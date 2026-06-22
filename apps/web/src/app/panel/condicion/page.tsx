@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { SelectorSku } from "@/componentes/selector-sku";
+import { SelectorBusqueda, type OpcionSelector } from "@/componentes/selector-busqueda";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
 import {
   ErrorApi,
@@ -158,6 +159,11 @@ export default function PaginaCondicion(): React.JSX.Element {
 
   const etiquetaAlmacen = nombreAlmacen.get(almacenId) ?? "el almacén";
 
+  const opcionesAlmacen = useMemo<OpcionSelector[]>(
+    () => almacenes.map((a) => ({ valor: a.id, etiqueta: `${a.codigo} — ${a.nombre}` })),
+    [almacenes],
+  );
+
   return (
     <div>
       <EncabezadoPagina
@@ -210,16 +216,14 @@ export default function PaginaCondicion(): React.JSX.Element {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="almacen" className="etiqueta-campo">Almacén</label>
-                <select
+                <SelectorBusqueda
                   id="almacen"
-                  className="campo"
-                  value={almacenId}
-                  onChange={(e) => setAlmacenId(e.target.value)}
-                >
-                  {almacenes.map((a) => (
-                    <option key={a.id} value={a.id}>{a.codigo} — {a.nombre}</option>
-                  ))}
-                </select>
+                  ariaLabel="Almacén"
+                  opciones={opcionesAlmacen}
+                  valor={almacenId}
+                  onCambio={setAlmacenId}
+                  placeholder="Selecciona…"
+                />
               </div>
               <div>
                 <label htmlFor="cantidad" className="etiqueta-campo">Cantidad</label>

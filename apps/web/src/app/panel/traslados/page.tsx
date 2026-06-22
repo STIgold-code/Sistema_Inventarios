@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { FormularioGuia } from "@/componentes/formulario-guia";
 import { SelectorSku } from "@/componentes/selector-sku";
+import { SelectorBusqueda, type OpcionSelector } from "@/componentes/selector-busqueda";
 import {
   ErrorApi,
   anularTraslado,
@@ -128,6 +129,20 @@ export default function PaginaTraslados(): React.JSX.Element {
   const trasladoSeleccionado = useMemo(
     () => traslados.find((t) => String(t.id) === trasladoRecepcion) ?? null,
     [traslados, trasladoRecepcion],
+  );
+
+  const opcionesAlmacen = useMemo<OpcionSelector[]>(
+    () => almacenes.map((a) => ({ valor: a.id, etiqueta: `${a.codigo} — ${a.nombre}` })),
+    [almacenes],
+  );
+
+  const opcionesRecepcion = useMemo<OpcionSelector[]>(
+    () =>
+      trasladosEnTransito.map((t) => ({
+        valor: String(t.id),
+        etiqueta: `${t.numero} — ${t.origen} → ${t.destino}`,
+      })),
+    [trasladosEnTransito],
   );
 
   // ── Crear orden de traslado ──────────────────────────────────────────────────
@@ -392,41 +407,31 @@ export default function PaginaTraslados(): React.JSX.Element {
                   <label htmlFor="origen" className="etiqueta-campo">
                     Almacén de origen
                   </label>
-                  <select
+                  <SelectorBusqueda
                     id="origen"
-                    value={origenId}
-                    onChange={(e) => setOrigenId(e.target.value)}
+                    ariaLabel="Almacén de origen"
+                    opciones={opcionesAlmacen}
+                    valor={origenId}
+                    onCambio={setOrigenId}
                     disabled={cargandoBase}
-                    required
-                    className="campo"
-                  >
-                    <option value="">{cargandoBase ? "Cargando…" : "Selecciona…"}</option>
-                    {almacenes.map((almacen) => (
-                      <option key={almacen.id} value={almacen.id}>
-                        {almacen.codigo} — {almacen.nombre}
-                      </option>
-                    ))}
-                  </select>
+                    requerido
+                    placeholder={cargandoBase ? "Cargando…" : "Selecciona…"}
+                  />
                 </div>
                 <div>
                   <label htmlFor="destino" className="etiqueta-campo">
                     Almacén de destino
                   </label>
-                  <select
+                  <SelectorBusqueda
                     id="destino"
-                    value={destinoId}
-                    onChange={(e) => setDestinoId(e.target.value)}
+                    ariaLabel="Almacén de destino"
+                    opciones={opcionesAlmacen}
+                    valor={destinoId}
+                    onCambio={setDestinoId}
                     disabled={cargandoBase}
-                    required
-                    className="campo"
-                  >
-                    <option value="">{cargandoBase ? "Cargando…" : "Selecciona…"}</option>
-                    {almacenes.map((almacen) => (
-                      <option key={almacen.id} value={almacen.id}>
-                        {almacen.codigo} — {almacen.nombre}
-                      </option>
-                    ))}
-                  </select>
+                    requerido
+                    placeholder={cargandoBase ? "Cargando…" : "Selecciona…"}
+                  />
                 </div>
               </div>
 
@@ -633,22 +638,17 @@ export default function PaginaTraslados(): React.JSX.Element {
               <label htmlFor="traslado-recepcion" className="etiqueta-campo">
                 Traslado en tránsito
               </label>
-              <select
+              <SelectorBusqueda
                 id="traslado-recepcion"
-                value={trasladoRecepcion}
-                onChange={(e) => seleccionarTrasladoRecepcion(e.target.value)}
+                ariaLabel="Traslado en tránsito"
+                opciones={opcionesRecepcion}
+                valor={trasladoRecepcion}
+                onCambio={seleccionarTrasladoRecepcion}
                 disabled={cargandoBase}
-                className="campo"
-              >
-                <option value="">
-                  {cargandoBase ? "Cargando…" : "Selecciona un traslado en tránsito…"}
-                </option>
-                {trasladosEnTransito.map((traslado) => (
-                  <option key={traslado.id} value={traslado.id}>
-                    {traslado.numero} — {traslado.origen} → {traslado.destino}
-                  </option>
-                ))}
-              </select>
+                placeholder={
+                  cargandoBase ? "Cargando…" : "Selecciona un traslado en tránsito…"
+                }
+              />
               {!cargandoBase && trasladosEnTransito.length === 0 && (
                 <p className="mt-1.5 text-xs text-texto-ter">
                   No hay traslados en tránsito pendientes de recepción.

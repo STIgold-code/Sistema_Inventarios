@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { SelectorSku } from "@/componentes/selector-sku";
+import { SelectorBusqueda, type OpcionSelector } from "@/componentes/selector-busqueda";
 import {
   ErrorApi,
   obtenerAlmacenes,
@@ -110,6 +111,11 @@ export default function PaginaMovimientos(): React.JSX.Element {
     [almacenes],
   );
 
+  const opcionesAlmacen = useMemo<OpcionSelector[]>(
+    () => almacenes.map((a) => ({ valor: a.id, etiqueta: `${a.codigo} — ${a.nombre}` })),
+    [almacenes],
+  );
+
   return (
     <div>
       <EncabezadoPagina
@@ -164,11 +170,14 @@ export default function PaginaMovimientos(): React.JSX.Element {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="almacen" className="etiqueta-campo">Almacén</label>
-                <select id="almacen" className="campo" value={almacenId} onChange={(e) => setAlmacenId(e.target.value)}>
-                  {almacenes.map((a) => (
-                    <option key={a.id} value={a.id}>{a.codigo} — {a.nombre}</option>
-                  ))}
-                </select>
+                <SelectorBusqueda
+                  id="almacen"
+                  ariaLabel="Almacén"
+                  opciones={opcionesAlmacen}
+                  valor={almacenId}
+                  onCambio={setAlmacenId}
+                  placeholder="Selecciona…"
+                />
               </div>
               {motivo === "ajuste" && (
                 <div>

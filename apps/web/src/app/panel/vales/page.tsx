@@ -5,6 +5,7 @@ import Link from "next/link";
 import { SelectorSeriesSalida } from "@/componentes/captura-series";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
+import { SelectorBusqueda } from "@/componentes/selector-busqueda";
 import { SelectorSku } from "@/componentes/selector-sku";
 import { SelectorUnidadLinea } from "@/componentes/selector-unidad-linea";
 import {
@@ -379,66 +380,57 @@ export default function PaginaVales(): React.JSX.Element {
                 <label htmlFor="vale-almacen" className="etiqueta-campo">
                   Almacén de origen
                 </label>
-                <select
+                <SelectorBusqueda
                   id="vale-almacen"
-                  value={almacenId}
-                  onChange={(e) => setAlmacenId(e.target.value)}
+                  valor={almacenId}
+                  onCambio={(v) => setAlmacenId(v)}
                   disabled={cargandoBase}
-                  required
-                  className="campo"
-                >
-                  <option value="">{cargandoBase ? "Cargando…" : "Selecciona…"}</option>
-                  {almacenes.map((almacen) => (
-                    <option key={almacen.id} value={almacen.id}>
-                      {almacen.codigo} — {almacen.nombre}
-                    </option>
-                  ))}
-                </select>
+                  requerido
+                  placeholder={cargandoBase ? "Cargando…" : "Selecciona…"}
+                  opciones={almacenes.map((almacen) => ({
+                    valor: String(almacen.id),
+                    etiqueta: `${almacen.codigo} — ${almacen.nombre}`,
+                  }))}
+                />
               </div>
               <div>
                 <label htmlFor="vale-centro-costo" className="etiqueta-campo">
                   Centro de costo
                 </label>
-                <select
+                <SelectorBusqueda
                   id="vale-centro-costo"
-                  value={centroCostoId}
-                  onChange={(e) => cambiarCentroCosto(e.target.value)}
+                  valor={centroCostoId}
+                  onCambio={(v) => cambiarCentroCosto(v)}
                   disabled={cargandoBase}
-                  required
-                  className="campo"
-                >
-                  <option value="">{cargandoBase ? "Cargando…" : "Selecciona…"}</option>
-                  {centrosCosto.map((centro) => (
-                    <option key={centro.id} value={centro.id}>
-                      {centro.codigo} — {centro.nombre}
-                    </option>
-                  ))}
-                </select>
+                  requerido
+                  placeholder={cargandoBase ? "Cargando…" : "Selecciona…"}
+                  opciones={centrosCosto.map((centro) => ({
+                    valor: String(centro.id),
+                    etiqueta: `${centro.codigo} — ${centro.nombre}`,
+                  }))}
+                />
               </div>
               <div>
                 <label htmlFor="vale-orden-trabajo" className="etiqueta-campo">
                   Orden de trabajo <span className="text-texto-ter">(opcional)</span>
                 </label>
-                <select
+                <SelectorBusqueda
                   id="vale-orden-trabajo"
-                  value={ordenTrabajoId}
-                  onChange={(e) => setOrdenTrabajoId(e.target.value)}
+                  valor={ordenTrabajoId}
+                  onCambio={(v) => setOrdenTrabajoId(v)}
                   disabled={cargandoBase || !centroCostoId}
-                  className="campo"
-                >
-                  <option value="">
-                    {!centroCostoId
+                  placeholder={
+                    !centroCostoId
                       ? "Selecciona primero un centro de costo"
                       : ordenesDisponibles.length === 0
                         ? "Sin órdenes abiertas para este centro"
-                        : "Sin orden de trabajo"}
-                  </option>
-                  {ordenesDisponibles.map((ot) => (
-                    <option key={ot.id} value={ot.id}>
-                      {ot.numero} — {ot.descripcion}
-                    </option>
-                  ))}
-                </select>
+                        : "Sin orden de trabajo"
+                  }
+                  opciones={ordenesDisponibles.map((ot) => ({
+                    valor: String(ot.id),
+                    etiqueta: `${ot.numero} — ${ot.descripcion}`,
+                  }))}
+                />
               </div>
               <div>
                 <label htmlFor="vale-destino" className="etiqueta-campo">

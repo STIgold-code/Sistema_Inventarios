@@ -8,6 +8,7 @@ import {
   type FormEvent,
 } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
+import { SelectorBusqueda } from "@/componentes/selector-busqueda";
 import {
   ErrorApi,
   obtenerAuditoria,
@@ -205,51 +206,44 @@ export default function PaginaAuditoria(): React.JSX.Element {
             onSubmit={limpiarRango}
             className="flex flex-wrap items-center gap-2"
           >
-            <select
-              aria-label="Entidad"
-              value={entidad}
-              onChange={(e) =>
-                cambiarFiltro(() => setEntidad(e.target.value))
-              }
-              className="campo w-44"
-            >
-              <option value="">Todas las entidades</option>
-              {ENTIDADES.map((ent) => (
-                <option key={ent} value={ent}>
-                  {etiquetaEntidad(ent)}
-                </option>
-              ))}
-            </select>
+            <div className="w-44">
+              <SelectorBusqueda
+                ariaLabel="Entidad"
+                placeholder="Todas las entidades"
+                opciones={ENTIDADES.map((ent) => ({
+                  valor: ent,
+                  etiqueta: etiquetaEntidad(ent),
+                }))}
+                valor={entidad}
+                onCambio={(v) => cambiarFiltro(() => setEntidad(v))}
+              />
+            </div>
 
-            <select
-              aria-label="Acción"
-              value={accion}
-              onChange={(e) => cambiarFiltro(() => setAccion(e.target.value))}
-              className="campo w-44"
-            >
-              <option value="">Todas las acciones</option>
-              {ACCIONES.map((acc) => (
-                <option key={acc} value={acc}>
-                  {etiquetaAccion(acc)}
-                </option>
-              ))}
-            </select>
+            <div className="w-44">
+              <SelectorBusqueda
+                ariaLabel="Acción"
+                placeholder="Todas las acciones"
+                opciones={ACCIONES.map((acc) => ({
+                  valor: acc,
+                  etiqueta: etiquetaAccion(acc),
+                }))}
+                valor={accion}
+                onCambio={(v) => cambiarFiltro(() => setAccion(v))}
+              />
+            </div>
 
-            <select
-              aria-label="Usuario"
-              value={usuarioId}
-              onChange={(e) =>
-                cambiarFiltro(() => setUsuarioId(e.target.value))
-              }
-              className="campo w-44"
-            >
-              <option value="">Todos los usuarios</option>
-              {opcionesUsuario.map(([id, nombre]) => (
-                <option key={id} value={id}>
-                  {nombre}
-                </option>
-              ))}
-            </select>
+            <div className="w-44">
+              <SelectorBusqueda
+                ariaLabel="Usuario"
+                placeholder="Todos los usuarios"
+                opciones={opcionesUsuario.map(([id, nombre]) => ({
+                  valor: id,
+                  etiqueta: nombre,
+                }))}
+                valor={usuarioId}
+                onCambio={(v) => cambiarFiltro(() => setUsuarioId(v))}
+              />
+            </div>
 
             <label htmlFor="desde" className="sr-only">
               Desde

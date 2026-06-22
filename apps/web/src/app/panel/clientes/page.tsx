@@ -4,6 +4,10 @@ import { useEffect, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
 import {
+  SelectorBusqueda,
+  type OpcionSelector,
+} from "@/componentes/selector-busqueda";
+import {
   ErrorApi,
   actualizarCliente,
   crearCliente,
@@ -44,6 +48,10 @@ const TIPOS_DOC_IDENTIDAD: readonly { codigo: string; etiqueta: string }[] = [
 
 const ETIQUETA_DOC: Record<string, string> = Object.fromEntries(
   TIPOS_DOC_IDENTIDAD.map((t) => [t.codigo, t.etiqueta]),
+);
+
+const OPCIONES_DOC_IDENTIDAD: OpcionSelector[] = TIPOS_DOC_IDENTIDAD.map(
+  (t) => ({ valor: t.codigo, etiqueta: t.etiqueta }),
 );
 
 const CLIENTE_VACIO: FormCliente = {
@@ -214,18 +222,14 @@ export default function PaginaClientes(): React.JSX.Element {
                 <label htmlFor="tipo-doc-identidad" className="etiqueta-campo">
                   Tipo de documento
                 </label>
-                <select
+                <SelectorBusqueda
                   id="tipo-doc-identidad"
-                  value={form.tipoDocIdentidad}
-                  onChange={(e) => actualizarForm("tipoDocIdentidad", e.target.value)}
-                  className="campo"
-                >
-                  {TIPOS_DOC_IDENTIDAD.map((tipo) => (
-                    <option key={tipo.codigo} value={tipo.codigo}>
-                      {tipo.etiqueta}
-                    </option>
-                  ))}
-                </select>
+                  opciones={OPCIONES_DOC_IDENTIDAD}
+                  valor={form.tipoDocIdentidad}
+                  onCambio={(valor) => actualizarForm("tipoDocIdentidad", valor)}
+                  placeholder="Selecciona…"
+                  ariaLabel="Tipo de documento"
+                />
               </div>
               <div>
                 <label htmlFor="numero-doc" className="etiqueta-campo">

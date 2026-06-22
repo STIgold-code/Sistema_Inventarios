@@ -1,8 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
+import {
+  SelectorBusqueda,
+  type OpcionSelector,
+} from "@/componentes/selector-busqueda";
 import {
   actualizarZona,
   crearAlmacen,
@@ -190,6 +194,24 @@ export default function PaginaAlmacenes(): React.JSX.Element {
     }
   }
 
+  const opcionesSucursal = useMemo<OpcionSelector[]>(
+    () =>
+      sucursales.map((s) => ({
+        valor: s.id,
+        etiqueta: `${s.codigo} — ${s.nombre}`,
+      })),
+    [sucursales],
+  );
+
+  const opcionesAlmacenZona = useMemo<OpcionSelector[]>(
+    () =>
+      almacenes.map((a) => ({
+        valor: a.id,
+        etiqueta: `${a.codigo} — ${a.nombre} (${a.sucursal})`,
+      })),
+    [almacenes],
+  );
+
   return (
     <div>
       <EncabezadoPagina
@@ -214,12 +236,18 @@ export default function PaginaAlmacenes(): React.JSX.Element {
             )}
             <div>
               <label htmlFor="suc" className="etiqueta-campo">Sucursal</label>
-              <select id="suc" className="campo" value={sucursalId} onChange={(e) => setSucursalId(e.target.value)}>
-                {sucursales.length === 0 && <option value="">Crea una sucursal primero</option>}
-                {sucursales.map((s) => (
-                  <option key={s.id} value={s.id}>{s.codigo} — {s.nombre}</option>
-                ))}
-              </select>
+              <SelectorBusqueda
+                id="suc"
+                opciones={opcionesSucursal}
+                valor={sucursalId}
+                onCambio={setSucursalId}
+                placeholder={
+                  sucursales.length === 0
+                    ? "Crea una sucursal primero"
+                    : "Selecciona una sucursal"
+                }
+                ariaLabel="Sucursal"
+              />
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_2fr]">
               <div>
@@ -321,17 +349,14 @@ export default function PaginaAlmacenes(): React.JSX.Element {
           <div className="flex flex-wrap items-end gap-4">
             <div className="grow">
               <label htmlFor="almZona" className="etiqueta-campo">Almacén</label>
-              <select
+              <SelectorBusqueda
                 id="almZona"
-                className="campo"
-                value={almZonaId}
-                onChange={(e) => setAlmZonaId(e.target.value)}
-              >
-                <option value="">Selecciona un almacén</option>
-                {almacenes.map((a) => (
-                  <option key={a.id} value={a.id}>{a.codigo} — {a.nombre} ({a.sucursal})</option>
-                ))}
-              </select>
+                opciones={opcionesAlmacenZona}
+                valor={almZonaId}
+                onCambio={setAlmZonaId}
+                placeholder="Selecciona un almacén"
+                ariaLabel="Almacén"
+              />
             </div>
             {almZonaId && edicionZona === null && (
               <button type="button" onClick={abrirAltaZona} className="btn btn-primario">

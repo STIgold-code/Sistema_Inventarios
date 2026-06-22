@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
+import { SelectorBusqueda } from "@/componentes/selector-busqueda";
 import { SelectorSku } from "@/componentes/selector-sku";
 import {
   descargarArchivo,
@@ -150,38 +151,31 @@ export default function PaginaKardex(): React.JSX.Element {
           <label htmlFor="almacen" className="etiqueta-campo">
             Almacén
           </label>
-          <select
+          <SelectorBusqueda
             id="almacen"
-            className="campo"
-            value={almacenId === null ? "" : String(almacenId)}
-            onChange={(e) => setAlmacenId(e.target.value === "" ? null : Number(e.target.value))}
-          >
-            <option value="">Todos los almacenes</option>
-            {almacenes.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.codigo} — {a.nombre}
-              </option>
-            ))}
-          </select>
+            ariaLabel="Almacén"
+            placeholder="Todos los almacenes"
+            opciones={almacenes.map((a) => ({
+              valor: String(a.id),
+              etiqueta: `${a.codigo} — ${a.nombre}`,
+            }))}
+            valor={almacenId === null ? "" : String(almacenId)}
+            onCambio={(v) => setAlmacenId(v === "" ? null : Number(v))}
+          />
         </div>
         {consultado && filas.length > 0 && (
           <div className="w-full sm:w-48">
             <label htmlFor="tipo" className="etiqueta-campo">
               Tipo de movimiento
             </label>
-            <select
+            <SelectorBusqueda
               id="tipo"
-              className="campo"
-              value={filtroTipo}
-              onChange={(e) => setFiltroTipo(e.target.value)}
-            >
-              <option value="">Todos</option>
-              {tipos.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
+              ariaLabel="Tipo de movimiento"
+              placeholder="Todos"
+              opciones={tipos.map((t) => ({ valor: t, etiqueta: t }))}
+              valor={filtroTipo}
+              onCambio={setFiltroTipo}
+            />
           </div>
         )}
         {consultado && filas.length > 0 && (

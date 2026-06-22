@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
+import { SelectorBusqueda } from "@/componentes/selector-busqueda";
 import { SelectorSku } from "@/componentes/selector-sku";
 import {
   ErrorApi,
@@ -220,21 +221,18 @@ export default function PaginaRequerimientos(): React.JSX.Element {
                 <label htmlFor="centro-costo" className="etiqueta-campo">
                   Centro de costo
                 </label>
-                <select
+                <SelectorBusqueda
                   id="centro-costo"
-                  value={centroCostoId}
-                  onChange={(e) => setCentroCostoId(e.target.value)}
+                  valor={centroCostoId}
+                  onCambio={(v) => setCentroCostoId(v)}
                   disabled={cargandoBase}
-                  required
-                  className="campo"
-                >
-                  <option value="">{cargandoBase ? "Cargando…" : "Selecciona…"}</option>
-                  {centrosCosto.map((centro) => (
-                    <option key={centro.id} value={centro.id}>
-                      {centro.codigo} — {centro.nombre}
-                    </option>
-                  ))}
-                </select>
+                  requerido
+                  placeholder={cargandoBase ? "Cargando…" : "Selecciona…"}
+                  opciones={centrosCosto.map((centro) => ({
+                    valor: String(centro.id),
+                    etiqueta: `${centro.codigo} — ${centro.nombre}`,
+                  }))}
+                />
               </div>
               <div>
                 <label htmlFor="observaciones-req" className="etiqueta-campo">

@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
+import { SelectorBusqueda } from "@/componentes/selector-busqueda";
 import {
   descargarArchivo,
   descargarJson,
@@ -203,19 +204,18 @@ export default function PaginaExistencias(): React.JSX.Element {
             </div>
 
             {vista === "almacen" && (
-              <select
-                aria-label="Almacén"
-                value={almacenId}
-                onChange={(e) => cambiarAlmacen(e.target.value)}
-                className="campo w-48"
-              >
-                <option value="">Todos los almacenes</option>
-                {almacenes.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.codigo} — {a.nombre}
-                  </option>
-                ))}
-              </select>
+              <div className="w-48">
+                <SelectorBusqueda
+                  ariaLabel="Almacén"
+                  placeholder="Todos los almacenes"
+                  opciones={almacenes.map((a) => ({
+                    valor: String(a.id),
+                    etiqueta: `${a.codigo} — ${a.nombre}`,
+                  }))}
+                  valor={almacenId}
+                  onCambio={cambiarAlmacen}
+                />
+              </div>
             )}
 
             <select

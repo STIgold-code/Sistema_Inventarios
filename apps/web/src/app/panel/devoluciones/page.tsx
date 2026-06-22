@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react";
 import { CapturaSeriesEntrada } from "@/componentes/captura-series";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
+import { SelectorBusqueda } from "@/componentes/selector-busqueda";
 import {
   ErrorApi,
   crearDevolucion,
@@ -269,22 +270,19 @@ export default function PaginaDevoluciones(): React.JSX.Element {
                 <label htmlFor="orden-devolucion" className="etiqueta-campo">
                   Orden de venta
                 </label>
-                <select
+                <SelectorBusqueda
                   id="orden-devolucion"
-                  value={ordenId}
-                  onChange={(e) => cambiarOrden(e.target.value)}
+                  valor={ordenId}
+                  onCambio={(v) => cambiarOrden(v)}
                   disabled={cargandoBase}
-                  className="campo"
-                >
-                  <option value="">
-                    {cargandoBase ? "Cargando…" : "Selecciona una orden despachada…"}
-                  </option>
-                  {ordenesDevolvibles.map((orden) => (
-                    <option key={orden.id} value={orden.id}>
-                      {orden.numero} — {orden.cliente ?? "Sin cliente"} ({orden.estado})
-                    </option>
-                  ))}
-                </select>
+                  placeholder={
+                    cargandoBase ? "Cargando…" : "Selecciona una orden despachada…"
+                  }
+                  opciones={ordenesDevolvibles.map((orden) => ({
+                    valor: String(orden.id),
+                    etiqueta: `${orden.numero} — ${orden.cliente ?? "Sin cliente"} (${orden.estado})`,
+                  }))}
+                />
                 {!cargandoBase && ordenesDevolvibles.length === 0 && (
                   <p className="mt-1.5 text-xs text-texto-ter">
                     No hay órdenes despachadas para devolver.

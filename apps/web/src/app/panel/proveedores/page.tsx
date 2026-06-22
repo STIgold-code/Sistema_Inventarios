@@ -4,6 +4,10 @@ import { useEffect, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
 import {
+  SelectorBusqueda,
+  type OpcionSelector,
+} from "@/componentes/selector-busqueda";
+import {
   ErrorApi,
   actualizarProveedor,
   crearProveedor,
@@ -42,6 +46,14 @@ const PROVEEDOR_VACIO: FormProveedor = {
   contactoNombre: "",
   tipoDocIdentidad: "",
 };
+
+/** Tabla 2 SUNAT — tipos de documento de identidad mas usados en proveedores. */
+const OPCIONES_TIPO_DOC_IDENTIDAD: OpcionSelector[] = [
+  { valor: "6", etiqueta: "RUC" },
+  { valor: "1", etiqueta: "DNI" },
+  { valor: "4", etiqueta: "Carnet de extranjería" },
+  { valor: "7", etiqueta: "Pasaporte" },
+];
 
 function mensajeError(error: unknown, porDefecto: string): string {
   return error instanceof ErrorApi ? error.message : porDefecto;
@@ -321,18 +333,14 @@ export default function PaginaProveedores(): React.JSX.Element {
                 <label htmlFor="tipo-doc-identidad" className="etiqueta-campo">
                   Tipo doc. identidad <span className="text-texto-ter">(opcional)</span>
                 </label>
-                <select
+                <SelectorBusqueda
                   id="tipo-doc-identidad"
-                  value={form.tipoDocIdentidad}
-                  onChange={(e) => actualizarForm("tipoDocIdentidad", e.target.value)}
-                  className="campo"
-                >
-                  <option value="">Sin definir</option>
-                  <option value="6">RUC</option>
-                  <option value="1">DNI</option>
-                  <option value="4">Carnet de extranjería</option>
-                  <option value="7">Pasaporte</option>
-                </select>
+                  opciones={OPCIONES_TIPO_DOC_IDENTIDAD}
+                  valor={form.tipoDocIdentidad}
+                  onCambio={(valor) => actualizarForm("tipoDocIdentidad", valor)}
+                  placeholder="Sin definir"
+                  ariaLabel="Tipo de documento de identidad"
+                />
               </div>
             </div>
             <div>
