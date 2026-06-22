@@ -838,6 +838,10 @@ model Recepcion {
   ordenCompra OrdenCompra      @relation(fields: [ordenCompraId], references: [id])
   lineas      RecepcionLinea[]
 
+  // Unicidad del comprobante del proveedor por empresa (igual que ComprobanteVenta
+  // y GuiaRemision): no se registra dos veces la misma factura. Las recepciones de
+  // backfill con serie/numero dummy '0' NO entran en la unicidad y por eso se aplica
+  // como indice parcial (ver migracion), no como @@unique tradicional.
   @@index([empresaId, ordenCompraId])
   @@map("recepcion")
 }
