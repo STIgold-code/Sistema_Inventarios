@@ -31,3 +31,14 @@ export class SerieInvalidaError extends BadRequestException {
     super(mensaje);
   }
 }
+
+/**
+ * Defensa en profundidad: se intento crear un item de stock para un SKU o
+ * almacen que no pertenece a la empresa del movimiento. Bloquea fugas de
+ * pertenencia (IDOR) que se hubieran filtrado hasta el ledger.
+ */
+export class PertenenciaInvalidaError extends BadRequestException {
+  constructor(detalle: string) {
+    super(`Pertenencia invalida: ${detalle}`);
+  }
+}

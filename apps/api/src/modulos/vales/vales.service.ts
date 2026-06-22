@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import { AuditoriaService } from "../auditoria/auditoria.service.js";
@@ -245,10 +250,15 @@ export class ValesService {
     if (vale.estado !== "BORRADOR") {
       throw new BadRequestException(`El vale esta ${vale.estado}`);
     }
-    await this.prisma.valeSalida.update({
-      where: { id: vale.id },
+    // CAS sobre el estado: solo autoriza si SIGUE en BORRADOR. Si otra peticion ya
+    // lo autorizo/anulo entre el read y este update, afecta 0 filas -> conflicto.
+    const actualizados = await this.prisma.valeSalida.updateMany({
+      where: { id: vale.id, estado: "BORRADOR" },
       data: { estado: "AUTORIZADO", autorizadoPorId: usuario.id },
     });
+    if (actualizados.count === 0) {
+      throw new ConflictException("El vale ya no esta en BORRADOR");
+    }
     await this.auditoria.registrar({
       empresaId: usuario.empresaId,
       usuarioId: usuario.id,
@@ -278,6 +288,18 @@ export class ValesService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      // CAS sobre el estado al inicio de la transaccion: marca DESPACHADO solo si
+      // SIGUE AUTORIZADO. Si otra peticion despacho/anulo el vale entre el read y
+      // esta transaccion, afecta 0 filas -> conflicto y se revierte (sin doble
+      // despacho ni salidas duplicadas en el ledger). El estado se actualiza
+      // primero (no al final) para cerrar la ventana de carrera.
+      const tomado = await tx.valeSalida.updateMany({
+        where: { id: vale.id, estado: "AUTORIZADO" },
+        data: { estado: "DESPACHADO" },
+      });
+      if (tomado.count === 0) {
+        throw new ConflictException("El vale ya no esta AUTORIZADO para despachar");
+      }
       for (const linea of vale.lineas) {
         const { movimientoId } = await this.movimientos.salidaPorVale(usuario, tx, {
           skuId: linea.skuId,
@@ -292,10 +314,7 @@ export class ValesService {
           data: { cantidadDespachada: linea.cantidad, movimientoStockId: movimientoId },
         });
       }
-      await tx.valeSalida.update({
-        where: { id: vale.id },
-        data: { estado: "DESPACHADO" },
-      });
+      // El estado DESPACHADO ya quedo fijado por el CAS al inicio de la transaccion.
       await this.auditoria.registrar(
         {
           empresaId: usuario.empresaId,

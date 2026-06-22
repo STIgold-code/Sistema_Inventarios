@@ -14,6 +14,9 @@ const D = Prisma.Decimal;
 /** Tasa de IGV vigente en Peru (18%). */
 const IGV_TASA = new D("0.18");
 
+/** Tolerancia (en moneda) para conciliar los montos del comprobante. */
+const TOLERANCIA_CONCILIACION = new D("0.50");
+
 interface NuevaOrdenVenta {
   almacenId: bigint;
   numero: string;
@@ -343,6 +346,9 @@ export class VentasService {
     }
 
     // Validar todas las lineas antes de tocar el ledger o crear el comprobante.
+    // Ademas se acumula el subtotal calculado (cantidad despachada x precio de la
+    // linea) para conciliar los montos del comprobante.
+    let subtotalCalculado = new D(0);
     for (const linea of dto.lineas) {
       const ovLinea = orden.lineas.find((l) => l.id === linea.ordenVentaLineaId);
       if (!ovLinea) {
@@ -355,62 +361,107 @@ export class VentasService {
           `La linea excede lo pendiente: pendiente ${pendiente.toString()}, despacho ${despachar.toString()}`,
         );
       }
+      subtotalCalculado = subtotalCalculado.add(
+        despachar.mul(new D(ovLinea.precioUnitario)),
+      );
     }
 
     const c = dto.comprobante;
-    const comprobante = await this.prisma.comprobanteVenta.create({
-      data: {
-        empresaId: usuario.empresaId,
-        ordenVentaId: orden.id,
-        clienteId: orden.clienteId,
-        tipoDocumentoSunat: c.tipoDocumentoSunat,
-        serie: c.serie,
-        numero: c.numero,
-        fechaEmision: c.fechaEmision,
-        moneda: c.moneda ?? orden.moneda,
-        tipoCambio: c.tipoCambio ?? null,
-        subtotal: c.subtotal,
-        igv: c.igv,
-        total: c.total,
-      },
-    });
 
-    for (const linea of dto.lineas) {
-      const ovLinea = orden.lineas.find((l) => l.id === linea.ordenVentaLineaId)!;
-      const despachar = new D(linea.cantidad);
-
-      await this.movimientos.registrarSalidaVenta(usuario, {
-        skuId: ovLinea.skuId,
-        almacenId: orden.almacenId,
-        cantidad: linea.cantidad,
-        desdeReserva: true,
-        documentoId: comprobante.id,
-        tipoDocumentoSunat: c.tipoDocumentoSunat,
-        serieComprobante: c.serie,
-        numeroComprobante: c.numero,
-        fechaEmisionDocumento: c.fechaEmision,
-        observaciones: `Despacho OV ${orden.numero}`,
-        numerosSerie: linea.numerosSerie,
-      });
-
-      await this.prisma.ordenVentaLinea.update({
-        where: { id: ovLinea.id },
-        data: { cantidadDespachada: { increment: despachar } },
-      });
+    // Conciliacion de montos del comprobante (sustento SUNAT). El subtotal debe
+    // cuadrar con lo despachado en ESTE comprobante, el IGV con subtotal x 18% y
+    // el total con subtotal + IGV, todo dentro de la tolerancia por redondeo.
+    const subtotalComprobante = new D(c.subtotal);
+    if (
+      subtotalComprobante.sub(subtotalCalculado).abs().greaterThan(TOLERANCIA_CONCILIACION)
+    ) {
+      throw new BadRequestException(
+        `El subtotal del comprobante (${subtotalComprobante.toString()}) no concilia ` +
+          `con lo despachado (${subtotalCalculado.toString()})`,
+      );
     }
+    const igvComprobante = new D(c.igv);
+    const igvEsperado = subtotalComprobante.mul(IGV_TASA);
+    if (igvComprobante.sub(igvEsperado).abs().greaterThan(TOLERANCIA_CONCILIACION)) {
+      throw new BadRequestException(
+        `El IGV del comprobante (${igvComprobante.toString()}) no concilia con el ` +
+          `esperado (${igvEsperado.toString()} = subtotal x 18%)`,
+      );
+    }
+    const totalComprobante = new D(c.total);
+    const totalEsperado = subtotalComprobante.add(igvComprobante);
+    if (totalComprobante.sub(totalEsperado).abs().greaterThan(TOLERANCIA_CONCILIACION)) {
+      throw new BadRequestException(
+        `El total del comprobante (${totalComprobante.toString()}) no concilia con ` +
+          `subtotal + IGV (${totalEsperado.toString()})`,
+      );
+    }
+    // clienteId quedo garantizado no-nulo por la validacion previa; se captura
+    // aqui para preservar el narrowing dentro de la closure transaccional.
+    const clienteId = orden.clienteId;
+    // Todo el despacho (comprobante + salidas del ledger inmutable + updates de la
+    // orden) ocurre en UNA transaccion: si cualquier linea falla a mitad, nada se
+    // commitea (sin movimientos huerfanos ni stock comprometido inconsistente).
+    const comprobanteId = await this.prisma.$transaction(async (tx) => {
+      const comprobante = await tx.comprobanteVenta.create({
+        data: {
+          empresaId: usuario.empresaId,
+          ordenVentaId: orden.id,
+          clienteId,
+          tipoDocumentoSunat: c.tipoDocumentoSunat,
+          serie: c.serie,
+          numero: c.numero,
+          fechaEmision: c.fechaEmision,
+          moneda: c.moneda ?? orden.moneda,
+          tipoCambio: c.tipoCambio ?? null,
+          subtotal: c.subtotal,
+          igv: c.igv,
+          total: c.total,
+        },
+      });
 
-    await this.recalcularEstado(orden.id);
+      for (const linea of dto.lineas) {
+        const ovLinea = orden.lineas.find((l) => l.id === linea.ordenVentaLineaId)!;
+        const despachar = new D(linea.cantidad);
 
-    await this.auditoria.registrar({
-      empresaId: usuario.empresaId,
-      usuarioId: usuario.id,
-      accion: "DESPACHAR",
-      entidad: "ORDEN_VENTA",
-      entidadId: orden.id,
-      detalle: `Orden de venta N° ${orden.numero} despachada con comprobante ${c.serie}-${c.numero}`,
+        await this.movimientos.registrarSalidaVentaEnTx(usuario, tx, {
+          skuId: ovLinea.skuId,
+          almacenId: orden.almacenId,
+          cantidad: linea.cantidad,
+          desdeReserva: true,
+          documentoId: comprobante.id,
+          tipoDocumentoSunat: c.tipoDocumentoSunat,
+          serieComprobante: c.serie,
+          numeroComprobante: c.numero,
+          fechaEmisionDocumento: c.fechaEmision,
+          observaciones: `Despacho OV ${orden.numero}`,
+          numerosSerie: linea.numerosSerie,
+        });
+
+        await tx.ordenVentaLinea.update({
+          where: { id: ovLinea.id },
+          data: { cantidadDespachada: { increment: despachar } },
+        });
+      }
+
+      await this.recalcularEstado(tx, orden.id);
+
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "DESPACHAR",
+          entidad: "ORDEN_VENTA",
+          entidadId: orden.id,
+          detalle: `Orden de venta N° ${orden.numero} despachada con comprobante ${c.serie}-${c.numero}`,
+        },
+        tx,
+      );
+
+      return comprobante.id;
     });
 
-    return { ok: true, comprobanteId: comprobante.id.toString() };
+    return { ok: true, comprobanteId: comprobanteId.toString() };
   }
 
   /** Anula una orden no despachada y libera sus reservas. */
@@ -449,8 +500,11 @@ export class VentasService {
     return { ok: true };
   }
 
-  private async recalcularEstado(ordenId: bigint): Promise<void> {
-    const lineas = await this.prisma.ordenVentaLinea.findMany({
+  private async recalcularEstado(
+    tx: Prisma.TransactionClient,
+    ordenId: bigint,
+  ): Promise<void> {
+    const lineas = await tx.ordenVentaLinea.findMany({
       where: { ordenVentaId: ordenId },
     });
     const todo = lineas.every((l) =>
@@ -458,6 +512,6 @@ export class VentasService {
     );
     const algo = lineas.some((l) => new D(l.cantidadDespachada).greaterThan(0));
     const estado = todo ? "DESPACHADA" : algo ? "PARCIAL" : "PENDIENTE";
-    await this.prisma.ordenVenta.update({ where: { id: ordenId }, data: { estado } });
+    await tx.ordenVenta.update({ where: { id: ordenId }, data: { estado } });
   }
 }

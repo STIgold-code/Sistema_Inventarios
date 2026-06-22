@@ -6,8 +6,12 @@ import {
   Matches,
 } from "class-validator";
 
-/** Cantidad y costo se reciben como string para no perder precision decimal. */
-const REGEX_DECIMAL = /^\d+(\.\d+)?$/;
+/**
+ * Cantidad y costo se reciben como string para no perder precision decimal.
+ * Decimal estrictamente mayor a cero: rechaza "0", "0.0", "00.000", etc.
+ * El lookahead negativo descarta cualquier cadena compuesta solo por ceros.
+ */
+const REGEX_DECIMAL = /^(?!0+(\.0+)?$)\d+(\.\d+)?$/;
 
 export class RecibirCompraDto {
   @IsInt()

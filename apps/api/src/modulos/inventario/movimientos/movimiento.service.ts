@@ -14,6 +14,7 @@ import { TiposCambioService } from "../../tipos-cambio/tipos-cambio.service.js";
 import {
   InconsistenciaCapasError,
   PeriodoCerradoError,
+  PertenenciaInvalidaError,
   SerieInvalidaError,
   StockInsuficienteError,
 } from "./errores.js";
@@ -119,16 +120,37 @@ export class MovimientoService {
     return venta.isZero() ? null : venta;
   }
 
-  /** Entrada por compra: crea una capa de costo y recalcula el promedio movil. */
+  /**
+   * Entrada por compra: crea una capa de costo y recalcula el promedio movil.
+   * Abre su propia transaccion (uso directo). Cuando forma parte de una recepcion
+   * multi-linea, el caller debe usar {@link recibirCompraEnTx} para que todas las
+   * lineas compartan UNA transaccion y la atomicidad sea real.
+   */
   async recibirCompra(
     usuario: UsuarioRequest,
     dto: EntradaCompra,
   ): Promise<{ movimientoId: string }> {
+    const movimientoId = await this.prisma.$transaction((tx) =>
+      this.recibirCompraEnTx(usuario, tx, dto),
+    );
+    return { movimientoId: movimientoId.toString() };
+  }
+
+  /**
+   * Igual que {@link recibirCompra} pero opera DENTRO de la transaccion del
+   * caller: el advisory lock se toma sobre `tx` y nada se commitea por linea. Si
+   * cualquier linea posterior del documento falla, toda la operacion revierte.
+   */
+  async recibirCompraEnTx(
+    usuario: UsuarioRequest,
+    tx: Tx,
+    dto: EntradaCompra,
+  ): Promise<bigint> {
     const cantidad = new D(dto.cantidad);
     const costoUnitario = new D(dto.costoUnitario);
     const costoTotal = cantidad.mul(costoUnitario);
 
-    const movimientoId = await this.prisma.$transaction(async (tx) => {
+    {
       await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
       const item = await this.obtenerOcrearItem(
         tx,
@@ -204,9 +226,7 @@ export class MovimientoService {
       });
 
       return mov.id;
-    });
-
-    return { movimientoId: movimientoId.toString() };
+    }
   }
 
   /**
@@ -277,14 +297,37 @@ export class MovimientoService {
     return { movimientoId: movimientoId.toString() };
   }
 
-  /** Salida por venta: valida disponibilidad, consume capas FIFO y descuenta. */
+  /**
+   * Salida por venta: valida disponibilidad, consume capas FIFO y descuenta.
+   * Abre su propia transaccion (uso directo). En un despacho multi-linea el
+   * caller debe usar {@link registrarSalidaVentaEnTx} para garantizar atomicidad.
+   */
   async registrarSalidaVenta(
     usuario: UsuarioRequest,
     dto: SalidaVenta,
   ): Promise<{ movimientoId: string; costoSalida: string }> {
+    const resultado = await this.prisma.$transaction((tx) =>
+      this.registrarSalidaVentaEnTx(usuario, tx, dto),
+    );
+    return {
+      movimientoId: resultado.movimientoId.toString(),
+      costoSalida: resultado.costoSalida.toString(),
+    };
+  }
+
+  /**
+   * Igual que {@link registrarSalidaVenta} pero opera DENTRO de la transaccion
+   * del caller: advisory lock sobre `tx`, sin commits por linea. Si cualquier
+   * linea posterior del despacho falla, toda la operacion revierte.
+   */
+  async registrarSalidaVentaEnTx(
+    usuario: UsuarioRequest,
+    tx: Tx,
+    dto: SalidaVenta,
+  ): Promise<{ movimientoId: bigint; costoSalida: Prisma.Decimal }> {
     const cantidad = new D(dto.cantidad);
 
-    const resultado = await this.prisma.$transaction(async (tx) => {
+    {
       await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
       const item = await this.obtenerItem(
         tx,
@@ -389,12 +432,7 @@ export class MovimientoService {
       });
 
       return { movimientoId: mov.id, costoSalida: costoTotalMov };
-    });
-
-    return {
-      movimientoId: resultado.movimientoId.toString(),
-      costoSalida: resultado.costoSalida.toString(),
-    };
+    }
   }
 
   /**
@@ -646,25 +684,37 @@ export class MovimientoService {
     usuario: UsuarioRequest,
     dto: { skuId: bigint; almacenId: bigint; cantidad: string; observaciones?: string },
   ): Promise<{ movimientoId: string; costoUnitario: string }> {
-    const cantidad = new D(dto.cantidad);
-    const resultado = await this.prisma.$transaction(async (tx) => {
-      await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
-      const item = await this.obtenerItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
-      if (!item) throw new StockInsuficienteError("0", cantidad.toString());
-      const costo = new D(item.costoPromedio);
-      const { mov } = await this.aplicarSalida(tx, usuario, item, {
-        cantidad,
-        tipo: TIPO_MOVIMIENTO.SALIDA_TRANSFERENCIA,
-        documentoTipo: "TRANSFERENCIA",
-        tipoOperacionSunat: TIPO_OPERACION.TRANSFERENCIA,
-        observaciones: dto.observaciones ?? "Despacho de traslado",
-      });
-      return { movimientoId: mov.id, costoUnitario: costo };
-    });
+    const resultado = await this.prisma.$transaction((tx) =>
+      this.salidaPorTrasladoEnTx(usuario, tx, dto),
+    );
     return {
       movimientoId: resultado.movimientoId.toString(),
       costoUnitario: resultado.costoUnitario.toString(),
     };
+  }
+
+  /**
+   * Igual que {@link salidaPorTraslado} pero opera DENTRO de la transaccion del
+   * caller: el despacho multi-linea de un traslado comparte UNA transaccion.
+   */
+  async salidaPorTrasladoEnTx(
+    usuario: UsuarioRequest,
+    tx: Tx,
+    dto: { skuId: bigint; almacenId: bigint; cantidad: string; observaciones?: string },
+  ): Promise<{ movimientoId: bigint; costoUnitario: Prisma.Decimal }> {
+    const cantidad = new D(dto.cantidad);
+    await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const item = await this.obtenerItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    if (!item) throw new StockInsuficienteError("0", cantidad.toString());
+    const costo = new D(item.costoPromedio);
+    const { mov } = await this.aplicarSalida(tx, usuario, item, {
+      cantidad,
+      tipo: TIPO_MOVIMIENTO.SALIDA_TRANSFERENCIA,
+      documentoTipo: "TRANSFERENCIA",
+      tipoOperacionSunat: TIPO_OPERACION.TRANSFERENCIA,
+      observaciones: dto.observaciones ?? "Despacho de traslado",
+    });
+    return { movimientoId: mov.id, costoUnitario: costo };
   }
 
   /**
@@ -675,22 +725,34 @@ export class MovimientoService {
     usuario: UsuarioRequest,
     dto: { skuId: bigint; almacenId: bigint; cantidad: string; costoUnitario: string; observaciones?: string },
   ): Promise<{ movimientoId: string }> {
+    const id = await this.prisma.$transaction((tx) =>
+      this.entradaPorTrasladoEnTx(usuario, tx, dto),
+    );
+    return { movimientoId: id.toString() };
+  }
+
+  /**
+   * Igual que {@link entradaPorTraslado} pero opera DENTRO de la transaccion del
+   * caller: la recepcion multi-linea de un traslado comparte UNA transaccion.
+   */
+  async entradaPorTrasladoEnTx(
+    usuario: UsuarioRequest,
+    tx: Tx,
+    dto: { skuId: bigint; almacenId: bigint; cantidad: string; costoUnitario: string; observaciones?: string },
+  ): Promise<bigint> {
     const cantidad = new D(dto.cantidad);
     const costoUnitario = new D(dto.costoUnitario);
-    const id = await this.prisma.$transaction(async (tx) => {
-      await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
-      const item = await this.obtenerOcrearItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
-      const mov = await this.aplicarEntrada(tx, usuario, item, {
-        cantidad,
-        costoUnitario,
-        tipo: TIPO_MOVIMIENTO.ENTRADA_TRANSFERENCIA,
-        documentoTipo: "TRANSFERENCIA",
-        tipoOperacionSunat: TIPO_OPERACION.TRANSFERENCIA,
-        observaciones: dto.observaciones ?? "Recepción de traslado",
-      });
-      return mov.id;
+    await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const item = await this.obtenerOcrearItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const mov = await this.aplicarEntrada(tx, usuario, item, {
+      cantidad,
+      costoUnitario,
+      tipo: TIPO_MOVIMIENTO.ENTRADA_TRANSFERENCIA,
+      documentoTipo: "TRANSFERENCIA",
+      tipoOperacionSunat: TIPO_OPERACION.TRANSFERENCIA,
+      observaciones: dto.observaciones ?? "Recepción de traslado",
     });
-    return { movimientoId: id.toString() };
+    return mov.id;
   }
 
   /**
@@ -1385,6 +1447,22 @@ export class MovimientoService {
   ): Promise<ItemStock> {
     const existente = await this.obtenerItem(tx, empresaId, skuId, almacenId, ubicacionId);
     if (existente) return existente;
+
+    // Defensa en profundidad (anti-IDOR): antes de materializar un item nuevo en
+    // el ledger, el SKU y el almacen deben pertenecer a la empresa. Los flujos
+    // validos (compra, traslado, inicial, etc.) ya pasan ids validados, asi que
+    // esta consulta scoped por empresaId resuelve para ellos y solo bloquea fugas.
+    const [skuValido, almacenValido] = await Promise.all([
+      tx.sku.findFirst({ where: { id: skuId, empresaId }, select: { id: true } }),
+      tx.almacen.findFirst({ where: { id: almacenId, empresaId }, select: { id: true } }),
+    ]);
+    if (!skuValido) {
+      throw new PertenenciaInvalidaError(`el SKU ${skuId} no pertenece a la empresa`);
+    }
+    if (!almacenValido) {
+      throw new PertenenciaInvalidaError(`el almacen ${almacenId} no pertenece a la empresa`);
+    }
+
     return tx.itemStock.create({
       data: { empresaId, skuId, almacenId, ubicacionId: ubicacionId ?? null },
     });

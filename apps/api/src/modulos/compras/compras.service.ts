@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import { AuditoriaService } from "../auditoria/auditoria.service.js";
@@ -85,6 +90,22 @@ export class ComprasService {
       }
     }
 
+    // Aislamiento por empresa (anti-IDOR): el almacen destino y TODOS los SKUs de
+    // las lineas deben pertenecer al tenant antes de tocar la OC o el ledger.
+    const almacen = await this.prisma.almacen.findFirst({
+      where: { id: dto.almacenId, empresaId: usuario.empresaId },
+      select: { id: true },
+    });
+    if (!almacen) throw new NotFoundException("Almacén no encontrado");
+
+    const idsSku = [...new Set(dto.lineas.map((l) => l.skuId))];
+    const skusValidos = await this.prisma.sku.count({
+      where: { id: { in: idsSku }, empresaId: usuario.empresaId },
+    });
+    if (skusValidos !== idsSku.length) {
+      throw new NotFoundException("Algun SKU de la orden no pertenece a la empresa");
+    }
+
     // Normaliza cada linea a la unidad de CONTROL. Cuando la linea se captura
     // en unidad de referencia, convertimos cantidad y costo unitario para que la
     // OC, las recepciones y el ledger queden siempre en unidad de control.
@@ -131,10 +152,19 @@ export class ComprasService {
       });
 
       if (requerimiento) {
-        await tx.requerimientoCompra.update({
-          where: { id: requerimiento.id },
+        // CAS sobre el estado: solo convierte si SIGUE APROBADO. Condicionar el
+        // update por estado y verificar filas afectadas evita la doble conversion
+        // (dos OC creadas en paralelo desde el mismo requerimiento): la segunda
+        // afecta 0 filas y se rechaza con conflicto, revirtiendo su transaccion.
+        const actualizados = await tx.requerimientoCompra.updateMany({
+          where: { id: requerimiento.id, estado: "APROBADO" },
           data: { estado: "CONVERTIDO" },
         });
+        if (actualizados.count === 0) {
+          throw new ConflictException(
+            "El requerimiento ya fue convertido o cambio de estado",
+          );
+        }
       }
 
       await this.auditoria.registrar(
@@ -303,6 +333,28 @@ export class ComprasService {
       );
     }
 
+    // No registrar dos veces la misma factura del proveedor. La unicidad real la
+    // garantiza el indice parcial de la BD (recepcion_empresa_tipo_serie_numero_key);
+    // este chequeo previo da un mensaje claro antes de tocar el ledger. Las series
+    // dummy '0' (backfill) quedan fuera del indice y por eso se excluyen aqui tambien.
+    if (dto.serieComprobante !== "0" && dto.numeroComprobante !== "0") {
+      const yaExiste = await this.prisma.recepcion.findFirst({
+        where: {
+          empresaId: usuario.empresaId,
+          tipoDocumentoSunat: dto.tipoDocumentoSunat,
+          serieComprobante: dto.serieComprobante,
+          numeroComprobante: dto.numeroComprobante,
+        },
+        select: { id: true },
+      });
+      if (yaExiste) {
+        throw new ConflictException(
+          `Ya existe una recepcion con el comprobante ${dto.tipoDocumentoSunat} ` +
+            `${dto.serieComprobante}-${dto.numeroComprobante} para esta empresa`,
+        );
+      }
+    }
+
     // Conciliacion: el subtotal capturado de la factura debe cuadrar con la
     // suma de cantidad recibida x costo unitario de la OC (dentro de tolerancia).
     let subtotalCalculado = new D(0);
@@ -323,79 +375,107 @@ export class ComprasService {
         `El subtotal de la factura (${subtotalFactura.toString()}) no concilia con el calculado de la recepcion (${subtotalCalculado.toString()})`,
       );
     }
+    // Conciliacion de IGV y total: el IGV debe ser ~ subtotal x 18% y el total
+    // ~ subtotal + IGV, dentro de la tolerancia por redondeo.
+    const igvFactura = new D(dto.igv);
+    const igvEsperado = subtotalFactura.mul(IGV_TASA);
+    if (igvFactura.sub(igvEsperado).abs().greaterThan(TOLERANCIA_CONCILIACION)) {
+      throw new BadRequestException(
+        `El IGV de la factura (${igvFactura.toString()}) no concilia con el esperado ` +
+          `(${igvEsperado.toString()} = subtotal x 18%)`,
+      );
+    }
+    const totalFactura = new D(dto.total);
+    const totalEsperado = subtotalFactura.add(igvFactura);
+    if (totalFactura.sub(totalEsperado).abs().greaterThan(TOLERANCIA_CONCILIACION)) {
+      throw new BadRequestException(
+        `El total de la factura (${totalFactura.toString()}) no concilia con ` +
+          `subtotal + IGV (${totalEsperado.toString()})`,
+      );
+    }
 
-    const recepcion = await this.prisma.recepcion.create({
-      data: {
-        empresaId: usuario.empresaId,
-        ordenCompraId: orden.id,
-        tipoDocumentoSunat: dto.tipoDocumentoSunat,
-        serieComprobante: dto.serieComprobante,
-        numeroComprobante: dto.numeroComprobante,
-        fechaEmisionDocumento: dto.fechaEmisionDocumento,
-        moneda: dto.moneda ?? "PEN",
-        tipoCambio: dto.tipoCambio ?? null,
-        subtotal: dto.subtotal,
-        igv: dto.igv,
-        total: dto.total,
-        guiaRemisionProveedor: dto.guiaRemisionProveedor ?? null,
-        usuarioId: usuario.id,
-      },
-    });
-
-    for (const linea of dto.lineas) {
-      const ocLinea = orden.lineas.find((l) => l.id === linea.ordenCompraLineaId)!;
-      const pendiente = new D(ocLinea.cantidad).sub(new D(ocLinea.cantidadRecibida));
-      const recibir = new D(linea.cantidad);
-      if (recibir.greaterThan(pendiente)) {
-        throw new BadRequestException(
-          `La linea excede lo pendiente: pendiente ${pendiente.toString()}, recibido ${recibir.toString()}`,
-        );
-      }
-
-      // Entrada en el ledger con el costo de la OC y los datos REALES de la factura.
-      const mov = await this.movimientos.recibirCompra(usuario, {
-        skuId: ocLinea.skuId,
-        almacenId: orden.almacenId,
-        cantidad: linea.cantidad,
-        costoUnitario: ocLinea.costoUnitario.toString(),
-        documentoId: recepcion.id,
-        tipoDocumentoSunat: dto.tipoDocumentoSunat,
-        serieComprobante: dto.serieComprobante,
-        numeroComprobante: dto.numeroComprobante,
-        fechaEmisionDocumento: dto.fechaEmisionDocumento,
-        observaciones: `Recepcion OC ${orden.numero}`,
-        numerosSerie: linea.numerosSerie,
-      });
-
-      await this.prisma.recepcionLinea.create({
+    // Toda la recepcion (comprobante + entradas al ledger inmutable + updates de
+    // la OC) ocurre en UNA transaccion: si cualquier linea falla a mitad, nada se
+    // commitea (sin movimientos huerfanos ni contadores inconsistentes).
+    const recepcionId = await this.prisma.$transaction(async (tx) => {
+      const recepcion = await tx.recepcion.create({
         data: {
           empresaId: usuario.empresaId,
-          recepcionId: recepcion.id,
-          ordenCompraLineaId: ocLinea.id,
-          skuId: ocLinea.skuId,
-          cantidad: linea.cantidad,
-          movimientoStockId: BigInt(mov.movimientoId),
+          ordenCompraId: orden.id,
+          tipoDocumentoSunat: dto.tipoDocumentoSunat,
+          serieComprobante: dto.serieComprobante,
+          numeroComprobante: dto.numeroComprobante,
+          fechaEmisionDocumento: dto.fechaEmisionDocumento,
+          moneda: dto.moneda ?? "PEN",
+          tipoCambio: dto.tipoCambio ?? null,
+          subtotal: dto.subtotal,
+          igv: dto.igv,
+          total: dto.total,
+          guiaRemisionProveedor: dto.guiaRemisionProveedor ?? null,
+          usuarioId: usuario.id,
         },
       });
 
-      await this.prisma.ordenCompraLinea.update({
-        where: { id: ocLinea.id },
-        data: { cantidadRecibida: { increment: recibir } },
-      });
-    }
+      for (const linea of dto.lineas) {
+        const ocLinea = orden.lineas.find((l) => l.id === linea.ordenCompraLineaId)!;
+        const pendiente = new D(ocLinea.cantidad).sub(new D(ocLinea.cantidadRecibida));
+        const recibir = new D(linea.cantidad);
+        if (recibir.greaterThan(pendiente)) {
+          throw new BadRequestException(
+            `La linea excede lo pendiente: pendiente ${pendiente.toString()}, recibido ${recibir.toString()}`,
+          );
+        }
 
-    await this.recalcularEstado(orden.id);
+        // Entrada en el ledger con el costo de la OC y los datos REALES de la factura.
+        const movimientoId = await this.movimientos.recibirCompraEnTx(usuario, tx, {
+          skuId: ocLinea.skuId,
+          almacenId: orden.almacenId,
+          cantidad: linea.cantidad,
+          costoUnitario: ocLinea.costoUnitario.toString(),
+          documentoId: recepcion.id,
+          tipoDocumentoSunat: dto.tipoDocumentoSunat,
+          serieComprobante: dto.serieComprobante,
+          numeroComprobante: dto.numeroComprobante,
+          fechaEmisionDocumento: dto.fechaEmisionDocumento,
+          observaciones: `Recepcion OC ${orden.numero}`,
+          numerosSerie: linea.numerosSerie,
+        });
 
-    await this.auditoria.registrar({
-      empresaId: usuario.empresaId,
-      usuarioId: usuario.id,
-      accion: "RECIBIR",
-      entidad: "ORDEN_COMPRA",
-      entidadId: orden.id,
-      detalle: `Recepcion ${dto.serieComprobante}-${dto.numeroComprobante} sobre OC N° ${orden.numero}`,
+        await tx.recepcionLinea.create({
+          data: {
+            empresaId: usuario.empresaId,
+            recepcionId: recepcion.id,
+            ordenCompraLineaId: ocLinea.id,
+            skuId: ocLinea.skuId,
+            cantidad: linea.cantidad,
+            movimientoStockId: movimientoId,
+          },
+        });
+
+        await tx.ordenCompraLinea.update({
+          where: { id: ocLinea.id },
+          data: { cantidadRecibida: { increment: recibir } },
+        });
+      }
+
+      await this.recalcularEstado(tx, orden.id);
+
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "RECIBIR",
+          entidad: "ORDEN_COMPRA",
+          entidadId: orden.id,
+          detalle: `Recepcion ${dto.serieComprobante}-${dto.numeroComprobante} sobre OC N° ${orden.numero}`,
+        },
+        tx,
+      );
+
+      return recepcion.id;
     });
 
-    return { recepcionId: recepcion.id.toString() };
+    return { recepcionId: recepcionId.toString() };
   }
 
   /**
@@ -444,8 +524,11 @@ export class ComprasService {
   }
 
   /** Actualiza el estado de la OC segun lo recibido vs lo pedido. */
-  private async recalcularEstado(ordenId: bigint): Promise<void> {
-    const lineas = await this.prisma.ordenCompraLinea.findMany({
+  private async recalcularEstado(
+    tx: Prisma.TransactionClient,
+    ordenId: bigint,
+  ): Promise<void> {
+    const lineas = await tx.ordenCompraLinea.findMany({
       where: { ordenCompraId: ordenId },
     });
     const todoCompleto = lineas.every((l) =>
@@ -453,6 +536,6 @@ export class ComprasService {
     );
     const algoRecibido = lineas.some((l) => new D(l.cantidadRecibida).greaterThan(0));
     const estado = todoCompleto ? "COMPLETA" : algoRecibido ? "PARCIAL" : "EMITIDA";
-    await this.prisma.ordenCompra.update({ where: { id: ordenId }, data: { estado } });
+    await tx.ordenCompra.update({ where: { id: ordenId }, data: { estado } });
   }
 }

@@ -14,7 +14,9 @@ import {
 } from "class-validator";
 import { TIPO_DOCUMENTO } from "@bm/tipos";
 
-const REGEX_DECIMAL = /^\d+(\.\d+)?$/;
+// Decimal estrictamente mayor a cero: rechaza "0", "0.0", "00.000", etc.
+// El lookahead negativo descarta cualquier cadena compuesta solo por ceros.
+const REGEX_DECIMAL = /^(?!0+(\.0+)?$)\d+(\.\d+)?$/;
 const TIPOS_DOCUMENTO_SUNAT = Object.values(TIPO_DOCUMENTO);
 
 export class LineaOrdenDto {

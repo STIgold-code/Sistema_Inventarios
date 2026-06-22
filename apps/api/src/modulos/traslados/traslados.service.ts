@@ -41,6 +41,14 @@ export class TrasladosService {
     if (almacenes !== 2) {
       throw new NotFoundException("Almacén no encontrado.");
     }
+    // Aislamiento por empresa (anti-IDOR): todos los SKUs deben pertenecer al tenant.
+    const idsSku = [...new Set(dto.lineas.map((l) => l.skuId))];
+    const skusValidos = await this.prisma.sku.count({
+      where: { id: { in: idsSku }, empresaId: usuario.empresaId },
+    });
+    if (skusValidos !== idsSku.length) {
+      throw new NotFoundException("Algún SKU del traslado no pertenece a la empresa.");
+    }
     const traslado = await this.prisma.traslado.create({
       data: {
         empresaId: usuario.empresaId,
@@ -76,33 +84,41 @@ export class TrasladosService {
       throw new BadRequestException(`El traslado esta ${traslado.estado}.`);
     }
 
-    for (const linea of traslado.lineas) {
-      const salida = await this.movimientos.salidaPorTraslado(usuario, {
-        skuId: linea.skuId,
-        almacenId: traslado.almacenOrigenId,
-        cantidad: linea.cantidad.toString(),
-        observaciones: `Despacho traslado ${traslado.numero}`,
-      });
-      await this.prisma.trasladoLinea.update({
-        where: { id: linea.id },
-        data: {
-          cantidadDespachada: linea.cantidad,
-          costoUnitario: salida.costoUnitario,
-        },
-      });
-    }
+    // Todo el despacho (salidas del ledger inmutable + updates de lineas + cambio
+    // de estado) ocurre en UNA transaccion: si cualquier linea falla a mitad, nada
+    // se commitea (sin movimientos huerfanos ni estado inconsistente).
+    await this.prisma.$transaction(async (tx) => {
+      for (const linea of traslado.lineas) {
+        const salida = await this.movimientos.salidaPorTrasladoEnTx(usuario, tx, {
+          skuId: linea.skuId,
+          almacenId: traslado.almacenOrigenId,
+          cantidad: linea.cantidad.toString(),
+          observaciones: `Despacho traslado ${traslado.numero}`,
+        });
+        await tx.trasladoLinea.update({
+          where: { id: linea.id },
+          data: {
+            cantidadDespachada: linea.cantidad,
+            costoUnitario: salida.costoUnitario,
+          },
+        });
+      }
 
-    await this.prisma.traslado.update({
-      where: { id: traslado.id },
-      data: { estado: "EN_TRANSITO", fechaDespacho: new Date() },
-    });
-    await this.auditoria.registrar({
-      empresaId: usuario.empresaId,
-      usuarioId: usuario.id,
-      accion: "DESPACHAR",
-      entidad: "TRASLADO",
-      entidadId: traslado.id,
-      detalle: `Traslado ${traslado.numero} despachado`,
+      await tx.traslado.update({
+        where: { id: traslado.id },
+        data: { estado: "EN_TRANSITO", fechaDespacho: new Date() },
+      });
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "DESPACHAR",
+          entidad: "TRASLADO",
+          entidadId: traslado.id,
+          detalle: `Traslado ${traslado.numero} despachado`,
+        },
+        tx,
+      );
     });
     return { ok: true };
   }
@@ -117,43 +133,51 @@ export class TrasladosService {
       throw new BadRequestException(`El traslado esta ${traslado.estado}.`);
     }
 
-    for (const item of dto.lineas) {
-      const linea = traslado.lineas.find((l) => l.id === item.trasladoLineaId);
-      if (!linea) {
-        throw new BadRequestException(`Linea ${item.trasladoLineaId} no pertenece al traslado.`);
-      }
-      const recibida = new D(item.cantidadRecibida);
-      if (recibida.greaterThan(new D(linea.cantidadDespachada))) {
-        throw new BadRequestException(
-          `No puedes recibir mas de lo despachado (despachado ${linea.cantidadDespachada.toString()}).`,
-        );
-      }
-      if (recibida.greaterThan(0)) {
-        await this.movimientos.entradaPorTraslado(usuario, {
-          skuId: linea.skuId,
-          almacenId: traslado.almacenDestinoId,
-          cantidad: recibida.toString(),
-          costoUnitario: linea.costoUnitario.toString(),
-          observaciones: `Recepcion traslado ${traslado.numero}`,
+    // Toda la recepcion (entradas al ledger inmutable + updates de lineas + cambio
+    // de estado) ocurre en UNA transaccion: si cualquier linea falla a mitad, nada
+    // se commitea (sin movimientos huerfanos ni estado inconsistente).
+    await this.prisma.$transaction(async (tx) => {
+      for (const item of dto.lineas) {
+        const linea = traslado.lineas.find((l) => l.id === item.trasladoLineaId);
+        if (!linea) {
+          throw new BadRequestException(`Linea ${item.trasladoLineaId} no pertenece al traslado.`);
+        }
+        const recibida = new D(item.cantidadRecibida);
+        if (recibida.greaterThan(new D(linea.cantidadDespachada))) {
+          throw new BadRequestException(
+            `No puedes recibir mas de lo despachado (despachado ${linea.cantidadDespachada.toString()}).`,
+          );
+        }
+        if (recibida.greaterThan(0)) {
+          await this.movimientos.entradaPorTrasladoEnTx(usuario, tx, {
+            skuId: linea.skuId,
+            almacenId: traslado.almacenDestinoId,
+            cantidad: recibida.toString(),
+            costoUnitario: linea.costoUnitario.toString(),
+            observaciones: `Recepcion traslado ${traslado.numero}`,
+          });
+        }
+        await tx.trasladoLinea.update({
+          where: { id: linea.id },
+          data: { cantidadRecibida: recibida },
         });
       }
-      await this.prisma.trasladoLinea.update({
-        where: { id: linea.id },
-        data: { cantidadRecibida: recibida },
-      });
-    }
 
-    await this.prisma.traslado.update({
-      where: { id: traslado.id },
-      data: { estado: "RECIBIDO", fechaRecepcion: new Date() },
-    });
-    await this.auditoria.registrar({
-      empresaId: usuario.empresaId,
-      usuarioId: usuario.id,
-      accion: "RECIBIR",
-      entidad: "TRASLADO",
-      entidadId: traslado.id,
-      detalle: `Traslado ${traslado.numero} recibido`,
+      await tx.traslado.update({
+        where: { id: traslado.id },
+        data: { estado: "RECIBIDO", fechaRecepcion: new Date() },
+      });
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "RECIBIR",
+          entidad: "TRASLADO",
+          entidadId: traslado.id,
+          detalle: `Traslado ${traslado.numero} recibido`,
+        },
+        tx,
+      );
     });
     return { ok: true };
   }

@@ -63,6 +63,38 @@ export class CierresService {
         throw new ConflictException(`El periodo ${periodo} ya esta cerrado.`);
       }
 
+      // Cierre secuencial: no se puede cerrar un periodo si hay periodos
+      // anteriores con movimientos que sigan abiertos (sin cerrar). El saldo de
+      // cierre es un saldo corrido; cerrar fuera de orden lo dejaria inconsistente.
+      // Se valida contra el ledger: si existe algun movimiento de un periodo previo
+      // y ese periodo no esta CERRADO, se bloquea.
+      const periodosPreviosConMovimiento = await tx.$queryRaw<{ periodo: string }[]>`
+        SELECT DISTINCT periodo
+        FROM movimiento_stock
+        WHERE empresa_id = ${usuario.empresaId}
+          AND periodo < ${periodo}
+      `;
+      const cerrados = await tx.cierrePeriodo.findMany({
+        where: {
+          empresaId: usuario.empresaId,
+          estado: "CERRADO",
+          periodo: { lt: periodo },
+        },
+        select: { periodo: true },
+      });
+      const setCerrados = new Set(cerrados.map((c) => c.periodo));
+      const previosAbiertos = periodosPreviosConMovimiento
+        .map((p) => p.periodo)
+        .filter((p) => !setCerrados.has(p))
+        .sort();
+      if (previosAbiertos.length > 0) {
+        throw new ConflictException(
+          `No se puede cerrar el periodo ${periodo}: existen periodos anteriores ` +
+            `con movimientos sin cerrar (${previosAbiertos.join(", ")}). ` +
+            `Cierra primero el periodo mas antiguo.`,
+        );
+      }
+
       // Saldo de cierre por SKU/almacen: ultimo movimiento (mayor secuencia)
       // cuyo periodo <= objetivo. saldoCantidad y saldoCostoTotal son el saldo
       // corrido que SUNAT exige guardar en cada movimiento. El USD se deriva del

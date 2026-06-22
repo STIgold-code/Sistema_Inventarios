@@ -84,9 +84,10 @@ export class DevolucionesService {
       throw new BadRequestException("La devolucion debe tener al menos una linea");
     }
 
-    // Lo despachado por SKU es el tope de lo devolvible (no se devuelve mas de lo
-    // que salio). Se agrega por SKU porque una orden puede tener varias lineas del
-    // mismo SKU. No descontamos devoluciones previas en esta version (control simple).
+    // Lo despachado por SKU es el tope bruto de lo devolvible (no se devuelve mas
+    // de lo que salio). Se agrega por SKU porque una orden puede tener varias
+    // lineas del mismo SKU. El tope NETO se calcula dentro de la transaccion
+    // restando lo ya devuelto en devoluciones previas (ver mas abajo).
     const despachadoPorSku = new Map<string, Prisma.Decimal>();
     for (const l of orden.lineas) {
       const clave = l.skuId.toString();
@@ -119,6 +120,9 @@ export class DevolucionesService {
       pedidoPorSku.set(clave, acum.add(cantidad));
     }
 
+    // Chequeo barato previo a la transaccion: nunca devolver mas que lo despachado
+    // bruto. El tope NETO (descontando devoluciones previas) se valida dentro de la
+    // transaccion para evitar carreras entre devoluciones concurrentes.
     for (const [skuId, devolver] of pedidoPorSku) {
       const despachado = despachadoPorSku.get(skuId) ?? new D(0);
       if (devolver.greaterThan(despachado)) {
@@ -131,6 +135,35 @@ export class DevolucionesService {
     const fecha = dto.fecha ?? new Date();
 
     return this.prisma.$transaction(async (tx) => {
+      // Tope NETO por SKU: despachado menos lo ya devuelto en devoluciones previas
+      // de ESTA orden. Se consulta dentro de la transaccion para que dos
+      // devoluciones concurrentes no excedan juntas el despacho. Si (previo +
+      // nuevo) > despachado, se rechaza y la transaccion revierte.
+      const previas = await tx.devolucionVentaLinea.groupBy({
+        by: ["skuId"],
+        where: {
+          empresaId: usuario.empresaId,
+          devolucion: { ordenVentaId: orden.id },
+        },
+        _sum: { cantidad: true },
+      });
+      const devueltoPrevioPorSku = new Map<string, Prisma.Decimal>();
+      for (const p of previas) {
+        devueltoPrevioPorSku.set(p.skuId.toString(), new D(p._sum.cantidad ?? 0));
+      }
+      for (const [skuId, devolver] of pedidoPorSku) {
+        const despachado = despachadoPorSku.get(skuId) ?? new D(0);
+        const previo = devueltoPrevioPorSku.get(skuId) ?? new D(0);
+        const disponible = despachado.sub(previo);
+        if (devolver.greaterThan(disponible)) {
+          throw new BadRequestException(
+            `La devolucion del SKU ${skuId} excede lo pendiente de devolver: ` +
+              `despachado ${despachado.toString()}, ya devuelto ${previo.toString()}, ` +
+              `devolucion ${devolver.toString()}`,
+          );
+        }
+      }
+
       const correlativo = await this.correlativos.siguiente(
         tx,
         usuario.empresaId,

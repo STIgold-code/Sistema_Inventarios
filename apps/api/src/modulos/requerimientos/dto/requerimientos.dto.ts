@@ -9,7 +9,9 @@ import {
   ValidateNested,
 } from "class-validator";
 
-const REGEX_DECIMAL = /^\d+(\.\d+)?$/;
+// Decimal estrictamente mayor a cero: rechaza "0", "0.0", "00.000", etc.
+// El lookahead negativo descarta cualquier cadena compuesta solo por ceros.
+const REGEX_DECIMAL = /^(?!0+(\.0+)?$)\d+(\.\d+)?$/;
 
 export class LineaRequerimientoDto {
   @IsInt()
