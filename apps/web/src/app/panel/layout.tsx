@@ -7,57 +7,92 @@ import { useEffect, useState, type ReactNode } from "react";
 import { borrarSesion, haySesion, leerUsuario } from "@/lib/sesion";
 import type { UsuarioAutenticado } from "@bm/contratos";
 
-interface GrupoNav {
-  titulo: string;
-  enlaces: ReadonlyArray<{ href: string; etiqueta: string }>;
+interface Enlace {
+  href: string;
+  etiqueta: string;
 }
 
-const GRUPOS: readonly GrupoNav[] = [
+interface ModuloNav {
+  titulo: string;
+  enlaces: ReadonlyArray<Enlace>;
+}
+
+/** Acceso directo, fuera de los módulos. */
+const INICIO: Enlace = { href: "/panel", etiqueta: "Inicio" };
+
+/**
+ * Módulos padre, espejo del modelo de SISALM (Bases de Datos, Movimientos,
+ * Consultas-Reportes, Proceso Mensual, Utilitarios). "Movimientos" es el padre
+ * que agrupa todo lo transaccional (compras, salidas, traslados, ajustes…).
+ */
+const MODULOS: readonly ModuloNav[] = [
   {
-    titulo: "General",
+    titulo: "Datos base",
     enlaces: [
-      { href: "/panel", etiqueta: "Inicio" },
       { href: "/panel/productos", etiqueta: "Productos" },
-      { href: "/panel/existencias", etiqueta: "Existencias" },
-      { href: "/panel/series", etiqueta: "Series" },
-      { href: "/panel/kardex", etiqueta: "Kardex" },
-    ],
-  },
-  {
-    titulo: "Operaciones",
-    enlaces: [
-      { href: "/panel/movimientos", etiqueta: "Movimientos" },
-      { href: "/panel/condicion", etiqueta: "Condición de existencias" },
-      { href: "/panel/requerimientos", etiqueta: "Requerimientos" },
-      { href: "/panel/vales", etiqueta: "Vales de salida" },
-      { href: "/panel/ordenes-trabajo", etiqueta: "Órdenes de trabajo" },
-      { href: "/panel/proveedores", etiqueta: "Proveedores" },
-      { href: "/panel/compras", etiqueta: "Compras" },
-      { href: "/panel/clientes", etiqueta: "Clientes" },
-      { href: "/panel/ventas", etiqueta: "Ventas" },
-      { href: "/panel/devoluciones", etiqueta: "Devoluciones" },
-      { href: "/panel/traslados", etiqueta: "Traslados" },
-      { href: "/panel/conteos", etiqueta: "Conteos" },
-    ],
-  },
-  {
-    titulo: "Gestión",
-    enlaces: [
       { href: "/panel/familias", etiqueta: "Familias" },
-      { href: "/panel/guias", etiqueta: "Guías de remisión" },
+      { href: "/panel/series", etiqueta: "Series" },
+      { href: "/panel/proveedores", etiqueta: "Proveedores" },
+      { href: "/panel/clientes", etiqueta: "Clientes" },
+      { href: "/panel/almacenes", etiqueta: "Almacenes y zonas" },
       { href: "/panel/tipo-cambio", etiqueta: "Tipo de cambio" },
+    ],
+  },
+  {
+    titulo: "Movimientos",
+    enlaces: [
+      { href: "/panel/requerimientos", etiqueta: "Requerimientos" },
+      { href: "/panel/compras", etiqueta: "Compras (entradas)" },
+      { href: "/panel/vales", etiqueta: "Vales de salida" },
+      { href: "/panel/ventas", etiqueta: "Ventas" },
+      { href: "/panel/traslados", etiqueta: "Traslados" },
+      { href: "/panel/devoluciones", etiqueta: "Devoluciones" },
+      { href: "/panel/ordenes-trabajo", etiqueta: "Órdenes de trabajo" },
+      { href: "/panel/condicion", etiqueta: "Condición de existencias" },
+      { href: "/panel/conteos", etiqueta: "Conteos" },
+      { href: "/panel/guias", etiqueta: "Guías de remisión" },
+      { href: "/panel/movimientos", etiqueta: "Ajustes y consulta" },
+    ],
+  },
+  {
+    titulo: "Consultas y reportes",
+    enlaces: [
+      { href: "/panel/existencias", etiqueta: "Existencias" },
+      { href: "/panel/kardex", etiqueta: "Kardex" },
+      { href: "/panel/reposicion", etiqueta: "Reposición y ABC" },
+      { href: "/panel/rentabilidad", etiqueta: "Rentabilidad" },
+      { href: "/panel/reportes", etiqueta: "Reportes" },
+    ],
+  },
+  {
+    titulo: "Proceso mensual",
+    enlaces: [
       { href: "/panel/cierres", etiqueta: "Cierre mensual" },
       { href: "/panel/contabilidad", etiqueta: "Asientos contables" },
-      { href: "/panel/reportes", etiqueta: "Reportes" },
-      { href: "/panel/rentabilidad", etiqueta: "Rentabilidad" },
-      { href: "/panel/reposicion", etiqueta: "Reposición y ABC" },
-      { href: "/panel/activos", etiqueta: "Activos fijos" },
-      { href: "/panel/almacenes", etiqueta: "Almacenes" },
+    ],
+  },
+  {
+    titulo: "Utilitarios",
+    enlaces: [
       { href: "/panel/importador", etiqueta: "Importador" },
+      { href: "/panel/activos", etiqueta: "Activos fijos" },
       { href: "/panel/auditoria", etiqueta: "Auditoría" },
     ],
   },
 ];
+
+/** Indica si un enlace está activo según la ruta actual. */
+function esActivo(href: string, pathname: string): boolean {
+  return href === "/panel" ? pathname === "/panel" : pathname.startsWith(href);
+}
+
+/** Título del módulo que contiene la ruta actual (o null). */
+function moduloDeRuta(pathname: string): string | null {
+  for (const modulo of MODULOS) {
+    if (modulo.enlaces.some((e) => esActivo(e.href, pathname))) return modulo.titulo;
+  }
+  return null;
+}
 
 export default function LayoutPanel({
   children,
@@ -69,6 +104,7 @@ export default function LayoutPanel({
   const [usuario, setUsuario] = useState<UsuarioAutenticado | null>(null);
   const [listo, setListo] = useState<boolean>(false);
   const [menuAbierto, setMenuAbierto] = useState<boolean>(false);
+  const [expandidos, setExpandidos] = useState<string[]>([]);
 
   useEffect(() => {
     if (!haySesion()) {
@@ -83,6 +119,24 @@ export default function LayoutPanel({
   useEffect(() => {
     setMenuAbierto(false);
   }, [pathname]);
+
+  // Abre automáticamente el módulo que contiene la ruta activa.
+  useEffect(() => {
+    const activo = moduloDeRuta(pathname);
+    if (activo) {
+      setExpandidos((previo) =>
+        previo.includes(activo) ? previo : [...previo, activo],
+      );
+    }
+  }, [pathname]);
+
+  function alternarModulo(titulo: string): void {
+    setExpandidos((previo) =>
+      previo.includes(titulo)
+        ? previo.filter((t) => t !== titulo)
+        : [...previo, titulo],
+    );
+  }
 
   function cerrarSesion(): void {
     borrarSesion();
@@ -129,35 +183,60 @@ export default function LayoutPanel({
 
         {/* Navegacion */}
         <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Navegación principal">
-          {GRUPOS.map((grupo) => (
-            <div key={grupo.titulo} className="mb-5">
-              <p className="px-3 pb-1.5 text-[0.68rem] font-semibold uppercase tracking-wide text-texto-ter">
-                {grupo.titulo}
-              </p>
-              <div className="space-y-0.5">
-                {grupo.enlaces.map((enlace) => {
-                  const activo =
-                    enlace.href === "/panel"
-                      ? pathname === "/panel"
-                      : pathname.startsWith(enlace.href);
-                  return (
-                    <Link
-                      key={enlace.href}
-                      href={enlace.href}
-                      aria-current={activo ? "page" : undefined}
-                      className={`flex items-center rounded-md px-3 py-2 text-sm transition-colors ${
-                        activo
-                          ? "bg-panel-alt font-semibold text-tinta shadow-[inset_3px_0_0_0_var(--oro)]"
-                          : "font-medium text-texto-sec hover:bg-panel-alt hover:text-tinta"
-                      }`}
-                    >
-                      {enlace.etiqueta}
-                    </Link>
-                  );
-                })}
+          {/* Inicio (acceso directo) */}
+          <Link
+            href={INICIO.href}
+            aria-current={esActivo(INICIO.href, pathname) ? "page" : undefined}
+            className={`mb-3 flex items-center rounded-md px-3 py-2 text-sm transition-colors ${
+              esActivo(INICIO.href, pathname)
+                ? "bg-panel-alt font-semibold text-tinta shadow-[inset_3px_0_0_0_var(--oro)]"
+                : "font-medium text-texto-sec hover:bg-panel-alt hover:text-tinta"
+            }`}
+          >
+            {INICIO.etiqueta}
+          </Link>
+
+          {/* Módulos padre (acordeón) */}
+          {MODULOS.map((modulo) => {
+            const abierto = expandidos.includes(modulo.titulo);
+            const tieneActivo = modulo.enlaces.some((e) => esActivo(e.href, pathname));
+            return (
+              <div key={modulo.titulo} className="mb-1.5">
+                <button
+                  type="button"
+                  onClick={() => alternarModulo(modulo.titulo)}
+                  aria-expanded={abierto}
+                  className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-[0.7rem] font-semibold uppercase tracking-wide transition-colors ${
+                    tieneActivo ? "text-tinta" : "text-texto-ter hover:text-texto-sec"
+                  }`}
+                >
+                  <span>{modulo.titulo}</span>
+                  <IconoChevron abierto={abierto} />
+                </button>
+                {abierto && (
+                  <div className="mt-0.5 space-y-0.5">
+                    {modulo.enlaces.map((enlace) => {
+                      const activo = esActivo(enlace.href, pathname);
+                      return (
+                        <Link
+                          key={enlace.href}
+                          href={enlace.href}
+                          aria-current={activo ? "page" : undefined}
+                          className={`flex items-center rounded-md py-2 pl-5 pr-3 text-sm transition-colors ${
+                            activo
+                              ? "bg-panel-alt font-semibold text-tinta shadow-[inset_3px_0_0_0_var(--oro)]"
+                              : "font-medium text-texto-sec hover:bg-panel-alt hover:text-tinta"
+                          }`}
+                        >
+                          {enlace.etiqueta}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </nav>
 
         {/* Usuario */}
@@ -201,6 +280,25 @@ export default function LayoutPanel({
         <main className="flex-1 overflow-x-auto px-4 py-5 sm:px-6 lg:px-8 lg:py-7">{children}</main>
       </div>
     </div>
+  );
+}
+
+function IconoChevron({ abierto }: { abierto: boolean }): React.JSX.Element {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`shrink-0 transition-transform duration-200 ${abierto ? "rotate-90" : ""}`}
+      aria-hidden
+    >
+      <path d="M9 6l6 6-6 6" />
+    </svg>
   );
 }
 
