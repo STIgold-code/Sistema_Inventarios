@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
+import { PanelLateral } from "@/componentes/panel-lateral";
 import {
   SelectorBusqueda,
   type OpcionSelector,
@@ -31,80 +32,159 @@ function mensajeError(error: unknown, porDefecto: string): string {
   return error instanceof ErrorApi ? error.message : porDefecto;
 }
 
+function AvisoLinea({ aviso }: { aviso: Aviso }): React.JSX.Element {
+  return (
+    <div
+      role={aviso.tono === "error" ? "alert" : "status"}
+      className={`aviso ${aviso.tono === "error" ? "aviso-peligro" : "aviso-exito"}`}
+    >
+      <span>{aviso.texto}</span>
+    </div>
+  );
+}
+
 export default function PaginaAlmacenes(): React.JSX.Element {
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [almacenes, setAlmacenes] = useState<AlmacenDetalle[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
+  const [busqueda, setBusqueda] = useState<string>("");
+  const [avisoLista, setAvisoLista] = useState<Aviso | null>(null);
 
-  // Form almacén
+  // Panel "Nuevo almacén" (el backend solo permite crear almacenes).
+  const [panelAlmAbierto, setPanelAlmAbierto] = useState<boolean>(false);
   const [sucursalId, setSucursalId] = useState<string>("");
   const [codAlm, setCodAlm] = useState<string>("");
   const [nomAlm, setNomAlm] = useState<string>("");
   const [avisoAlm, setAvisoAlm] = useState<Aviso | null>(null);
   const [guardandoAlm, setGuardandoAlm] = useState<boolean>(false);
 
-  // Form sucursal
+  // Panel "Nueva sucursal".
+  const [panelSucAbierto, setPanelSucAbierto] = useState<boolean>(false);
   const [codSuc, setCodSuc] = useState<string>("");
   const [nomSuc, setNomSuc] = useState<string>("");
   const [avisoSuc, setAvisoSuc] = useState<Aviso | null>(null);
   const [guardandoSuc, setGuardandoSuc] = useState<boolean>(false);
 
-  async function recargar(): Promise<void> {
-    const [suc, alm] = await Promise.all([obtenerSucursales(), obtenerAlmacenesDetalle()]);
-    setSucursales(suc);
-    setAlmacenes(alm);
-    if (!sucursalId && suc[0]) setSucursalId(suc[0].id);
-  }
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        await recargar();
-      } finally {
-        setCargando(false);
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function guardarAlmacen(): Promise<void> {
-    setAvisoAlm(null);
-    if (!sucursalId) return setAvisoAlm({ texto: "Selecciona una sucursal.", tono: "error" });
-    if (!codAlm.trim() || !nomAlm.trim()) {
-      return setAvisoAlm({ texto: "Completa el código y el nombre.", tono: "error" });
-    }
-    setGuardandoAlm(true);
-    try {
-      await crearAlmacen({ sucursalId: Number(sucursalId), codigo: codAlm.trim(), nombre: nomAlm.trim() });
-      setAvisoAlm({ texto: "Almacén creado.", tono: "exito" });
-      setCodAlm("");
-      setNomAlm("");
-      await recargar();
-    } catch (error) {
-      setAvisoAlm({ texto: mensajeError(error, "No se pudo crear el almacén."), tono: "error" });
-    } finally {
-      setGuardandoAlm(false);
-    }
-  }
-
-  // Gestión de zonas
-  const [almZonaId, setAlmZonaId] = useState<string>("");
+  // Panel "Zonas de {almacén}".
+  const [almacenZonas, setAlmacenZonas] = useState<AlmacenDetalle | null>(null);
   const [zonas, setZonas] = useState<Zona[]>([]);
   const [cargandoZonas, setCargandoZonas] = useState<boolean>(false);
   const [avisoZona, setAvisoZona] = useState<Aviso | null>(null);
   const [guardandoZona, setGuardandoZona] = useState<boolean>(false);
-  // edición: id de la zona en edición, o "nueva" para alta
+  // edición de zona: "nueva" para alta, id de la zona para editar, o null sin formulario.
   const [edicionZona, setEdicionZona] = useState<string | null>(null);
   const [codZona, setCodZona] = useState<string>("");
   const [nomZona, setNomZona] = useState<string>("");
   const [zonaBaja, setZonaBaja] = useState<Zona | null>(null);
   const [procesandoBaja, setProcesandoBaja] = useState<boolean>(false);
 
-  const recargarZonas = useCallback(async (almacenId: string): Promise<void> => {
-    if (!almacenId) {
-      setZonas([]);
+  const recargar = useCallback(async (): Promise<void> => {
+    const [suc, alm] = await Promise.all([
+      obtenerSucursales(),
+      obtenerAlmacenesDetalle(),
+    ]);
+    setSucursales(suc);
+    setAlmacenes(alm);
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        await recargar();
+      } catch (error) {
+        setAvisoLista({
+          texto: mensajeError(error, "No se pudieron cargar los almacenes."),
+          tono: "error",
+        });
+      } finally {
+        setCargando(false);
+      }
+    })();
+  }, [recargar]);
+
+  // --- Almacén ---
+  function abrirNuevoAlmacen(): void {
+    setSucursalId(sucursales[0]?.id ?? "");
+    setCodAlm("");
+    setNomAlm("");
+    setAvisoAlm(null);
+    setPanelAlmAbierto(true);
+  }
+
+  function cerrarPanelAlmacen(): void {
+    if (guardandoAlm) return;
+    setPanelAlmAbierto(false);
+    setAvisoAlm(null);
+  }
+
+  async function guardarAlmacen(): Promise<void> {
+    setAvisoAlm(null);
+    if (!sucursalId) {
+      setAvisoAlm({ texto: "Selecciona una sucursal.", tono: "error" });
       return;
     }
+    if (!codAlm.trim() || !nomAlm.trim()) {
+      setAvisoAlm({ texto: "Completa el código y el nombre.", tono: "error" });
+      return;
+    }
+    setGuardandoAlm(true);
+    try {
+      await crearAlmacen({
+        sucursalId: Number(sucursalId),
+        codigo: codAlm.trim(),
+        nombre: nomAlm.trim(),
+      });
+      setAvisoLista({ texto: "Almacén creado.", tono: "exito" });
+      setPanelAlmAbierto(false);
+      await recargar();
+    } catch (error) {
+      setAvisoAlm({
+        texto: mensajeError(error, "No se pudo crear el almacén."),
+        tono: "error",
+      });
+    } finally {
+      setGuardandoAlm(false);
+    }
+  }
+
+  // --- Sucursal ---
+  function abrirNuevaSucursal(): void {
+    setCodSuc("");
+    setNomSuc("");
+    setAvisoSuc(null);
+    setPanelSucAbierto(true);
+  }
+
+  function cerrarPanelSucursal(): void {
+    if (guardandoSuc) return;
+    setPanelSucAbierto(false);
+    setAvisoSuc(null);
+  }
+
+  async function guardarSucursal(): Promise<void> {
+    setAvisoSuc(null);
+    if (!codSuc.trim() || !nomSuc.trim()) {
+      setAvisoSuc({ texto: "Completa el código y el nombre.", tono: "error" });
+      return;
+    }
+    setGuardandoSuc(true);
+    try {
+      await crearSucursal({ codigo: codSuc.trim(), nombre: nomSuc.trim() });
+      setAvisoLista({ texto: "Sucursal creada.", tono: "exito" });
+      setPanelSucAbierto(false);
+      await recargar();
+    } catch (error) {
+      setAvisoSuc({
+        texto: mensajeError(error, "No se pudo crear la sucursal."),
+        tono: "error",
+      });
+    } finally {
+      setGuardandoSuc(false);
+    }
+  }
+
+  // --- Zonas ---
+  const recargarZonas = useCallback(async (almacenId: string): Promise<void> => {
     setCargandoZonas(true);
     try {
       setZonas(await obtenerZonas(Number(almacenId)));
@@ -113,11 +193,20 @@ export default function PaginaAlmacenes(): React.JSX.Element {
     }
   }, []);
 
-  useEffect(() => {
-    void recargarZonas(almZonaId);
+  function abrirPanelZonas(almacen: AlmacenDetalle): void {
+    setAlmacenZonas(almacen);
     setEdicionZona(null);
     setAvisoZona(null);
-  }, [almZonaId, recargarZonas]);
+    setZonas([]);
+    void recargarZonas(almacen.id);
+  }
+
+  function cerrarPanelZonas(): void {
+    if (guardandoZona) return;
+    setAlmacenZonas(null);
+    setEdicionZona(null);
+    setAvisoZona(null);
+  }
 
   function abrirAltaZona(): void {
     setEdicionZona("nueva");
@@ -134,63 +223,54 @@ export default function PaginaAlmacenes(): React.JSX.Element {
   }
 
   async function guardarZona(): Promise<void> {
+    if (!almacenZonas) return;
     setAvisoZona(null);
-    if (!almZonaId) return setAvisoZona({ texto: "Selecciona un almacén.", tono: "error" });
     if (!codZona.trim() || !nomZona.trim()) {
-      return setAvisoZona({ texto: "Completa el código y el nombre.", tono: "error" });
+      setAvisoZona({ texto: "Completa el código y el nombre.", tono: "error" });
+      return;
     }
     setGuardandoZona(true);
     try {
       if (edicionZona === "nueva") {
-        await crearZona(Number(almZonaId), { codigo: codZona.trim(), nombre: nomZona.trim() });
+        await crearZona(Number(almacenZonas.id), {
+          codigo: codZona.trim(),
+          nombre: nomZona.trim(),
+        });
         setAvisoZona({ texto: "Zona creada.", tono: "exito" });
       } else if (edicionZona) {
-        await actualizarZona(Number(almZonaId), Number(edicionZona), {
+        await actualizarZona(Number(almacenZonas.id), Number(edicionZona), {
           codigo: codZona.trim(),
           nombre: nomZona.trim(),
         });
         setAvisoZona({ texto: "Zona actualizada.", tono: "exito" });
       }
       setEdicionZona(null);
-      await recargarZonas(almZonaId);
+      await recargarZonas(almacenZonas.id);
     } catch (error) {
-      setAvisoZona({ texto: mensajeError(error, "No se pudo guardar la zona."), tono: "error" });
+      setAvisoZona({
+        texto: mensajeError(error, "No se pudo guardar la zona."),
+        tono: "error",
+      });
     } finally {
       setGuardandoZona(false);
     }
   }
 
   async function confirmarBajaZona(): Promise<void> {
-    if (!zonaBaja || !almZonaId) return;
+    if (!zonaBaja || !almacenZonas) return;
     setProcesandoBaja(true);
     try {
-      await darBajaZona(Number(almZonaId), Number(zonaBaja.id));
+      await darBajaZona(Number(almacenZonas.id), Number(zonaBaja.id));
       setAvisoZona({ texto: "Zona dada de baja.", tono: "exito" });
       setZonaBaja(null);
-      await recargarZonas(almZonaId);
+      await recargarZonas(almacenZonas.id);
     } catch (error) {
-      setAvisoZona({ texto: mensajeError(error, "No se pudo dar de baja la zona."), tono: "error" });
+      setAvisoZona({
+        texto: mensajeError(error, "No se pudo dar de baja la zona."),
+        tono: "error",
+      });
     } finally {
       setProcesandoBaja(false);
-    }
-  }
-
-  async function guardarSucursal(): Promise<void> {
-    setAvisoSuc(null);
-    if (!codSuc.trim() || !nomSuc.trim()) {
-      return setAvisoSuc({ texto: "Completa el código y el nombre.", tono: "error" });
-    }
-    setGuardandoSuc(true);
-    try {
-      await crearSucursal({ codigo: codSuc.trim(), nombre: nomSuc.trim() });
-      setAvisoSuc({ texto: "Sucursal creada.", tono: "exito" });
-      setCodSuc("");
-      setNomSuc("");
-      await recargar();
-    } catch (error) {
-      setAvisoSuc({ texto: mensajeError(error, "No se pudo crear la sucursal."), tono: "error" });
-    } finally {
-      setGuardandoSuc(false);
     }
   }
 
@@ -203,167 +283,264 @@ export default function PaginaAlmacenes(): React.JSX.Element {
     [sucursales],
   );
 
-  const opcionesAlmacenZona = useMemo<OpcionSelector[]>(
-    () =>
-      almacenes.map((a) => ({
-        valor: a.id,
-        etiqueta: `${a.codigo} — ${a.nombre} (${a.sucursal})`,
-      })),
-    [almacenes],
-  );
+  const termino = busqueda.trim().toLowerCase();
+  const visibles = termino
+    ? almacenes.filter(
+        (a) =>
+          a.codigo.toLowerCase().includes(termino) ||
+          a.nombre.toLowerCase().includes(termino) ||
+          a.sucursal.toLowerCase().includes(termino),
+      )
+    : almacenes;
 
   return (
     <div>
       <EncabezadoPagina
         titulo="Almacenes"
-        descripcion="Gestiona las sucursales y los almacenes donde se guarda el inventario."
+        descripcion="Gestiona las sucursales, los almacenes y sus zonas de almacenamiento."
       />
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1fr]">
-        {/* Almacenes */}
-        <section className="panel">
-          <div className="panel-cabecera">
-            <span className="panel-titulo">Nuevo almacén</span>
-          </div>
-          <div className="space-y-4 p-5">
-            {avisoAlm && (
-              <div
-                role={avisoAlm.tono === "error" ? "alert" : "status"}
-                className={`aviso ${avisoAlm.tono === "error" ? "aviso-peligro" : "aviso-exito"}`}
-              >
-                <span>{avisoAlm.texto}</span>
-              </div>
-            )}
-            <div>
-              <label htmlFor="suc" className="etiqueta-campo">Sucursal</label>
-              <SelectorBusqueda
-                id="suc"
-                opciones={opcionesSucursal}
-                valor={sucursalId}
-                onCambio={setSucursalId}
-                placeholder={
-                  sucursales.length === 0
-                    ? "Crea una sucursal primero"
-                    : "Selecciona una sucursal"
-                }
-                ariaLabel="Sucursal"
-              />
-            </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_2fr]">
-              <div>
-                <label htmlFor="codAlm" className="etiqueta-campo">Código</label>
-                <input id="codAlm" className="campo font-mono" value={codAlm} onChange={(e) => setCodAlm(e.target.value)} placeholder="03" />
-              </div>
-              <div>
-                <label htmlFor="nomAlm" className="etiqueta-campo">Nombre</label>
-                <input id="nomAlm" className="campo" value={nomAlm} onChange={(e) => setNomAlm(e.target.value)} placeholder="Almacén de obra" />
-              </div>
-            </div>
-            <button type="button" onClick={guardarAlmacen} disabled={guardandoAlm} className="btn btn-primario">
-              {guardandoAlm ? "Guardando…" : "Crear almacén"}
-            </button>
-          </div>
-        </section>
+      {avisoLista && (
+        <div className="mt-4">
+          <AvisoLinea aviso={avisoLista} />
+        </div>
+      )}
 
-        {/* Sucursales */}
-        <section className="panel">
-          <div className="panel-cabecera">
-            <span className="panel-titulo">Nueva sucursal</span>
-          </div>
-          <div className="space-y-4 p-5">
-            {avisoSuc && (
-              <div
-                role={avisoSuc.tono === "error" ? "alert" : "status"}
-                className={`aviso ${avisoSuc.tono === "error" ? "aviso-peligro" : "aviso-exito"}`}
-              >
-                <span>{avisoSuc.texto}</span>
-              </div>
-            )}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_2fr]">
-              <div>
-                <label htmlFor="codSuc" className="etiqueta-campo">Código</label>
-                <input id="codSuc" className="campo font-mono" value={codSuc} onChange={(e) => setCodSuc(e.target.value)} placeholder="LIMA" />
-              </div>
-              <div>
-                <label htmlFor="nomSuc" className="etiqueta-campo">Nombre</label>
-                <input id="nomSuc" className="campo" value={nomSuc} onChange={(e) => setNomSuc(e.target.value)} placeholder="Sucursal Lima" />
-              </div>
-            </div>
-            <button type="button" onClick={guardarSucursal} disabled={guardandoSuc} className="btn btn-contorno">
-              {guardandoSuc ? "Guardando…" : "Crear sucursal"}
-            </button>
-          </div>
-        </section>
-      </div>
-
-      {/* Listado de almacenes */}
       <section className="panel mt-6">
-        <div className="panel-cabecera">
-          <span className="panel-titulo">Almacenes registrados</span>
-          <span className="text-xs text-texto-sec">{almacenes.length}</span>
+        <div className="panel-cabecera flex-wrap gap-3">
+          <span className="panel-titulo">
+            Almacenes registrados
+            <span className="ml-2 font-mono text-sm font-normal text-texto-ter">
+              ({almacenes.length})
+            </span>
+          </span>
+          <div className="flex items-center gap-2">
+            <label htmlFor="buscar-alm" className="sr-only">
+              Buscar almacén
+            </label>
+            <input
+              id="buscar-alm"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar por código, nombre o sucursal…"
+              className="campo w-72"
+            />
+            <button
+              type="button"
+              onClick={abrirNuevaSucursal}
+              className="btn btn-contorno whitespace-nowrap"
+            >
+              Nueva sucursal
+            </button>
+            <button
+              type="button"
+              onClick={abrirNuevoAlmacen}
+              className="btn btn-primario whitespace-nowrap"
+            >
+              Nuevo almacén
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
-          {cargando ? (
-            <p className="px-5 py-8 text-center text-sm text-texto-ter">Cargando…</p>
-          ) : almacenes.length === 0 ? (
-            <p className="px-5 py-8 text-center text-sm text-texto-ter">Aún no hay almacenes.</p>
-          ) : (
-            <table className="tabla-datos">
-              <thead>
+          <table className="tabla-datos">
+            <thead>
+              <tr>
+                <th>Código</th>
+                <th>Nombre</th>
+                <th>Sucursal</th>
+                <th className="text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cargando ? (
                 <tr>
-                  <th>Código</th>
-                  <th>Nombre</th>
-                  <th>Sucursal</th>
+                  <td colSpan={4} className="text-texto-ter">
+                    Cargando…
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {almacenes.map((a) => (
-                  <tr key={a.id}>
-                    <td className="font-mono text-texto-sec">{a.codigo}</td>
-                    <td className="text-tinta">{a.nombre}</td>
-                    <td className="text-texto-sec">{a.sucursal}</td>
+              ) : visibles.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="text-texto-ter">
+                    {termino ? "Sin coincidencias." : "Aún no hay almacenes."}
+                  </td>
+                </tr>
+              ) : (
+                visibles.map((almacen) => (
+                  <tr key={almacen.id}>
+                    <td className="num">{almacen.codigo}</td>
+                    <td className="text-tinta">{almacen.nombre}</td>
+                    <td className="text-texto-sec">{almacen.sucursal}</td>
+                    <td>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => abrirPanelZonas(almacen)}
+                          className="btn btn-contorno h-8"
+                        >
+                          Zonas
+                        </button>
+                      </div>
+                    </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </section>
 
-      {/* Zonas por almacén */}
-      <section className="panel mt-6">
-        <div className="panel-cabecera">
-          <span className="panel-titulo">Zonas por almacén</span>
-          {almZonaId && <span className="text-xs text-texto-sec">{zonas.length}</span>}
-        </div>
-        <div className="space-y-4 p-5">
-          {avisoZona && (
-            <div
-              role={avisoZona.tono === "error" ? "alert" : "status"}
-              className={`aviso ${avisoZona.tono === "error" ? "aviso-peligro" : "aviso-exito"}`}
-            >
-              <span>{avisoZona.texto}</span>
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="grow">
-              <label htmlFor="almZona" className="etiqueta-campo">Almacén</label>
-              <SelectorBusqueda
-                id="almZona"
-                opciones={opcionesAlmacenZona}
-                valor={almZonaId}
-                onCambio={setAlmZonaId}
-                placeholder="Selecciona un almacén"
-                ariaLabel="Almacén"
+      {/* Panel: Nuevo almacén */}
+      <PanelLateral
+        abierto={panelAlmAbierto}
+        titulo="Nuevo almacén"
+        descripcion="Registra un almacén dentro de una sucursal."
+        onCerrar={cerrarPanelAlmacen}
+      >
+        <div className="space-y-4">
+          {avisoAlm && <AvisoLinea aviso={avisoAlm} />}
+          <div>
+            <label htmlFor="suc" className="etiqueta-campo">
+              Sucursal
+            </label>
+            <SelectorBusqueda
+              id="suc"
+              opciones={opcionesSucursal}
+              valor={sucursalId}
+              onCambio={setSucursalId}
+              placeholder={
+                sucursales.length === 0
+                  ? "Crea una sucursal primero"
+                  : "Selecciona una sucursal"
+              }
+              ariaLabel="Sucursal"
+            />
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_2fr]">
+            <div>
+              <label htmlFor="codAlm" className="etiqueta-campo">
+                Código
+              </label>
+              <input
+                id="codAlm"
+                className="campo font-mono"
+                value={codAlm}
+                onChange={(e) => setCodAlm(e.target.value)}
+                placeholder="03"
               />
             </div>
-            {almZonaId && edicionZona === null && (
-              <button type="button" onClick={abrirAltaZona} className="btn btn-primario">
+            <div>
+              <label htmlFor="nomAlm" className="etiqueta-campo">
+                Nombre
+              </label>
+              <input
+                id="nomAlm"
+                className="campo"
+                value={nomAlm}
+                onChange={(e) => setNomAlm(e.target.value)}
+                placeholder="Almacén de obra"
+              />
+            </div>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={guardarAlmacen}
+              disabled={guardandoAlm}
+              className="btn btn-primario"
+            >
+              {guardandoAlm ? "Guardando…" : "Crear almacén"}
+            </button>
+            <button
+              type="button"
+              onClick={cerrarPanelAlmacen}
+              className="btn btn-contorno"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      </PanelLateral>
+
+      {/* Panel: Nueva sucursal */}
+      <PanelLateral
+        abierto={panelSucAbierto}
+        titulo="Nueva sucursal"
+        descripcion="Registra una sucursal para agrupar almacenes."
+        onCerrar={cerrarPanelSucursal}
+      >
+        <div className="space-y-4">
+          {avisoSuc && <AvisoLinea aviso={avisoSuc} />}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_2fr]">
+            <div>
+              <label htmlFor="codSuc" className="etiqueta-campo">
+                Código
+              </label>
+              <input
+                id="codSuc"
+                className="campo font-mono"
+                value={codSuc}
+                onChange={(e) => setCodSuc(e.target.value)}
+                placeholder="LIMA"
+              />
+            </div>
+            <div>
+              <label htmlFor="nomSuc" className="etiqueta-campo">
+                Nombre
+              </label>
+              <input
+                id="nomSuc"
+                className="campo"
+                value={nomSuc}
+                onChange={(e) => setNomSuc(e.target.value)}
+                placeholder="Sucursal Lima"
+              />
+            </div>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={guardarSucursal}
+              disabled={guardandoSuc}
+              className="btn btn-primario"
+            >
+              {guardandoSuc ? "Guardando…" : "Crear sucursal"}
+            </button>
+            <button
+              type="button"
+              onClick={cerrarPanelSucursal}
+              className="btn btn-contorno"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      </PanelLateral>
+
+      {/* Panel: Zonas de {almacén} */}
+      <PanelLateral
+        abierto={almacenZonas !== null}
+        titulo={almacenZonas ? `Zonas de ${almacenZonas.nombre}` : "Zonas"}
+        descripcion={
+          almacenZonas
+            ? `${almacenZonas.codigo} — ${almacenZonas.sucursal}`
+            : undefined
+        }
+        onCerrar={cerrarPanelZonas}
+      >
+        <div className="space-y-4">
+          {avisoZona && <AvisoLinea aviso={avisoZona} />}
+
+          {edicionZona === null && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={abrirAltaZona}
+                className="btn btn-primario"
+              >
                 Nueva zona
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
           {edicionZona !== null && (
             <div className="rounded-lg border border-borde bg-fondo-sutil p-4">
@@ -372,7 +549,9 @@ export default function PaginaAlmacenes(): React.JSX.Element {
               </p>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_2fr]">
                 <div>
-                  <label htmlFor="codZona" className="etiqueta-campo">Código</label>
+                  <label htmlFor="codZona" className="etiqueta-campo">
+                    Código
+                  </label>
                   <input
                     id="codZona"
                     className="campo font-mono"
@@ -382,7 +561,9 @@ export default function PaginaAlmacenes(): React.JSX.Element {
                   />
                 </div>
                 <div>
-                  <label htmlFor="nomZona" className="etiqueta-campo">Nombre</label>
+                  <label htmlFor="nomZona" className="etiqueta-campo">
+                    Nombre
+                  </label>
                   <input
                     id="nomZona"
                     className="campo"
@@ -413,14 +594,12 @@ export default function PaginaAlmacenes(): React.JSX.Element {
             </div>
           )}
 
-          {!almZonaId ? (
-            <p className="py-6 text-center text-sm text-texto-ter">
-              Selecciona un almacén para ver y gestionar sus zonas.
-            </p>
-          ) : cargandoZonas ? (
+          {cargandoZonas ? (
             <p className="py-6 text-center text-sm text-texto-ter">Cargando…</p>
           ) : zonas.length === 0 ? (
-            <p className="py-6 text-center text-sm text-texto-ter">Este almacén aún no tiene zonas.</p>
+            <p className="py-6 text-center text-sm text-texto-ter">
+              Este almacén aún no tiene zonas.
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="tabla-datos">
@@ -435,19 +614,21 @@ export default function PaginaAlmacenes(): React.JSX.Element {
                 <tbody>
                   {zonas.map((z) => (
                     <tr key={z.id}>
-                      <td className="font-mono text-texto-sec">{z.codigo}</td>
+                      <td className="num">{z.codigo}</td>
                       <td className="text-tinta">{z.nombre}</td>
                       <td>
-                        <span className={`insignia ${z.activo ? "insignia-exito" : "insignia-neutra"}`}>
+                        <span
+                          className={`insignia ${z.activo ? "insignia-exito" : "insignia-neutra"}`}
+                        >
                           {z.activo ? "Activa" : "De baja"}
                         </span>
                       </td>
-                      <td className="text-right">
+                      <td>
                         <div className="flex justify-end gap-2">
                           <button
                             type="button"
                             onClick={() => abrirEdicionZona(z)}
-                            className="btn btn-contorno btn-sm"
+                            className="btn btn-contorno h-8"
                           >
                             Editar
                           </button>
@@ -455,7 +636,7 @@ export default function PaginaAlmacenes(): React.JSX.Element {
                             <button
                               type="button"
                               onClick={() => setZonaBaja(z)}
-                              className="btn btn-peligro btn-sm"
+                              className="btn btn-peligro h-8"
                             >
                               Dar de baja
                             </button>
@@ -469,7 +650,7 @@ export default function PaginaAlmacenes(): React.JSX.Element {
             </div>
           )}
         </div>
-      </section>
+      </PanelLateral>
 
       <ModalConfirmacion
         abierto={zonaBaja !== null}
@@ -483,7 +664,7 @@ export default function PaginaAlmacenes(): React.JSX.Element {
         tono="peligro"
         procesando={procesandoBaja}
         onConfirmar={confirmarBajaZona}
-        onCancelar={() => setZonaBaja(null)}
+        onCancelar={() => !procesandoBaja && setZonaBaja(null)}
       />
     </div>
   );

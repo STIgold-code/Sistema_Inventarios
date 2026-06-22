@@ -3,10 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
-import {
-  SelectorBusqueda,
-  type OpcionSelector,
-} from "@/componentes/selector-busqueda";
+import { PanelLateral } from "@/componentes/panel-lateral";
 import {
   ErrorApi,
   actualizarCliente,
@@ -50,10 +47,6 @@ const ETIQUETA_DOC: Record<string, string> = Object.fromEntries(
   TIPOS_DOC_IDENTIDAD.map((t) => [t.codigo, t.etiqueta]),
 );
 
-const OPCIONES_DOC_IDENTIDAD: OpcionSelector[] = TIPOS_DOC_IDENTIDAD.map(
-  (t) => ({ valor: t.codigo, etiqueta: t.etiqueta }),
-);
-
 const CLIENTE_VACIO: FormCliente = {
   tipoDocIdentidad: "6",
   numeroDoc: "",
@@ -80,14 +73,36 @@ function clienteAForm(c: Cliente): FormCliente {
   };
 }
 
+function etiquetaPrecio(valor: number | null | undefined): string {
+  if (valor == null) return "Público";
+  return TIPOS_PRECIO.find((t) => t.valor === String(valor))?.etiqueta ?? "Público";
+}
+
+function AvisoLinea({ aviso }: { aviso: Aviso }): React.JSX.Element {
+  return (
+    <div
+      role={aviso.tono === "error" ? "alert" : "status"}
+      className={`aviso ${aviso.tono === "error" ? "aviso-peligro" : "aviso-exito"}`}
+    >
+      <span>{aviso.texto}</span>
+    </div>
+  );
+}
+
 export default function PaginaClientes(): React.JSX.Element {
   const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [cargandoBase, setCargandoBase] = useState<boolean>(true);
+  const [cargando, setCargando] = useState<boolean>(true);
+  const [busqueda, setBusqueda] = useState<string>("");
 
+  const [panelAbierto, setPanelAbierto] = useState<boolean>(false);
   const [form, setForm] = useState<FormCliente>(CLIENTE_VACIO);
   const [editandoId, setEditandoId] = useState<number | null>(null);
   const [guardando, setGuardando] = useState<boolean>(false);
-  const [aviso, setAviso] = useState<Aviso | null>(null);
+
+  // Aviso de lista (arriba de la tabla) y aviso del formulario (dentro del panel).
+  const [avisoLista, setAvisoLista] = useState<Aviso | null>(null);
+  const [avisoForm, setAvisoForm] = useState<Aviso | null>(null);
+
   const [clienteADesactivar, setClienteADesactivar] = useState<Cliente | null>(null);
   const [desactivando, setDesactivando] = useState<boolean>(false);
 
@@ -96,12 +111,12 @@ export default function PaginaClientes(): React.JSX.Element {
       try {
         setClientes(await obtenerClientes());
       } catch (error) {
-        setAviso({
+        setAvisoLista({
           texto: mensajeError(error, "No se pudieron cargar los clientes."),
           tono: "error",
         });
       } finally {
-        setCargandoBase(false);
+        setCargando(false);
       }
     })();
   }, []);
@@ -118,26 +133,36 @@ export default function PaginaClientes(): React.JSX.Element {
     setForm((previo) => ({ ...previo, [campo]: valor }));
   }
 
-  function iniciarEdicion(cliente: Cliente): void {
-    setEditandoId(cliente.id);
-    setForm(clienteAForm(cliente));
-    setAviso(null);
-    if (typeof window !== "undefined") {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
-  }
-
-  function cancelarEdicion(): void {
+  function abrirNuevo(): void {
     setEditandoId(null);
     setForm(CLIENTE_VACIO);
-    setAviso(null);
+    setAvisoForm(null);
+    setPanelAbierto(true);
+  }
+
+  function abrirEdicion(cliente: Cliente): void {
+    setEditandoId(cliente.id);
+    setForm(clienteAForm(cliente));
+    setAvisoForm(null);
+    setPanelAbierto(true);
+  }
+
+  function cerrarPanel(): void {
+    if (guardando) return;
+    setPanelAbierto(false);
+    setEditandoId(null);
+    setForm(CLIENTE_VACIO);
+    setAvisoForm(null);
   }
 
   async function manejarCliente(evento: FormEvent<HTMLFormElement>): Promise<void> {
     evento.preventDefault();
-    setAviso(null);
+    setAvisoForm(null);
     if (!form.numeroDoc.trim() || !form.razonSocial.trim()) {
-      setAviso({ texto: "Completa el número de documento y la razón social.", tono: "error" });
+      setAvisoForm({
+        texto: "Completa el número de documento y la razón social.",
+        tono: "error",
+      });
       return;
     }
     setGuardando(true);
@@ -153,16 +178,17 @@ export default function PaginaClientes(): React.JSX.Element {
       };
       if (editandoId !== null) {
         await actualizarCliente(editandoId, datos);
-        setAviso({ texto: "Cliente actualizado.", tono: "exito" });
+        setAvisoLista({ texto: "Cliente actualizado.", tono: "exito" });
       } else {
         const respuesta = await crearCliente(datos);
-        setAviso({ texto: `Cliente registrado (#${respuesta.id}).`, tono: "exito" });
+        setAvisoLista({ texto: `Cliente registrado (#${respuesta.id}).`, tono: "exito" });
       }
+      setPanelAbierto(false);
       setEditandoId(null);
       setForm(CLIENTE_VACIO);
       await refrescar();
     } catch (error) {
-      setAviso({
+      setAvisoForm({
         texto: mensajeError(error, "No se pudo guardar el cliente."),
         tono: "error",
       });
@@ -174,18 +200,16 @@ export default function PaginaClientes(): React.JSX.Element {
   async function confirmarDesactivacion(): Promise<void> {
     if (!clienteADesactivar) return;
     setDesactivando(true);
-    setAviso(null);
     try {
       await desactivarCliente(clienteADesactivar.id);
-      setAviso({
+      setAvisoLista({
         texto: `Cliente ${clienteADesactivar.razonSocial} desactivado.`,
         tono: "exito",
       });
-      if (editandoId === clienteADesactivar.id) cancelarEdicion();
       setClienteADesactivar(null);
       await refrescar();
     } catch (error) {
-      setAviso({
+      setAvisoLista({
         texto: mensajeError(error, "No se pudo desactivar el cliente."),
         tono: "error",
       });
@@ -194,6 +218,15 @@ export default function PaginaClientes(): React.JSX.Element {
     }
   }
 
+  const termino = busqueda.trim().toLowerCase();
+  const visibles = termino
+    ? clientes.filter(
+        (c) =>
+          c.razonSocial.toLowerCase().includes(termino) ||
+          c.numeroDoc.includes(termino),
+      )
+    : clientes;
+
   return (
     <div>
       <EncabezadoPagina
@@ -201,204 +234,229 @@ export default function PaginaClientes(): React.JSX.Element {
         descripcion="Administra el maestro de clientes para las órdenes y comprobantes de venta."
       />
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <section className="panel">
-          <div className="panel-cabecera">
-            <span className="panel-titulo">
-              {editandoId !== null ? "Editar cliente" : "Nuevo cliente"}
+      {avisoLista && (
+        <div className="mt-4">
+          <AvisoLinea aviso={avisoLista} />
+        </div>
+      )}
+
+      <section className="panel mt-6">
+        <div className="panel-cabecera flex-wrap gap-3">
+          <span className="panel-titulo">
+            Clientes registrados
+            <span className="ml-2 font-mono text-sm font-normal text-texto-ter">
+              ({clientes.length})
             </span>
+          </span>
+          <div className="flex items-center gap-2">
+            <label htmlFor="buscar-cliente" className="sr-only">
+              Buscar cliente
+            </label>
+            <input
+              id="buscar-cliente"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar por documento o razón social…"
+              className="campo w-72"
+            />
+            <button type="button" onClick={abrirNuevo} className="btn btn-primario whitespace-nowrap">
+              Nuevo cliente
+            </button>
           </div>
-          <form onSubmit={manejarCliente} className="space-y-4 p-5">
-            {aviso && (
-              <div
-                role={aviso.tono === "error" ? "alert" : "status"}
-                className={`aviso ${aviso.tono === "error" ? "aviso-peligro" : "aviso-exito"}`}
-              >
-                <span>{aviso.texto}</span>
-              </div>
-            )}
-            <div className="grid gap-4 sm:grid-cols-[1fr_1.2fr]">
-              <div>
-                <label htmlFor="tipo-doc-identidad" className="etiqueta-campo">
-                  Tipo de documento
-                </label>
-                <SelectorBusqueda
-                  id="tipo-doc-identidad"
-                  opciones={OPCIONES_DOC_IDENTIDAD}
-                  valor={form.tipoDocIdentidad}
-                  onCambio={(valor) => actualizarForm("tipoDocIdentidad", valor)}
-                  placeholder="Selecciona…"
-                  ariaLabel="Tipo de documento"
-                />
-              </div>
-              <div>
-                <label htmlFor="numero-doc" className="etiqueta-campo">
-                  Número de documento
-                </label>
-                <input
-                  id="numero-doc"
-                  value={form.numeroDoc}
-                  onChange={(e) => actualizarForm("numeroDoc", e.target.value)}
-                  inputMode="numeric"
-                  required
-                  className="campo font-mono"
-                />
-              </div>
-            </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="tabla-datos">
+            <thead>
+              <tr>
+                <th>Documento</th>
+                <th>Razón social</th>
+                <th>Contacto</th>
+                <th>Nivel de precio</th>
+                <th className="text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cargando ? (
+                <tr>
+                  <td colSpan={5} className="text-texto-ter">
+                    Cargando…
+                  </td>
+                </tr>
+              ) : visibles.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="text-texto-ter">
+                    {termino ? "Sin coincidencias." : "Sin clientes registrados."}
+                  </td>
+                </tr>
+              ) : (
+                visibles.map((cliente) => (
+                  <tr key={cliente.id}>
+                    <td>
+                      <span className="block text-[0.68rem] uppercase tracking-wide text-texto-ter">
+                        {ETIQUETA_DOC[cliente.tipoDocIdentidad] ?? "Doc."}
+                      </span>
+                      <span className="num">{cliente.numeroDoc}</span>
+                    </td>
+                    <td className="text-tinta">{cliente.razonSocial}</td>
+                    <td className="text-texto-sec">
+                      {cliente.telefono || cliente.email || "—"}
+                    </td>
+                    <td className="text-texto-sec">{etiquetaPrecio(cliente.tipoPrecio)}</td>
+                    <td>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => abrirEdicion(cliente)}
+                          className="btn btn-contorno h-8"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setClienteADesactivar(cliente)}
+                          className="btn btn-peligro h-8"
+                        >
+                          Desactivar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <PanelLateral
+        abierto={panelAbierto}
+        titulo={editandoId !== null ? "Editar cliente" : "Nuevo cliente"}
+        descripcion={
+          editandoId !== null
+            ? "Modifica los datos del cliente."
+            : "Registra un cliente nuevo."
+        }
+        onCerrar={cerrarPanel}
+      >
+        <form onSubmit={manejarCliente} className="space-y-4">
+          {avisoForm && <AvisoLinea aviso={avisoForm} />}
+          <div className="grid gap-4 sm:grid-cols-[1fr_1.2fr]">
             <div>
-              <label htmlFor="razon-social" className="etiqueta-campo">
-                Razón social
-              </label>
-              <input
-                id="razon-social"
-                value={form.razonSocial}
-                onChange={(e) => actualizarForm("razonSocial", e.target.value)}
-                required
-                className="campo"
-              />
-            </div>
-            <div>
-              <label htmlFor="direccion" className="etiqueta-campo">
-                Dirección <span className="text-texto-ter">(opcional)</span>
-              </label>
-              <input
-                id="direccion"
-                value={form.direccion}
-                onChange={(e) => actualizarForm("direccion", e.target.value)}
-                className="campo"
-              />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label htmlFor="telefono" className="etiqueta-campo">
-                  Teléfono <span className="text-texto-ter">(opcional)</span>
-                </label>
-                <input
-                  id="telefono"
-                  value={form.telefono}
-                  onChange={(e) => actualizarForm("telefono", e.target.value)}
-                  inputMode="tel"
-                  className="campo font-mono"
-                />
-              </div>
-              <div>
-                <label htmlFor="email-cliente" className="etiqueta-campo">
-                  Email <span className="text-texto-ter">(opcional)</span>
-                </label>
-                <input
-                  id="email-cliente"
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => actualizarForm("email", e.target.value)}
-                  className="campo"
-                />
-              </div>
-            </div>
-            <div>
-              <label htmlFor="tipo-precio" className="etiqueta-campo">
-                Nivel de precio
+              <label htmlFor="tipo-doc-identidad" className="etiqueta-campo">
+                Tipo de documento
               </label>
               <select
-                id="tipo-precio"
-                value={form.tipoPrecio}
-                onChange={(e) => actualizarForm("tipoPrecio", e.target.value)}
-                aria-describedby="tipo-precio-ayuda"
-                className="campo sm:max-w-xs"
+                id="tipo-doc-identidad"
+                value={form.tipoDocIdentidad}
+                onChange={(e) => actualizarForm("tipoDocIdentidad", e.target.value)}
+                className="campo"
               >
-                {TIPOS_PRECIO.map((tipo) => (
-                  <option key={tipo.valor} value={tipo.valor}>
-                    {tipo.etiqueta}
+                {TIPOS_DOC_IDENTIDAD.map((t) => (
+                  <option key={t.codigo} value={t.codigo}>
+                    {t.etiqueta}
                   </option>
                 ))}
               </select>
-              <p id="tipo-precio-ayuda" className="mt-1.5 text-xs text-texto-ter">
-                Define qué precio del producto se sugiere al crear órdenes de venta
-                para este cliente.
-              </p>
             </div>
-            <div className="flex gap-3">
-              <button type="submit" disabled={guardando} className="btn btn-primario">
-                {guardando
-                  ? "Guardando…"
-                  : editandoId !== null
-                    ? "Guardar cambios"
-                    : "Registrar cliente"}
-              </button>
-              {editandoId !== null && (
-                <button type="button" onClick={cancelarEdicion} className="btn btn-contorno">
-                  Cancelar
-                </button>
-              )}
+            <div>
+              <label htmlFor="numero-doc" className="etiqueta-campo">
+                Número de documento
+              </label>
+              <input
+                id="numero-doc"
+                value={form.numeroDoc}
+                onChange={(e) => actualizarForm("numeroDoc", e.target.value)}
+                inputMode="numeric"
+                required
+                className="campo font-mono"
+              />
             </div>
-          </form>
-        </section>
-
-        <section className="panel">
-          <div className="panel-cabecera">
-            <span className="panel-titulo">Clientes registrados</span>
           </div>
-          <div className="overflow-x-auto">
-            <table className="tabla-datos">
-              <thead>
-                <tr>
-                  <th>Documento</th>
-                  <th>Razón social</th>
-                  <th>Contacto</th>
-                  <th>Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cargandoBase ? (
-                  <tr>
-                    <td colSpan={4} className="text-texto-ter">
-                      Cargando…
-                    </td>
-                  </tr>
-                ) : clientes.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="text-texto-ter">
-                      Sin clientes registrados.
-                    </td>
-                  </tr>
-                ) : (
-                  clientes.map((cliente) => (
-                    <tr key={cliente.id}>
-                      <td>
-                        <span className="block text-[0.68rem] uppercase tracking-wide text-texto-ter">
-                          {ETIQUETA_DOC[cliente.tipoDocIdentidad] ?? "Doc."}
-                        </span>
-                        <span className="num">{cliente.numeroDoc}</span>
-                      </td>
-                      <td className="text-tinta">{cliente.razonSocial}</td>
-                      <td className="text-texto-sec">
-                        {cliente.telefono || cliente.email || "—"}
-                      </td>
-                      <td>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => iniciarEdicion(cliente)}
-                            className="btn btn-contorno h-8"
-                          >
-                            Editar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setClienteADesactivar(cliente)}
-                            className="btn btn-peligro h-8"
-                          >
-                            Desactivar
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+          <div>
+            <label htmlFor="razon-social" className="etiqueta-campo">
+              Razón social
+            </label>
+            <input
+              id="razon-social"
+              value={form.razonSocial}
+              onChange={(e) => actualizarForm("razonSocial", e.target.value)}
+              required
+              className="campo"
+            />
           </div>
-        </section>
-      </div>
+          <div>
+            <label htmlFor="direccion" className="etiqueta-campo">
+              Dirección <span className="text-texto-ter">(opcional)</span>
+            </label>
+            <input
+              id="direccion"
+              value={form.direccion}
+              onChange={(e) => actualizarForm("direccion", e.target.value)}
+              className="campo"
+            />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="telefono" className="etiqueta-campo">
+                Teléfono <span className="text-texto-ter">(opcional)</span>
+              </label>
+              <input
+                id="telefono"
+                value={form.telefono}
+                onChange={(e) => actualizarForm("telefono", e.target.value)}
+                inputMode="tel"
+                className="campo font-mono"
+              />
+            </div>
+            <div>
+              <label htmlFor="email-cliente" className="etiqueta-campo">
+                Email <span className="text-texto-ter">(opcional)</span>
+              </label>
+              <input
+                id="email-cliente"
+                type="email"
+                value={form.email}
+                onChange={(e) => actualizarForm("email", e.target.value)}
+                className="campo"
+              />
+            </div>
+          </div>
+          <div>
+            <label htmlFor="tipo-precio" className="etiqueta-campo">
+              Nivel de precio
+            </label>
+            <select
+              id="tipo-precio"
+              value={form.tipoPrecio}
+              onChange={(e) => actualizarForm("tipoPrecio", e.target.value)}
+              aria-describedby="tipo-precio-ayuda"
+              className="campo"
+            >
+              {TIPOS_PRECIO.map((tipo) => (
+                <option key={tipo.valor} value={tipo.valor}>
+                  {tipo.etiqueta}
+                </option>
+              ))}
+            </select>
+            <p id="tipo-precio-ayuda" className="mt-1.5 text-xs text-texto-ter">
+              Define qué precio del producto se sugiere al crear órdenes de venta
+              para este cliente.
+            </p>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="submit" disabled={guardando} className="btn btn-primario">
+              {guardando
+                ? "Guardando…"
+                : editandoId !== null
+                  ? "Guardar cambios"
+                  : "Registrar cliente"}
+            </button>
+            <button type="button" onClick={cerrarPanel} className="btn btn-contorno">
+              Cancelar
+            </button>
+          </div>
+        </form>
+      </PanelLateral>
 
       <ModalConfirmacion
         abierto={clienteADesactivar !== null}
