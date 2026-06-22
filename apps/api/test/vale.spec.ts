@@ -49,7 +49,7 @@ describe("ValesService (integracion)", () => {
       data: { empresaId: empresa.id, familiaId: familia.id, nombre: "Vale test" },
     });
     const sku = await prisma.sku.create({
-      data: { empresaId: empresa.id, productoId: producto.id, codigoParlante: `8${RUN}0001`, unidadId: unidad.id },
+      data: { empresaId: empresa.id, productoId: producto.id, codigoParlante: `3${RUN}0001`, unidadId: unidad.id },
     });
     skuId = sku.id;
     // Stock inicial: 100 unidades al costo 5.
