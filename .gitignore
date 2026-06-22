@@ -23,3 +23,8 @@ apps/web/.env
 
 # Cache de skills (Claude Code)
 .atl/
+
+# Documentos fuente pesados (no van en el repo)
+docs/**/*.DOC
+docs/**/*.doc
+docs/**/*.docx

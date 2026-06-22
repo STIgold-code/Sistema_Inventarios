@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sistema de Inventarios — BM Ingenieros | Flujo completo del proceso</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --grafito: #1f2328;
+    --oro: #f6b60b;
+    --oro-osc: #b8860b;
+    --fondo: #f4f5f7;
+    --panel: #ffffff;
+    --texto: #2f343b;
+    --texto-sec: #656d76;
+    --borde: #e3e6ea;
+    --exito: #1a7f37;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "IBM Plex Sans", system-ui, sans-serif; color: var(--texto); background: var(--fondo); line-height: 1.6; }
+  code, .mono { font-family: "IBM Plex Mono", monospace; }
+
+  .hero { background: radial-gradient(1200px 400px at 80% -10%, rgba(246,182,11,0.18), transparent 60%), var(--grafito); color: #fff; padding: 64px 24px 56px; text-align: center; }
+  .marca { display: inline-block; background: var(--oro); color: var(--grafito); font-weight: 700; letter-spacing: 0.04em; padding: 6px 14px; border-radius: 6px; font-size: 14px; margin-bottom: 22px; }
+  .marca-logo { display: inline-block; height: 60px; width: auto; margin-bottom: 22px; }
+  .hero h1 { font-size: clamp(28px, 4vw, 44px); font-weight: 700; letter-spacing: -0.02em; }
+  .hero h1 span { color: var(--oro); }
+  .hero p { color: #c9ced4; max-width: 700px; margin: 16px auto 0; font-size: 17px; }
+  .hero .meta { margin-top: 28px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .chip { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: #e7eaee; padding: 7px 14px; border-radius: 999px; font-size: 13.5px; font-weight: 500; }
+  .chip b { color: var(--oro); }
+
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 0 24px; }
+  section { padding: 52px 0; border-bottom: 1px solid var(--borde); }
+  .eyebrow { color: var(--oro-osc); font-weight: 700; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
+  h2 { font-size: 26px; font-weight: 700; color: var(--grafito); letter-spacing: -0.01em; margin: 6px 0 10px; }
+  .lead { color: var(--texto-sec); font-size: 16px; max-width: 780px; }
+
+  .panel { background: var(--panel); border: 1px solid var(--borde); border-radius: 12px; box-shadow: 0 1px 3px rgba(31,35,40,0.06); overflow: hidden; margin-top: 22px; }
+  .panel-cab { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--borde); background: #fafbfc; }
+  .panel-cab .num { width: 26px; height: 26px; border-radius: 7px; background: var(--grafito); color: var(--oro); display: grid; place-items: center; font-weight: 700; font-size: 13px; flex: 0 0 auto; }
+  .panel-cab h3 { font-size: 16px; font-weight: 600; color: var(--grafito); }
+  .panel-cuerpo { padding: 22px 18px; }
+  .panel-cuerpo .desc { color: var(--texto-sec); font-size: 15px; margin-bottom: 6px; }
+  .mermaid { display: flex; justify-content: center; overflow-x: auto; }
+
+  .grid { display: grid; gap: 16px; margin-top: 22px; }
+  @media (min-width: 720px) { .grid-3 { grid-template-columns: repeat(3, 1fr); } }
+  .card { background: var(--panel); border: 1px solid var(--borde); border-radius: 10px; padding: 18px; }
+  .card .ico { font-size: 22px; }
+  .card h4 { font-size: 15px; margin: 8px 0 4px; color: var(--grafito); }
+  .card p { font-size: 14px; color: var(--texto-sec); }
+
+  .roles { display: grid; gap: 12px; margin-top: 20px; }
+  @media (min-width: 720px){ .roles { grid-template-columns: repeat(3,1fr); } }
+  .rol { background:#fff; border:1px solid var(--borde); border-left: 3px solid var(--oro); border-radius: 8px; padding: 14px 16px; }
+  .rol b { color: var(--grafito); }
+  .rol span { display:block; color: var(--texto-sec); font-size: 14px; }
+
+  ul.lista { margin: 10px 0 0 0; padding-left: 0; list-style: none; }
+  ul.lista li { padding: 6px 0 6px 26px; position: relative; color: var(--texto); font-size: 15px; }
+  ul.lista li::before { content: "✓"; position: absolute; left: 0; color: var(--exito); font-weight: 700; }
+
+  .nota { background: #fdf6e3; border: 1px solid #e6cf8c; color: #7a5b00; padding: 12px 16px; border-radius: 8px; font-size: 14.5px; margin-top: 18px; }
+  .indice { display: grid; gap: 8px; margin-top: 18px; }
+  @media (min-width:720px){ .indice { grid-template-columns: repeat(2,1fr); } }
+  .indice a { display:flex; gap:10px; align-items:center; text-decoration:none; color:var(--texto); background:#fff; border:1px solid var(--borde); border-radius:8px; padding:10px 14px; font-size:14.5px; transition: border-color .15s; }
+  .indice a:hover { border-color: var(--oro); }
+  .indice a .n { width:22px;height:22px;border-radius:6px;background:var(--grafito);color:var(--oro);display:grid;place-items:center;font-weight:700;font-size:12px; }
+  footer { background: var(--grafito); color: #aeb4bb; text-align: center; padding: 32px 24px; font-size: 14px; }
+  footer b { color: var(--oro); }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <img class="marca-logo" src="data:image/png;base64,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" alt="BM Ingenieros" />
+  <h1>Sistema de <span>Inventarios</span></h1>
+  <p>Control de existencias multi-almacén con trazabilidad documento → kardex, valorización SUNAT y auditoría completa. El flujo operativo completo, de punta a punta.</p>
+  <div class="meta">
+    <span class="chip"><b>+10,000</b> productos</span>
+    <span class="chip"><b>Multi</b>-almacén</span>
+    <span class="chip"><b>SUNAT</b> 12.1 / 13.1</span>
+    <span class="chip"><b>Auditoría</b> total</span>
+    <span class="chip"><b>10</b> procesos</span>
+  </div>
+</div>
+
+<!-- 3 CAPAS -->
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Cómo se organiza</p>
+    <h2>El sistema en 3 capas</h2>
+    <p class="lead">Primero se configura la base, después se opera el día a día, y en todo momento la gerencia consulta y reporta. Las decisiones que salen de los reportes vuelven a la operación.</p>
+    <div class="panel">
+      <div class="panel-cuerpo">
+        <div class="mermaid">
+flowchart LR
+    C[1 · CONFIGURAR<br/>maestros y carga inicial] --> O[2 · OPERAR<br/>10 flujos de mercadería] --> R[3 · CONSULTAR<br/>kardex · reportes · SUNAT]
+    R -.decisiones.-> O
+    classDef hot fill:#1f2328,color:#f6b60b,stroke:#1f2328;
+    class C,O,R hot;
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CAPA 1: CONFIGURACION -->
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Capa 1 · Configurar</p>
+    <h2>Maestros y carga inicial</h2>
+    <p class="lead">Antes de operar se cargan los datos base. El inventario inicial entra por el importador masivo desde Excel.</p>
+
+    <div class="panel">
+      <div class="panel-cab"><span class="num">A</span><h3>Maestros del sistema</h3></div>
+      <div class="panel-cuerpo">
+        <p class="desc">Son los catálogos que alimentan todos los flujos. Cada uno tiene su pantalla de gestión.</p>
+        <div class="grid grid-3">
+          <div class="card"><div class="ico">🧱</div><h4>Productos / SKU</h4><p>Código, unidad, familia, tipo de existencia, series, multi-unidad, precios.</p></div>
+          <div class="card"><div class="ico">🗂️</div><h4>Familias</h4><p>Agrupación de productos por género o rubro.</p></div>
+          <div class="card"><div class="ico">🏭</div><h4>Proveedores</h4><p>RUC, condición de pago, contacto, cotizaciones.</p></div>
+          <div class="card"><div class="ico">👤</div><h4>Clientes</h4><p>RUC/DNI, tipo de precio, datos de facturación.</p></div>
+          <div class="card"><div class="ico">🏬</div><h4>Almacenes + Zonas</h4><p>Múltiples almacenes y ubicaciones internas.</p></div>
+          <div class="card"><div class="ico">🎯</div><h4>Centros de costo</h4><p>Para imputar consumos a obras o áreas.</p></div>
+          <div class="card"><div class="ico">💵</div><h4>Tipo de cambio</h4><p>Cotización diaria para valorización bimoneda.</p></div>
+          <div class="card"><div class="ico">🔑</div><h4>Usuarios y roles</h4><p>Permisos por rol; segregación de funciones.</p></div>
+          <div class="card"><div class="ico">🧮</div><h4>Cuentas contables</h4><p>Config de asientos por concepto (costo, consumo).</p></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-cab"><span class="num">B</span><h3>Importador — carga masiva del inventario inicial</h3></div>
+      <div class="panel-cuerpo">
+        <p class="desc">El stock inicial (+10,000 productos) se sube desde Excel. El sistema valida cada fila, deja previsualizar sin escribir, y luego importa por lotes.</p>
+        <div class="mermaid">
+flowchart LR
+    XLS[/Archivo Excel/] --> VAL{Validación<br/>por fila}
+    VAL -->|errores| ERR[Reporte de errores]
+    VAL -->|válidas| PRE[Previsualización<br/>sin escribir]
+    PRE --> IMP[Importar por lotes]
+    IMP --> K[(Productos + stock inicial)]
+    classDef hot fill:#1f2328,color:#f6b60b,stroke:#1f2328;
+    classDef store fill:#fef6db,color:#7a5b00,stroke:#e6cf8c;
+    class K store; class VAL,PRE,IMP hot;
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- MAPA GENERAL -->
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Capa 2 · Operar</p>
+    <h2>El circuito completo de la mercadería</h2>
+    <p class="lead">Todo lo que entra al almacén entra por una compra o una devolución. Todo lo que sale, sale por una venta, un consumo, un traslado o una baja. Cada movimiento queda valorizado, documentado y auditado.</p>
+    <div class="panel">
+      <div class="panel-cuerpo">
+        <div class="mermaid">
+flowchart LR
+    subgraph IN [ENTRADAS]
+      direction TB
+      REQ[Requerimiento] --> OCM[Orden de Compra] --> REC[Recepción<br/>con factura]
+      DEVO[Devolución de venta]
+    end
+    REC --> STK[(ALMACÉN / STOCK<br/>disponible · comprometido · deteriorado)]
+    DEVO --> STK
+    subgraph OUT [SALIDAS]
+      direction TB
+      VTA[Venta] --> CLI([Cliente])
+      VAL[Vale de consumo] --> CC([Obra / centro de costo])
+      TRA[Traslado] --> OTRO[(Otro almacén)]
+      MER[Merma / baja] --> XX([Fuera del sistema])
+    end
+    STK --> VTA
+    STK --> VAL
+    STK --> TRA
+    STK --> MER
+    STK -.cuadre.-> CONT[Conteo físico]
+    STK -.cierra mes.-> CIE[Cierre valorizado]
+    STK ==> SAL[/Kardex · Reportes · SUNAT/]
+    classDef hot fill:#1f2328,color:#f6b60b,stroke:#1f2328;
+    classDef store fill:#fef6db,color:#7a5b00,stroke:#e6cf8c;
+    class STK,OTRO store;
+    class REQ,OCM,REC,DEVO,VTA,VAL,TRA,MER,CONT,CIE hot;
+        </div>
+        <div class="nota">🔐 Transversal a todo: cada acción de gobierno (aprobar, anular, despachar, autorizar, cerrar mes) queda registrada en la <b>auditoría</b> con usuario, fecha y documento.</div>
+      </div>
+    </div>
+    <div class="indice">
+      <a href="#f1"><span class="n">1</span> Compra (requerimiento → factura)</a>
+      <a href="#f2"><span class="n">2</span> Vale de salida / consumo</a>
+      <a href="#f3"><span class="n">3</span> Venta (pedido → comprobante → guía)</a>
+      <a href="#f4"><span class="n">4</span> Devolución de venta</a>
+      <a href="#f5"><span class="n">5</span> Traslado entre almacenes</a>
+      <a href="#f6"><span class="n">6</span> Ajuste / Merma</a>
+      <a href="#f7"><span class="n">7</span> Conteo físico</a>
+      <a href="#f8"><span class="n">8</span> Condición (buen uso / deteriorado)</a>
+      <a href="#f9"><span class="n">9</span> Cierre mensual → asientos</a>
+      <a href="#f10"><span class="n">10</span> Auditoría (transversal)</a>
+    </div>
+  </div>
+</section>
+
+<!-- FLUJOS -->
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Los procesos</p>
+    <h2>Cómo funciona cada flujo</h2>
+    <p class="lead">Cada flujo tiene controles, autorizaciones por rol y deja su rastro. La regla de oro: ningún movimiento de stock sin un documento que lo sustente.</p>
+
+    <!-- 1. COMPRA -->
+    <div class="panel" id="f1">
+      <div class="panel-cab"><span class="num">1</span><h3>Compra — del requerimiento a la mercadería en el almacén</h3></div>
+      <div class="panel-cuerpo">
+        <p class="desc">Ninguna compra nace de la nada: arranca con un requerimiento aprobado. Se puede comparar cotizaciones de proveedores. La mercadería solo entra al stock si se ingresa la factura del proveedor con su detalle.</p>
+        <div class="mermaid">
+flowchart LR
+    S([Área solicitante]) --> R[Requerimiento]
+    R --> AP{Aprobación}
+    AP -->|rechazado| F1([Fin])
+    AP -->|aprobado| COT[Cotizaciones<br/>por proveedor]
+    COT --> OC[Orden de Compra<br/>moneda + IGV]
+    OC --> AP2{Aprobación OC}
+    AP2 -->|emitida| REC[Recepción<br/>factura obligatoria]
+    REC --> K[(Stock + Kardex<br/>valorizado)]
+    REC -.->|paga| CXP[Cuentas por pagar]
+    classDef hot fill:#1f2328,color:#f6b60b,stroke:#1f2328;
+    classDef store fill:#fef6db,color:#7a5b00,stroke:#e6cf8c;
+    class K store; class R,COT,OC,REC hot;
+        </div>
+        <div class="nota">🔒 Control clave: no se puede ingresar stock sin la factura del proveedor (tipo, serie, número, IGV). El kardex queda sustentado con documentos reales.</div>
+      </div>
+    </div>
+
+    <!-- 2. VALE -->
+    <div class="panel" id="f2">
+      <div class="panel-cab"><span class="num">2</span><h3>Salida interna — Vale de Salida / Hoja de Cargo</h3></div>
+      <div class="panel-cuerpo">
+        <p class="desc">Para sacar material a una obra o área se emite un vale con quién lo pide, quién lo autoriza, el centro de costo y el destino. Recién autorizado, el almacenero despacha y baja el stock.</p>
+        <div class="mermaid">
+flowchart LR
+    SOL([Solicitante]) --> VAL[Vale de salida<br/>centro de costo + destino]
+    VAL --> AUT{Autorización}
+    AUT -->|rechazado| F2([Fin])
+    AUT -->|autorizado| DES[Despacho<br/>almacenero]
+    DES --> K[(Stock baja)]
+    DES --> IMP[/Imprime vale PDF/]
+    classDef hot fill:#1f2328,color:#f6b60b,stroke:#1f2328;
+    classDef store fill:#fef6db,color:#7a5b00,stroke:#e6cf8c;
+    class K store; class VAL,DES hot;
+        </div>
+        <div class="nota">✍️ Segregación de funciones: quien solicita no es quien autoriza. El vale se imprime en PDF con firmas y queda en el sistema.</div>
+      </div>
+    </div>
+
+    <!-- 3. VENTA -->
+    <div class="panel" id="f3">
+      <div class="panel-cab"><span class="num">3</span><h3>Venta — del pedido al comprobante y la guía</h3></div>
+      <div class="panel-cuerpo">
+        <p class="desc">La orden de venta reserva el stock; al despachar se registra el comprobante (factura/boleta con IGV) y la guía de remisión, y recién ahí sale la mercadería. El sistema calcula el margen contra el costo real (FIFO).</p>
+        <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant C as Cliente
+    participant V as Ventas
+    participant S as Stock
+    C->>V: Pedido (orden de venta)
+    V->>S: Reserva stock (comprometido)
+    C->>V: Confirma despacho
+    V->>V: Registra comprobante (factura/boleta + IGV)
+    V->>V: Registra guía de remisión
+    V->>S: Descuenta stock al costo FIFO
+    V-->>C: Mercadería + comprobante + guía
+    Note over V,S: Margen = venta − costo real
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. DEVOLUCION -->
+    <div class="panel" id="f4">
+      <div class="panel-cab"><span class="num">4</span><h3>Devolución de venta — la mercadería vuelve</h3></div>
+      <div class="panel-cuerpo">
+        <p class="desc">Si el cliente devuelve (total o parcial), la mercadería reingresa al almacén y se revierte el costo de la venta. Como el kardex es inmutable, no se borra nada: se registra un movimiento de entrada por devolución.</p>
+        <div class="mermaid">
+flowchart LR
+    CLI([Cliente]) -->|devuelve| DEV[Devolución<br/>de la venta]
+    DEV --> VAL{¿Total o parcial?}
+    VAL --> ENT[Entrada por devolución<br/>al almacén]
+    ENT --> K[(Stock sube)]
+    ENT -.->|revierte| COS[Costo de venta]
+    classDef hot fill:#1f2328,color:#f6b60b,stroke:#1f2328;
+    classDef store fill:#fef6db,color:#7a5b00,stroke:#e6cf8c;
+    class K store; class DEV,ENT hot;
+        </div>
+        <div class="nota">🧾 Suele acompañarse de una nota de crédito (el lado tributario se maneja en el comprobante, aparte del inventario).</div>
+      </div>
+    </div>
+
+    <!-- 5. TRASLADO -->
+    <div class="panel" id="f5">
+      <div class="panel-cab"><span class="num">5</span><h3>Traslado entre almacenes — con tránsito</h3></div>
+      <div class="panel-cuerpo">
+        <p class="desc">La mercadería sale de un almacén, queda "en tránsito" mientras viaja, y entra al almacén destino cuando se recibe. Se registra la guía de remisión del traslado.</p>
+        <div class="mermaid">
+flowchart LR
+    A[(Almacén origen)] -->|despacho| T{{En tránsito}}
+    T -->|recepción| B[(Almacén destino)]
+    T -.->|registra| G[Guía de remisión]
+    classDef store fill:#fef6db,color:#7a5b00,stroke:#e6cf8c;
+    classDef hot fill:#1f2328,color:#f6b60b,stroke:#1f2328;
+    class A,B store; class G hot;
+        </div>
+        <div class="nota">🚚 El stock no "desaparece" mientras viaja: queda visible en tránsito hasta que el destino confirma la recepción.</div>
+      </div>
+    </div>
+
+    <!-- 6. AJUSTE / MERMA -->
+    <div class="panel" id="f6">
+      <div class="panel-cab"><span class="num">6</span><h3>Ajuste / Merma — corrección y pérdidas</h3></div>
+      <div class="panel-cuerpo">
+        <p class="desc">Cuando hay una pérdida, rotura o vencimiento (merma), o una corrección puntual de stock (ajuste), se registra el movimiento con su motivo. Queda en el kardex con trazabilidad, nunca se edita el historial.</p>
+        <div class="mermaid">
+flowchart LR
+    EV([Rotura / pérdida /<br/>corrección]) --> TIPO{Tipo}
+    TIPO -->|merma| MER[Merma<br/>con motivo]
+    TIPO -->|ajuste| AJU[Ajuste + / −<br/>con motivo]
+    MER --> K[(Stock se corrige)]
+    AJU --> K
+    classDef hot fill:#1f2328,color:#f6b60b,stroke:#1f2328;
+    classDef store fill:#fef6db,color:#7a5b00,stroke:#e6cf8c;
+    class K store; class MER,AJU hot;
+        </div>
+      </div>
+    </div>
+
+    <!-- 7. CONTEO -->
+    <div class="panel" id="f7">
+      <div class="panel-cab"><span class="num">7</span><h3>Conteo físico — cuadre de inventario</h3></div>
+      <div class="panel-cuerpo">
+        <p class="desc">Se cuenta físicamente, el sistema compara con lo que dice el kardex, y la diferencia genera un ajuste automático que deja el stock cuadrado con la realidad.</p>
+        <div class="mermaid">
+flowchart LR
+    CF[Conteo físico] --> CMP{¿Coincide con<br/>el sistema?}
+    CMP -->|sí| OK([Sin ajuste])
+    CMP -->|hay diferencia| AJ[Ajuste automático]
+    AJ --> K[(Stock cuadrado)]
+    classDef hot fill:#1f2328,color:#f6b60b,stroke:#1f2328;
+    classDef store fill:#fef6db,color:#7a5b00,stroke:#e6cf8c;
+    class K store; class CF,AJ hot;
+        </div>
+      </div>
+    </div>
+
+    <!-- 8. CONDICION -->
+    <div class="panel" id="f8">
+      <div class="panel-cab"><span class="num">8</span><h3>Condición del stock — Buen uso vs. Deteriorado</h3></div>
+      <div class="panel-cuerpo">
+        <p class="desc">El material deteriorado se separa del stock disponible: no se puede vender ni consumir hasta repararlo o darlo de baja. La existencia física no se pierde, cambia de condición.</p>
+        <div class="mermaid">
+flowchart LR
+    BU[(Buen uso<br/>disponible)] -->|marcar deteriorado| DET[(Deteriorado<br/>no disponible)]
+    DET -->|recuperar| BU
+    DET -->|dar de baja| FUERA([Fuera del sistema])
+    BU -->|vende / consume| SAL([Salida])
+    classDef store fill:#fef6db,color:#7a5b00,stroke:#e6cf8c;
+    class BU,DET store;
+        </div>
+        <div class="nota">⚠️ Una venta o consumo solo puede tomar del stock en buen uso. El deteriorado queda excluido por diseño.</div>
+      </div>
+    </div>
+
+    <!-- 9. CIERRE -->
+    <div class="panel" id="f9">
+      <div class="panel-cab"><span class="num">9</span><h3>Cierre mensual — la foto valorizada del mes</h3></div>
+      <div class="panel-cuerpo">
+        <p class="desc">El contador cierra el mes: el sistema congela los saldos valorizados (en soles y dólares), bloquea cualquier movimiento con fecha de ese período y permite generar los asientos contables. Si hay que corregir, se reabre con permiso especial.</p>
+        <div class="mermaid">
+flowchart LR
+    MES[Período abierto] -->|cierre| CONG[Saldos congelados<br/>valorizados S/ y US$]
+    CONG --> BLO{{Movimientos<br/>bloqueados}}
+    BLO -.->|reabrir solo admin| MES
+    CONG --> ASI[Asientos contables<br/>costo de venta · consumo]
+    CONG --> PLE[/SUNAT Formato 12.1 y 13.1/]
+    classDef hot fill:#1f2328,color:#f6b60b,stroke:#1f2328;
+    class CONG,ASI hot;
+        </div>
+      </div>
+    </div>
+
+    <!-- 10. AUDITORIA -->
+    <div class="panel" id="f10">
+      <div class="panel-cab"><span class="num">10</span><h3>Auditoría — quién hizo qué y cuándo</h3></div>
+      <div class="panel-cuerpo">
+        <p class="desc">Cada acción importante queda registrada con el usuario, la fecha/hora y el documento afectado. Es transversal a todos los flujos anteriores: el gerente o el auditor pueden reconstruir cualquier operación.</p>
+        <div class="mermaid">
+flowchart LR
+    subgraph ACC[Acciones de gobierno]
+      direction TB
+      A1[Aprobar / rechazar requerimiento]
+      A2[Emitir / anular OC · recibir]
+      A3[Autorizar / despachar vale]
+      A4[Despachar venta · devolver]
+      A5[Deteriorar · merma · ajuste]
+      A6[Cerrar / reabrir período]
+    end
+    ACC ==> BIT[(Bitácora de auditoría<br/>usuario · fecha · documento · detalle)]
+    classDef hot fill:#1f2328,color:#f6b60b,stroke:#1f2328;
+    class BIT hot;
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- CAPA 3: REPORTES -->
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Capa 3 · Consultar</p>
+    <h2>Reportes y consultas para la gerencia</h2>
+    <p class="lead">Todo lo que se opera alimenta las consultas y reportes. Es lo que la gerencia y la contabilidad miran para decidir y cumplir con SUNAT.</p>
+    <div class="panel">
+      <div class="panel-cuerpo">
+        <div class="mermaid">
+flowchart LR
+    STK[(Stock / Kardex)] --> K[Kardex físico y valorizado]
+    STK --> EX[Existencias valorizadas]
+    STK --> ROT[Rotación / antigüedad]
+    STK --> REP[Reposición / stock mínimo]
+    STK --> ABC[Clasificación ABC]
+    STK --> REN[Rentabilidad venta vs costo]
+    STK --> CON[Consumo por centro de costo / OT]
+    STK --> SUN[/SUNAT PLE 12.1 y 13.1/]
+    STK --> AUD[Bitácora de auditoría]
+    classDef hot fill:#1f2328,color:#f6b60b,stroke:#1f2328;
+    classDef store fill:#fef6db,color:#7a5b00,stroke:#e6cf8c;
+    class STK store;
+    class K,EX,ROT,REP,ABC,REN,CON,AUD hot;
+        </div>
+      </div>
+    </div>
+    <ul class="lista">
+      <li><b>Kardex</b> físico y valorizado, con entradas, salidas, saldo y referencia del documento.</li>
+      <li><b>Existencias</b> en unidades y valorizadas (costo), por almacén, con stock deteriorado discriminado.</li>
+      <li><b>Reposición</b>: qué pedir y cuándo, según stock mínimo, máximo y punto de reposición.</li>
+      <li><b>Rentabilidad</b>: margen por artículo y cliente (venta vs. costo real FIFO).</li>
+      <li><b>Consumo valorizado</b> por centro de costo, solicitante u orden de trabajo.</li>
+      <li><b>SUNAT</b>: Registro de Inventario Permanente, Formatos 12.1 y 13.1, exportables por PLE.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ROLES -->
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Quién usa qué</p>
+    <h2>Roles y responsabilidades</h2>
+    <p class="lead">El sistema separa funciones: quien solicita no es quien aprueba, y quien aprueba no es quien despacha. Cada uno ve y hace solo lo que le corresponde.</p>
+    <div class="roles">
+      <div class="rol"><b>Almacenero</b><span>Recibe mercadería, despacha vales y traslados, hace el conteo físico, marca deterioros.</span></div>
+      <div class="rol"><b>Compras</b><span>Crea órdenes de compra, gestiona proveedores y cotizaciones, recibe contra factura.</span></div>
+      <div class="rol"><b>Ventas</b><span>Toma pedidos, despacha con comprobante y guía, gestiona clientes y devoluciones.</span></div>
+      <div class="rol"><b>Contador</b><span>Cierra el mes, valoriza, genera asientos y los reportes SUNAT (PLE).</span></div>
+      <div class="rol"><b>Auditor</b><span>Consulta la bitácora completa: quién hizo qué y cuándo.</span></div>
+      <div class="rol"><b>Gerencia</b><span>Aprueba requerimientos y órdenes, ve existencias valorizadas, rotación y rentabilidad.</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- CAPACIDADES -->
+<section>
+  <div class="wrap">
+    <p class="eyebrow">Capacidades</p>
+    <h2>Lo que el sistema resuelve hoy</h2>
+    <div class="grid grid-3">
+      <div class="card"><div class="ico">📦</div><h4>Existencias</h4><p>Stock por almacén, en unidades y valorizado (costo). Vista lista y matriz.</p></div>
+      <div class="card"><div class="ico">📋</div><h4>Kardex</h4><p>Físico y valorizado, con entradas, salidas, saldo y la referencia de cada documento.</p></div>
+      <div class="card"><div class="ico">🧾</div><h4>SUNAT</h4><p>Registro de Inventario Permanente — Formatos 12.1 y 13.1 vía PLE.</p></div>
+      <div class="card"><div class="ico">🏷️</div><h4>Clasificación</h4><p>Familias, ABC, renovable/no renovable, series, multi-unidad.</p></div>
+      <div class="card"><div class="ico">💱</div><h4>Bimoneda</h4><p>Valorización en soles y dólares con tipo de cambio diario.</p></div>
+      <div class="card"><div class="ico">📈</div><h4>Reportes</h4><p>Reposición, rotación, consumo por centro de costo, rentabilidad.</p></div>
+      <div class="card"><div class="ico">🖨️</div><h4>Documentos imprimibles</h4><p>Requerimientos y vales en PDF para firmar y archivar.</p></div>
+      <div class="card"><div class="ico">🧮</div><h4>Asientos contables</h4><p>Costo de venta y consumo, exportables con las cuentas de la empresa.</p></div>
+      <div class="card"><div class="ico">🔐</div><h4>Auditoría</h4><p>Trazabilidad completa de cada acción con usuario y fecha.</p></div>
+    </div>
+    <ul class="lista">
+      <li>Multi-almacén con stock disponible, comprometido y deteriorado separados, y zonas por almacén.</li>
+      <li>Cada movimiento sustentado por un documento real (factura, vale, guía, comprobante).</li>
+      <li>Kardex inmutable: nada se borra ni se edita; las correcciones son movimientos nuevos.</li>
+      <li>Segregación de funciones y aprobaciones por rol en cada flujo.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <p><b>BM Ingenieros</b> — Sistema de Inventarios</p>
+  <p style="margin-top:6px; color:#7d848c;">Documento de presentación del flujo operativo completo · uso interno</p>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: "base",
+    themeVariables: {
+      primaryColor: "#ffffff",
+      primaryTextColor: "#1f2328",
+      primaryBorderColor: "#d0d4d9",
+      lineColor: "#8b9198",
+      secondaryColor: "#fef6db",
+      tertiaryColor: "#f8f9fa",
+      fontFamily: "IBM Plex Sans, sans-serif",
+      fontSize: "14px"
+    },
+    flowchart: { curve: "basis", padding: 14, useMaxWidth: true },
+    sequence: { actorMargin: 60, mirrorActors: false, useMaxWidth: true }
+  });
+</script>
+</body>
+</html>
