@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useState, type FormEvent } from "reac
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import {
   descargarArchivo,
+  descargarJson,
   ErrorApi,
   obtenerExistencias,
   type Almacen,
@@ -12,6 +13,13 @@ import {
 import { formatearNumero, formatearSoles } from "@/lib/formato";
 
 const POR_PAGINA = 50;
+
+/** Fecha local AAAA-MM-DD para nombrar archivos descargados. */
+function fechaHoy(): string {
+  const d = new Date();
+  const p = (n: number): string => n.toString().padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
 
 type Vista = "almacen" | "matriz";
 
@@ -100,18 +108,23 @@ export default function PaginaExistencias(): React.JSX.Element {
   }
 
   const [exportando, setExportando] = useState<boolean>(false);
+  const [exportandoJson, setExportandoJson] = useState<boolean>(false);
+
+  function filtrosExistencias(): string {
+    const query = new URLSearchParams();
+    if (terminoActivo) query.set("busqueda", terminoActivo);
+    if (vista === "almacen" && almacenId) query.set("almacenId", almacenId);
+    if (filtroRenovable !== "") query.set("esRenovable", filtroRenovable);
+    const cadena = query.toString();
+    return cadena ? `?${cadena}` : "";
+  }
 
   async function exportar(): Promise<void> {
     setExportando(true);
     setError(null);
     try {
-      const query = new URLSearchParams();
-      if (terminoActivo) query.set("busqueda", terminoActivo);
-      if (vista === "almacen" && almacenId) query.set("almacenId", almacenId);
-      if (filtroRenovable !== "") query.set("esRenovable", filtroRenovable);
-      const cadena = query.toString();
       await descargarArchivo(
-        `/inventario/existencias/export.xlsx${cadena ? `?${cadena}` : ""}`,
+        `/inventario/existencias/export.xlsx${filtrosExistencias()}`,
         "existencias_valorizadas.xlsx",
       );
     } catch (e) {
@@ -120,6 +133,23 @@ export default function PaginaExistencias(): React.JSX.Element {
       );
     } finally {
       setExportando(false);
+    }
+  }
+
+  async function exportarJson(): Promise<void> {
+    setExportandoJson(true);
+    setError(null);
+    try {
+      await descargarJson(
+        `/inventario/existencias${filtrosExistencias()}`,
+        `existencias_${fechaHoy()}.json`,
+      );
+    } catch (e) {
+      setError(
+        e instanceof ErrorApi ? e.message : "No se pudo exportar el reporte.",
+      );
+    } finally {
+      setExportandoJson(false);
     }
   }
 
@@ -225,6 +255,15 @@ export default function PaginaExistencias(): React.JSX.Element {
               className="btn btn-contorno"
             >
               {exportando ? "Exportando…" : "Exportar a Excel"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void exportarJson()}
+              disabled={exportandoJson}
+              className="btn btn-contorno"
+            >
+              {exportandoJson ? "Exportando…" : "Exportar JSON"}
             </button>
           </div>
         </div>

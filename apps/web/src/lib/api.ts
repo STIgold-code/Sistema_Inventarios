@@ -105,6 +105,50 @@ export async function descargarArchivo(
   }
 }
 
+/**
+ * Descarga la respuesta JSON de un endpoint de datos como archivo .json. A
+ * diferencia de `descargarArchivo` (que recibe un blob binario del backend),
+ * este helper consume el JSON del endpoint, lo serializa con indentacion y
+ * dispara la descarga de un Blob "application/json". `nombreArchivo` es el
+ * nombre final del archivo descargado.
+ */
+export async function descargarJson(
+  path: string,
+  nombreArchivo: string,
+): Promise<void> {
+  const token = leerToken();
+  const cabeceras = new Headers();
+  if (token) cabeceras.set("Authorization", `Bearer ${token}`);
+
+  const respuesta = await fetch(`${URL_BASE}${path}`, { headers: cabeceras });
+
+  if (!respuesta.ok) {
+    let cuerpo: CuerpoError | null = null;
+    try {
+      cuerpo = (await respuesta.json()) as CuerpoError;
+    } catch {
+      cuerpo = null;
+    }
+    throw new ErrorApi(extraerMensaje(cuerpo, respuesta.status), respuesta.status);
+  }
+
+  const datos = await respuesta.json();
+  const blob = new Blob([JSON.stringify(datos, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  try {
+    const ancla = document.createElement("a");
+    ancla.href = url;
+    ancla.download = nombreArchivo;
+    document.body.appendChild(ancla);
+    ancla.click();
+    ancla.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 /** Autentica contra POST /auth/login. No usa apiFetch porque no requiere token. */
 export async function login(datos: LoginInput): Promise<RespuestaLogin> {
   const respuesta = await fetch(`${URL_BASE}/auth/login`, {

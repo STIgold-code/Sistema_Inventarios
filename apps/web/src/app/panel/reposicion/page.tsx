@@ -5,6 +5,7 @@ import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
 import {
   descargarArchivo,
+  descargarJson,
   ErrorApi,
   clasificarAbc,
   obtenerAbc,
@@ -142,7 +143,9 @@ export default function PaginaReposicion(): React.JSX.Element {
   }
 
   const [exportandoRepo, setExportandoRepo] = useState<boolean>(false);
+  const [exportandoRepoJson, setExportandoRepoJson] = useState<boolean>(false);
   const [exportandoAbc, setExportandoAbc] = useState<boolean>(false);
+  const [exportandoAbcJson, setExportandoAbcJson] = useState<boolean>(false);
 
   async function exportarReposicion(): Promise<void> {
     setExportandoRepo(true);
@@ -159,6 +162,24 @@ export default function PaginaReposicion(): React.JSX.Element {
       });
     } finally {
       setExportandoRepo(false);
+    }
+  }
+
+  async function exportarReposicionJson(): Promise<void> {
+    setExportandoRepoJson(true);
+    setAvisoRepo(null);
+    try {
+      await descargarJson(
+        "/reportes/reposicion",
+        `reposicion_${fechaISO(new Date())}.json`,
+      );
+    } catch (error) {
+      setAvisoRepo({
+        texto: mensajeError(error, "No se pudo exportar el reporte."),
+        tono: "error",
+      });
+    } finally {
+      setExportandoRepoJson(false);
     }
   }
 
@@ -179,6 +200,26 @@ export default function PaginaReposicion(): React.JSX.Element {
       });
     } finally {
       setExportandoAbc(false);
+    }
+  }
+
+  async function exportarAbcJson(): Promise<void> {
+    setAvisoAbc(null);
+    if (rangoInvalido()) return;
+    setExportandoAbcJson(true);
+    try {
+      const query = new URLSearchParams({ desde: abcDesde, hasta: abcHasta });
+      await descargarJson(
+        `/reportes/abc?${query.toString()}`,
+        `clasificacion_abc_${fechaISO(new Date())}.json`,
+      );
+    } catch (error) {
+      setAvisoAbc({
+        texto: mensajeError(error, "No se pudo exportar la clasificación ABC."),
+        tono: "error",
+      });
+    } finally {
+      setExportandoAbcJson(false);
     }
   }
 
@@ -226,14 +267,24 @@ export default function PaginaReposicion(): React.JSX.Element {
                 </span>
               )}
             </span>
-            <button
-              type="button"
-              onClick={() => void exportarReposicion()}
-              disabled={exportandoRepo || cargandoRepo}
-              className="btn btn-contorno"
-            >
-              {exportandoRepo ? "Exportando…" : "Exportar a Excel"}
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => void exportarReposicion()}
+                disabled={exportandoRepo || cargandoRepo}
+                className="btn btn-contorno"
+              >
+                {exportandoRepo ? "Exportando…" : "Exportar a Excel"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void exportarReposicionJson()}
+                disabled={exportandoRepoJson || cargandoRepo}
+                className="btn btn-contorno"
+              >
+                {exportandoRepoJson ? "Exportando…" : "Exportar JSON"}
+              </button>
+            </div>
           </div>
 
           {avisoRepo && (
@@ -403,6 +454,16 @@ export default function PaginaReposicion(): React.JSX.Element {
                   className="btn btn-contorno w-full"
                 >
                   {exportandoAbc ? "Exportando…" : "Exportar a Excel"}
+                </button>
+              </div>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  onClick={() => void exportarAbcJson()}
+                  disabled={cargandoAbc || persistiendo || exportandoAbcJson}
+                  className="btn btn-contorno w-full"
+                >
+                  {exportandoAbcJson ? "Exportando…" : "Exportar JSON"}
                 </button>
               </div>
             </div>

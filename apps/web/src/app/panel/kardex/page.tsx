@@ -5,6 +5,7 @@ import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { SelectorSku } from "@/componentes/selector-sku";
 import {
   descargarArchivo,
+  descargarJson,
   ErrorApi,
   obtenerAlmacenes,
   obtenerKardex,
@@ -85,16 +86,21 @@ export default function PaginaKardex(): React.JSX.Element {
   const valorizado = tipoKardex === "valorizado";
 
   const [exportando, setExportando] = useState<boolean>(false);
+  const [exportandoJson, setExportandoJson] = useState<boolean>(false);
+
+  function filtrosKardex(): string {
+    const query = new URLSearchParams({ skuId: String(sku!.id) });
+    if (almacenId !== null) query.set("almacenId", String(almacenId));
+    return query.toString();
+  }
 
   async function exportar(): Promise<void> {
     if (!sku) return;
     setExportando(true);
     setError(null);
     try {
-      const query = new URLSearchParams({ skuId: String(sku.id) });
-      if (almacenId !== null) query.set("almacenId", String(almacenId));
       await descargarArchivo(
-        `/inventario/kardex/export.xlsx?${query.toString()}`,
+        `/inventario/kardex/export.xlsx?${filtrosKardex()}`,
         "kardex.xlsx",
       );
     } catch (e) {
@@ -103,6 +109,27 @@ export default function PaginaKardex(): React.JSX.Element {
       );
     } finally {
       setExportando(false);
+    }
+  }
+
+  async function exportarJson(): Promise<void> {
+    if (!sku) return;
+    setExportandoJson(true);
+    setError(null);
+    try {
+      const fecha = new Date();
+      const p = (n: number): string => n.toString().padStart(2, "0");
+      const hoy = `${fecha.getFullYear()}-${p(fecha.getMonth() + 1)}-${p(fecha.getDate())}`;
+      await descargarJson(
+        `/inventario/kardex?${filtrosKardex()}`,
+        `kardex_${sku.codigoParlante}_${hoy}.json`,
+      );
+    } catch (e) {
+      setError(
+        e instanceof ErrorApi ? e.message : "No se pudo exportar el kardex.",
+      );
+    } finally {
+      setExportandoJson(false);
     }
   }
 
@@ -199,14 +226,24 @@ export default function PaginaKardex(): React.JSX.Element {
           </label>
         )}
         {consultado && filas.length > 0 && (
-          <button
-            type="button"
-            onClick={() => void exportar()}
-            disabled={exportando}
-            className="btn btn-contorno ml-auto"
-          >
-            {exportando ? "Exportando…" : "Exportar a Excel"}
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => void exportar()}
+              disabled={exportando}
+              className="btn btn-contorno ml-auto"
+            >
+              {exportando ? "Exportando…" : "Exportar a Excel"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void exportarJson()}
+              disabled={exportandoJson}
+              className="btn btn-contorno"
+            >
+              {exportandoJson ? "Exportando…" : "Exportar JSON"}
+            </button>
+          </>
         )}
       </div>
 

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import {
   descargarArchivo,
+  descargarJson,
   ErrorApi,
   obtenerRentabilidad,
   type EjeRentabilidad,
@@ -78,23 +79,30 @@ export default function PaginaRentabilidad(): React.JSX.Element {
   }
 
   const [exportando, setExportando] = useState<boolean>(false);
+  const [exportandoJson, setExportandoJson] = useState<boolean>(false);
 
-  async function exportar(): Promise<void> {
+  /** Valida el rango y, si es correcto, devuelve los filtros activos. */
+  function rangoValido(): URLSearchParams | null {
     setAviso(null);
     if (!desde || !hasta) {
       setAviso({ texto: "Selecciona un rango de fechas.", tono: "error" });
-      return;
+      return null;
     }
     if (hasta < desde) {
       setAviso({
         texto: "La fecha final no puede ser anterior a la inicial.",
         tono: "error",
       });
-      return;
+      return null;
     }
+    return new URLSearchParams({ desde, hasta, agrupar });
+  }
+
+  async function exportar(): Promise<void> {
+    const query = rangoValido();
+    if (!query) return;
     setExportando(true);
     try {
-      const query = new URLSearchParams({ desde, hasta, agrupar });
       await descargarArchivo(
         `/reportes/rentabilidad/export.xlsx?${query.toString()}`,
         "rentabilidad.xlsx",
@@ -106,6 +114,25 @@ export default function PaginaRentabilidad(): React.JSX.Element {
       });
     } finally {
       setExportando(false);
+    }
+  }
+
+  async function exportarJson(): Promise<void> {
+    const query = rangoValido();
+    if (!query) return;
+    setExportandoJson(true);
+    try {
+      await descargarJson(
+        `/reportes/rentabilidad?${query.toString()}`,
+        `rentabilidad_${fechaISO(new Date())}.json`,
+      );
+    } catch (error) {
+      setAviso({
+        texto: mensajeError(error, "No se pudo exportar el reporte."),
+        tono: "error",
+      });
+    } finally {
+      setExportandoJson(false);
     }
   }
 
@@ -139,6 +166,14 @@ export default function PaginaRentabilidad(): React.JSX.Element {
               className="btn btn-contorno"
             >
               {exportando ? "Exportando…" : "Exportar a Excel"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void exportarJson()}
+              disabled={exportandoJson || cargando}
+              className="btn btn-contorno"
+            >
+              {exportandoJson ? "Exportando…" : "Exportar JSON"}
             </button>
           </div>
         </div>

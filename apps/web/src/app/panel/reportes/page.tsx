@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import {
   descargarArchivo as descargarArchivoApi,
+  descargarJson,
   ErrorApi,
   obtenerAlertasStock,
   obtenerConsumo,
@@ -121,27 +122,34 @@ export default function PaginaReportes(): React.JSX.Element {
   }
 
   const [exportandoConsumo, setExportandoConsumo] = useState<boolean>(false);
+  const [exportandoConsumoJson, setExportandoConsumoJson] = useState<boolean>(false);
 
-  async function exportarConsumo(): Promise<void> {
+  /** Valida el rango y, si es correcto, devuelve los filtros activos del consumo. */
+  function rangoConsumoValido(): URLSearchParams | null {
     setAvisoConsumo(null);
     if (!consumoDesde || !consumoHasta) {
       setAvisoConsumo({ texto: "Selecciona un rango de fechas.", tono: "error" });
-      return;
+      return null;
     }
     if (consumoHasta < consumoDesde) {
       setAvisoConsumo({
         texto: "La fecha final no puede ser anterior a la inicial.",
         tono: "error",
       });
-      return;
+      return null;
     }
+    return new URLSearchParams({
+      desde: consumoDesde,
+      hasta: consumoHasta,
+      agrupar: ejeConsumo,
+    });
+  }
+
+  async function exportarConsumo(): Promise<void> {
+    const query = rangoConsumoValido();
+    if (!query) return;
     setExportandoConsumo(true);
     try {
-      const query = new URLSearchParams({
-        desde: consumoDesde,
-        hasta: consumoHasta,
-        agrupar: ejeConsumo,
-      });
       await descargarArchivoApi(
         `/reportes/consumo/export.xlsx?${query.toString()}`,
         "consumo_valorizado.xlsx",
@@ -153,6 +161,25 @@ export default function PaginaReportes(): React.JSX.Element {
       });
     } finally {
       setExportandoConsumo(false);
+    }
+  }
+
+  async function exportarConsumoJson(): Promise<void> {
+    const query = rangoConsumoValido();
+    if (!query) return;
+    setExportandoConsumoJson(true);
+    try {
+      await descargarJson(
+        `/reportes/consumo?${query.toString()}`,
+        `consumo_valorizado_${fechaISO(new Date())}.json`,
+      );
+    } catch (error) {
+      setAvisoConsumo({
+        texto: mensajeError(error, "No se pudo exportar el reporte."),
+        tono: "error",
+      });
+    } finally {
+      setExportandoConsumoJson(false);
     }
   }
 
@@ -374,6 +401,14 @@ export default function PaginaReportes(): React.JSX.Element {
                 className="btn btn-contorno"
               >
                 {exportandoConsumo ? "Exportando…" : "Exportar a Excel"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void exportarConsumoJson()}
+                disabled={exportandoConsumoJson || cargandoConsumo}
+                className="btn btn-contorno"
+              >
+                {exportandoConsumoJson ? "Exportando…" : "Exportar JSON"}
               </button>
             </div>
           </div>
