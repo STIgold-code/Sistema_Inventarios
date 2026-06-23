@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { CapturaSeriesEntrada } from "@/componentes/captura-series";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
+import { PanelLateral } from "@/componentes/panel-lateral";
 import { SelectorSku } from "@/componentes/selector-sku";
 import { SelectorBusqueda } from "@/componentes/selector-busqueda";
 import { SelectorUnidadLinea } from "@/componentes/selector-unidad-linea";
@@ -15,18 +16,22 @@ import {
   crearOrdenCompra,
   crearRecepcion,
   obtenerCotizacionesPorSku,
+  obtenerDetalleRecepcion,
   obtenerOrdenesCompra,
   obtenerProveedores,
+  obtenerRecepciones,
   obtenerRequerimientos,
   type CotizacionProveedorArticulo,
+  type DetalleRecepcion,
   type EstadoOrdenCompra,
   type OrdenCompra,
   type Proveedor,
+  type Recepcion,
   type Requerimiento,
   type Sku,
 } from "@/lib/api";
 import { COMPROBANTES_COMPRA } from "@/lib/comprobantes";
-import { formatearDolares, formatearSoles } from "@/lib/formato";
+import { formatearDolares, formatearFecha, formatearSoles } from "@/lib/formato";
 
 const ALMACEN_PRINCIPAL = 1;
 const IGV_TASA = 0.18;
@@ -118,6 +123,15 @@ export default function PaginaCompras(): React.JSX.Element {
   const [seriesRecep, setSeriesRecep] = useState<SeriesBorrador>({});
   const [guardandoRecepcion, setGuardandoRecepcion] = useState<boolean>(false);
   const [avisoRecepcion, setAvisoRecepcion] = useState<Aviso | null>(null);
+  // Listado de recepciones registradas y panel de detalle (independientes).
+  const [recepciones, setRecepciones] = useState<Recepcion[]>([]);
+  const [cargandoRecepciones, setCargandoRecepciones] = useState<boolean>(false);
+  const [detalleRecepcionId, setDetalleRecepcionId] = useState<string | null>(null);
+  const [detalleRecepcion, setDetalleRecepcion] = useState<DetalleRecepcion | null>(
+    null,
+  );
+  const [cargandoDetalleRecep, setCargandoDetalleRecep] = useState<boolean>(false);
+  const [errorDetalleRecep, setErrorDetalleRecep] = useState<string | null>(null);
 
   // Cotizaciones
   const [skuCotizacion, setSkuCotizacion] = useState<Sku | null>(null);
@@ -160,6 +174,46 @@ export default function PaginaCompras(): React.JSX.Element {
     } catch {
       // El aviso de la operación principal ya informó al usuario.
     }
+  }
+
+  async function refrescarRecepciones(): Promise<void> {
+    setCargandoRecepciones(true);
+    try {
+      setRecepciones(await obtenerRecepciones());
+    } catch {
+      // El listado es auxiliar: el flujo principal ya informó al usuario.
+    } finally {
+      setCargandoRecepciones(false);
+    }
+  }
+
+  // Carga la lista al entrar a la pestaña de recepción (una sola vez por entrada).
+  useEffect(() => {
+    if (pestania !== "recepcion") return;
+    void refrescarRecepciones();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pestania]);
+
+  async function abrirDetalleRecepcion(id: string): Promise<void> {
+    setDetalleRecepcionId(id);
+    setDetalleRecepcion(null);
+    setErrorDetalleRecep(null);
+    setCargandoDetalleRecep(true);
+    try {
+      setDetalleRecepcion(await obtenerDetalleRecepcion(id));
+    } catch (error) {
+      setErrorDetalleRecep(
+        mensajeError(error, "No se pudo cargar el detalle de la recepción."),
+      );
+    } finally {
+      setCargandoDetalleRecep(false);
+    }
+  }
+
+  function cerrarDetalleRecepcion(): void {
+    setDetalleRecepcionId(null);
+    setDetalleRecepcion(null);
+    setErrorDetalleRecep(null);
   }
 
   // ── Visibilidad del feedback inline ──────────────────────────────────────────
@@ -508,6 +562,7 @@ export default function PaginaCompras(): React.JSX.Element {
       });
       limpiarRecepcion();
       await refrescarOrdenes();
+      await refrescarRecepciones();
     } catch (error) {
       setAvisoRecepcion({
         texto: mensajeError(error, "No se pudo registrar la recepción."),
@@ -1304,6 +1359,87 @@ export default function PaginaCompras(): React.JSX.Element {
         </section>
       )}
 
+      {pestania === "recepcion" && (
+        <section className="panel mt-6">
+          <div className="panel-cabecera">
+            <span className="panel-titulo">Recepciones registradas</span>
+          </div>
+          <div className="p-5">
+            {cargandoRecepciones ? (
+              <p className="py-8 text-center text-sm text-texto-ter">Cargando…</p>
+            ) : recepciones.length === 0 ? (
+              <p className="py-8 text-center text-sm text-texto-ter">
+                Aún no hay recepciones registradas.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="tabla-datos">
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>OC</th>
+                      <th>Proveedor</th>
+                      <th>Comprobante</th>
+                      <th className="text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recepciones.map((rec) => (
+                      <tr
+                        key={rec.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => void abrirDetalleRecepcion(rec.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            void abrirDetalleRecepcion(rec.id);
+                          }
+                        }}
+                        className="cursor-pointer hover:bg-panel-alt"
+                      >
+                        <td className="text-texto">{formatearFecha(rec.fecha)}</td>
+                        <td className="font-mono text-texto-sec">
+                          {rec.ordenCompraNumero}
+                        </td>
+                        <td className="text-tinta">{rec.proveedor}</td>
+                        <td className="font-mono text-texto-sec">{rec.comprobante}</td>
+                        <td className="text-right font-mono text-tinta">
+                          {formatearPrecio(rec.total, rec.moneda)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      <PanelLateral
+        abierto={detalleRecepcionId !== null}
+        titulo={
+          detalleRecepcion
+            ? `${detalleRecepcion.tipoDocumentoSunat} ${detalleRecepcion.serieComprobante}-${detalleRecepcion.numeroComprobante}`
+            : "Detalle de recepción"
+        }
+        descripcion={
+          detalleRecepcion ? `OC ${detalleRecepcion.ordenCompraNumero}` : undefined
+        }
+        onCerrar={cerrarDetalleRecepcion}
+      >
+        {cargandoDetalleRecep ? (
+          <p className="px-1 py-10 text-center text-sm text-texto-ter">Cargando…</p>
+        ) : errorDetalleRecep ? (
+          <div role="alert" className="aviso aviso-peligro">
+            <span>{errorDetalleRecep}</span>
+          </div>
+        ) : detalleRecepcion ? (
+          <DetalleRecepcionContenido detalle={detalleRecepcion} />
+        ) : null}
+      </PanelLateral>
+
       {pestania === "cotizaciones" && (
         <div className="mt-6 space-y-6">
           <section className="panel">
@@ -1553,6 +1689,151 @@ export default function PaginaCompras(): React.JSX.Element {
         onConfirmar={() => void confirmarAccionOrden()}
         onCancelar={() => !procesandoOrden && setAccionOrden(null)}
       />
+    </div>
+  );
+}
+
+/** Sustituye nulos/vacíos por un guion largo para lectura consistente. */
+function valorRecep(texto: string | null | undefined): string {
+  return texto && texto.trim() !== "" ? texto : "—";
+}
+
+function FilaDatoRecep({
+  etiqueta,
+  children,
+}: {
+  etiqueta: string;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-1.5">
+      <dt className="text-sm text-texto-sec">{etiqueta}</dt>
+      <dd className="text-right text-sm text-tinta">{children}</dd>
+    </div>
+  );
+}
+
+/** Contenido del panel de detalle de una recepción: cabecera + líneas. */
+function DetalleRecepcionContenido({
+  detalle,
+}: {
+  detalle: DetalleRecepcion;
+}): React.JSX.Element {
+  const moneda = detalle.moneda;
+  return (
+    <div className="space-y-6">
+      <section>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-ter">
+          Comprobante
+        </h3>
+        <dl className="divide-y divide-borde">
+          <FilaDatoRecep etiqueta="Orden de compra">
+            <span className="font-mono">{detalle.ordenCompraNumero}</span>
+          </FilaDatoRecep>
+          <FilaDatoRecep etiqueta="Proveedor">{detalle.proveedor}</FilaDatoRecep>
+          <FilaDatoRecep etiqueta="Tipo de documento">
+            {detalle.tipoDocumentoSunat}
+          </FilaDatoRecep>
+          <FilaDatoRecep etiqueta="Serie - número">
+            <span className="font-mono">
+              {detalle.serieComprobante}-{detalle.numeroComprobante}
+            </span>
+          </FilaDatoRecep>
+          <FilaDatoRecep etiqueta="Fecha de emisión">
+            {formatearFecha(detalle.fechaEmisionDocumento)}
+          </FilaDatoRecep>
+          <FilaDatoRecep etiqueta="Registrada">
+            {formatearFecha(detalle.fecha)}
+          </FilaDatoRecep>
+          <FilaDatoRecep etiqueta="Moneda">{moneda}</FilaDatoRecep>
+          <FilaDatoRecep etiqueta="Tipo de cambio">
+            {valorRecep(detalle.tipoCambio)}
+          </FilaDatoRecep>
+          <FilaDatoRecep etiqueta="Guía de remisión">
+            {valorRecep(detalle.guiaRemisionProveedor)}
+          </FilaDatoRecep>
+          <FilaDatoRecep etiqueta="Registrada por">
+            {detalle.usuario}
+          </FilaDatoRecep>
+        </dl>
+      </section>
+
+      <section>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-ter">
+          Montos
+        </h3>
+        <dl className="divide-y divide-borde">
+          <FilaDatoRecep etiqueta="Subtotal">
+            <span className="font-mono">
+              {formatearPrecio(detalle.subtotal, moneda)}
+            </span>
+          </FilaDatoRecep>
+          <FilaDatoRecep etiqueta="IGV">
+            <span className="font-mono">{formatearPrecio(detalle.igv, moneda)}</span>
+          </FilaDatoRecep>
+          <FilaDatoRecep etiqueta="Total">
+            <span className="font-mono font-semibold">
+              {formatearPrecio(detalle.total, moneda)}
+            </span>
+          </FilaDatoRecep>
+        </dl>
+      </section>
+
+      <section>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-ter">
+          Líneas recibidas
+        </h3>
+        {detalle.lineas.length === 0 ? (
+          <p className="text-sm text-texto-ter">Sin líneas registradas.</p>
+        ) : (
+          <div className="space-y-3">
+            {detalle.lineas.map((linea) => (
+              <div
+                key={linea.skuId}
+                className="rounded-md border border-borde p-3"
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-sm font-medium text-tinta">
+                    {linea.skuNombre}
+                  </span>
+                  <span className="font-mono text-xs text-texto-ter">
+                    {linea.skuCodigo}
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-texto-sec">Cantidad</span>
+                    <span className="font-mono text-texto">{linea.cantidad}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-texto-sec">Costo unit.</span>
+                    <span className="font-mono text-texto">
+                      {linea.costoUnitario
+                        ? formatearPrecio(linea.costoUnitario, moneda)
+                        : "—"}
+                    </span>
+                  </div>
+                </div>
+                {linea.series.length > 0 && (
+                  <div className="mt-2">
+                    <span className="text-xs text-texto-sec">Series</span>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {linea.series.map((serie) => (
+                        <span
+                          key={serie}
+                          className="insignia insignia-neutra font-mono text-xs"
+                        >
+                          {serie}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

@@ -1294,6 +1294,59 @@ export function crearRecepcion(
   });
 }
 
+/** Item del listado de recepciones (espejo de GET /compras/recepciones). */
+export interface Recepcion {
+  id: string;
+  fecha: string;
+  ordenCompraId: string;
+  ordenCompraNumero: string;
+  proveedor: string;
+  comprobante: string;
+  moneda: string;
+  total: string;
+}
+
+/** Linea del detalle de una recepcion con SKU y series recibidas. */
+export interface DetalleRecepcionLinea {
+  skuId: string;
+  skuCodigo: string;
+  skuNombre: string;
+  cantidad: string;
+  costoUnitario: string | null;
+  series: string[];
+}
+
+/** Detalle completo (espejo de GET /compras/recepciones/:id). */
+export interface DetalleRecepcion {
+  id: string;
+  fecha: string;
+  ordenCompraId: string;
+  ordenCompraNumero: string;
+  proveedor: string;
+  tipoDocumentoSunat: string;
+  serieComprobante: string;
+  numeroComprobante: string;
+  fechaEmisionDocumento: string;
+  moneda: string;
+  tipoCambio: string | null;
+  subtotal: string;
+  igv: string;
+  total: string;
+  guiaRemisionProveedor: string | null;
+  usuario: string;
+  lineas: DetalleRecepcionLinea[];
+}
+
+export function obtenerRecepciones(): Promise<Recepcion[]> {
+  return apiFetch<Recepcion[]>("/compras/recepciones");
+}
+
+export function obtenerDetalleRecepcion(
+  id: number | string,
+): Promise<DetalleRecepcion> {
+  return apiFetch<DetalleRecepcion>(`/compras/recepciones/${id}`);
+}
+
 // ── Ventas: tipos ─────────────────────────────────────────────────────────────
 
 export type EstadoOrdenVenta = "PENDIENTE" | "PARCIAL" | "DESPACHADA" | "ANULADA";

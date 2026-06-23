@@ -64,6 +64,21 @@ export class ComprasController {
     return this.compras.anularOrden(usuario, BigInt(id));
   }
 
+  @Get("recepciones")
+  @Permisos("compra.gestionar")
+  listarRecepciones(@UsuarioActual() usuario: UsuarioRequest) {
+    return this.compras.listarRecepciones(usuario.empresaId);
+  }
+
+  @Get("recepciones/:id")
+  @Permisos("compra.gestionar")
+  obtenerDetalleRecepcion(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id") id: string,
+  ) {
+    return this.compras.obtenerDetalleRecepcion(usuario.empresaId, BigInt(id));
+  }
+
   @Post("recepciones")
   @Permisos("compra.gestionar")
   recibir(@UsuarioActual() usuario: UsuarioRequest, @Body() dto: RecibirDto) {

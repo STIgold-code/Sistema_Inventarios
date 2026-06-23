@@ -57,6 +57,49 @@ interface Recepcion {
   }>;
 }
 
+/** Item del listado de recepciones (cabecera resumida para la tabla). */
+export interface RecepcionListado {
+  id: string;
+  fecha: string;
+  ordenCompraId: string;
+  ordenCompraNumero: string;
+  proveedor: string;
+  comprobante: string;
+  moneda: string;
+  total: string;
+}
+
+/** Linea del detalle de una recepcion, enriquecida con SKU y series recibidas. */
+export interface DetalleRecepcionLinea {
+  skuId: string;
+  skuCodigo: string;
+  skuNombre: string;
+  cantidad: string;
+  costoUnitario: string | null;
+  series: string[];
+}
+
+/** Detalle completo de una recepcion: cabecera del comprobante + lineas. */
+export interface DetalleRecepcion {
+  id: string;
+  fecha: string;
+  ordenCompraId: string;
+  ordenCompraNumero: string;
+  proveedor: string;
+  tipoDocumentoSunat: string;
+  serieComprobante: string;
+  numeroComprobante: string;
+  fechaEmisionDocumento: string;
+  moneda: string;
+  tipoCambio: string | null;
+  subtotal: string;
+  igv: string;
+  total: string;
+  guiaRemisionProveedor: string | null;
+  usuario: string;
+  lineas: DetalleRecepcionLinea[];
+}
+
 @Injectable()
 export class ComprasService {
   constructor(
@@ -476,6 +519,114 @@ export class ComprasService {
     });
 
     return { recepcionId: recepcionId.toString() };
+  }
+
+  /**
+   * Lista las recepciones de la empresa, mas recientes primero. Cada item
+   * resume el comprobante del proveedor para auditoria rapida desde la tabla.
+   */
+  async listarRecepciones(empresaId: bigint): Promise<RecepcionListado[]> {
+    const recepciones = await this.prisma.recepcion.findMany({
+      where: { empresaId },
+      include: { ordenCompra: { include: { proveedor: true } } },
+      orderBy: { fecha: "desc" },
+    });
+    return recepciones.map((r) => ({
+      id: r.id.toString(),
+      fecha: r.fecha.toISOString(),
+      ordenCompraId: r.ordenCompraId.toString(),
+      ordenCompraNumero: r.ordenCompra.numero,
+      proveedor: r.ordenCompra.proveedor.razonSocial,
+      comprobante: `${r.tipoDocumentoSunat} ${r.serieComprobante}-${r.numeroComprobante}`,
+      moneda: r.moneda,
+      total: r.total.toString(),
+    }));
+  }
+
+  /**
+   * Detalle completo de una recepcion: cabecera del comprobante del proveedor y
+   * lineas con SKU, costo unitario y series recibidas. El costo unitario se toma
+   * de la linea de la OC (ordenCompraLineaId), que es el costo con el que se
+   * valorizo la entrada en el ledger. Las series son los SerieArticulo cuya
+   * entrada al stock (movimientoEntradaId) es el movimiento de la linea recibida.
+   * Lanza NotFoundException si la recepcion no existe o no es de la empresa.
+   */
+  async obtenerDetalleRecepcion(
+    empresaId: bigint,
+    id: bigint,
+  ): Promise<DetalleRecepcion> {
+    const recepcion = await this.prisma.recepcion.findFirst({
+      where: { id, empresaId },
+      include: {
+        ordenCompra: { include: { proveedor: true } },
+        lineas: true,
+      },
+    });
+    if (!recepcion) throw new NotFoundException("Recepción no encontrada");
+
+    const usuario = await this.prisma.usuario.findUnique({
+      where: { id: recepcion.usuarioId },
+      select: { nombre: true },
+    });
+
+    // Costo unitario por linea de OC (fuente de valorizacion del ledger).
+    const idsOcLinea = [...new Set(recepcion.lineas.map((l) => l.ordenCompraLineaId))];
+    const ocLineas = await this.prisma.ordenCompraLinea.findMany({
+      where: { empresaId, id: { in: idsOcLinea } },
+      select: { id: true, costoUnitario: true },
+    });
+    const costoPorOcLinea = new Map(
+      ocLineas.map((l) => [l.id.toString(), l.costoUnitario.toString()]),
+    );
+
+    // Series recibidas: SerieArticulo.movimientoEntradaId == movimientoStockId
+    // de la linea de recepcion. Solo aplica a SKUs que controlan serie.
+    const idsMovimiento = [...new Set(recepcion.lineas.map((l) => l.movimientoStockId))];
+    const series = await this.prisma.serieArticulo.findMany({
+      where: { empresaId, movimientoEntradaId: { in: idsMovimiento } },
+      select: { movimientoEntradaId: true, numeroSerie: true },
+      orderBy: { numeroSerie: "asc" },
+    });
+    const seriesPorMovimiento = new Map<string, string[]>();
+    for (const s of series) {
+      if (s.movimientoEntradaId === null) continue;
+      const clave = s.movimientoEntradaId.toString();
+      const acum = seriesPorMovimiento.get(clave) ?? [];
+      acum.push(s.numeroSerie);
+      seriesPorMovimiento.set(clave, acum);
+    }
+
+    const skus = await this.cargarSkus(
+      empresaId,
+      recepcion.lineas.map((l) => l.skuId),
+    );
+
+    return {
+      id: recepcion.id.toString(),
+      fecha: recepcion.fecha.toISOString(),
+      ordenCompraId: recepcion.ordenCompraId.toString(),
+      ordenCompraNumero: recepcion.ordenCompra.numero,
+      proveedor: recepcion.ordenCompra.proveedor.razonSocial,
+      tipoDocumentoSunat: recepcion.tipoDocumentoSunat,
+      serieComprobante: recepcion.serieComprobante,
+      numeroComprobante: recepcion.numeroComprobante,
+      fechaEmisionDocumento: recepcion.fechaEmisionDocumento.toISOString(),
+      moneda: recepcion.moneda,
+      tipoCambio: recepcion.tipoCambio ? recepcion.tipoCambio.toString() : null,
+      subtotal: recepcion.subtotal.toString(),
+      igv: recepcion.igv.toString(),
+      total: recepcion.total.toString(),
+      guiaRemisionProveedor: recepcion.guiaRemisionProveedor,
+      usuario: usuario?.nombre ?? "—",
+      lineas: recepcion.lineas.map((l) => ({
+        skuId: l.skuId.toString(),
+        skuCodigo: skus.get(l.skuId.toString())?.codigo ?? "",
+        skuNombre: skus.get(l.skuId.toString())?.nombre ?? `SKU ${l.skuId}`,
+        cantidad: l.cantidad.toString(),
+        costoUnitario: costoPorOcLinea.get(l.ordenCompraLineaId.toString()) ?? null,
+        series: seriesPorMovimiento.get(l.movimientoStockId.toString()) ?? [],
+      })),
+    };
   }
 
   /**
