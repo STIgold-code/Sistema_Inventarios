@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { PanelLateral } from "@/componentes/panel-lateral";
+import { BotonVer } from "@/componentes/boton-ver";
 import {
   SelectorBusqueda,
   type OpcionSelector,
@@ -420,24 +421,12 @@ export default function PaginaProductos(): React.JSX.Element {
                   <th>Unidad</th>
                   <th>Unidad ref.</th>
                   <th>Renovable</th>
+                  <th className="text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {skus.map((sku) => (
-                  <tr
-                    key={sku.id}
-                    onClick={() => void abrirDetalle(sku.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        void abrirDetalle(sku.id);
-                      }
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`Ver detalle de ${sku.nombre ?? sku.producto.nombre}`}
-                    className="cursor-pointer hover:bg-panel-alt focus:bg-panel-alt focus:outline-none"
-                  >
+                  <tr key={sku.id}>
                     <td className="font-mono text-texto">{sku.codigoParlante}</td>
                     <td className="text-tinta">{sku.nombre ?? sku.producto.nombre}</td>
                     <td className="text-texto-sec">{sku.producto.nombre}</td>
@@ -456,6 +445,12 @@ export default function PaginaProductos(): React.JSX.Element {
                       ) : (
                         <span className="insignia insignia-neutra">No</span>
                       )}
+                    </td>
+                    <td className="text-right">
+                      <BotonVer
+                        onVer={() => void abrirDetalle(sku.id)}
+                        etiqueta={`Ver detalle de ${sku.nombre ?? sku.producto.nombre}`}
+                      />
                     </td>
                   </tr>
                 ))}

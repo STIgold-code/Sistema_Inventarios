@@ -5,6 +5,7 @@ import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { CapturaSeriesEntrada } from "@/componentes/captura-series";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
 import { PanelLateral } from "@/componentes/panel-lateral";
+import { BotonVer } from "@/componentes/boton-ver";
 import { SelectorSku } from "@/componentes/selector-sku";
 import { SelectorBusqueda } from "@/componentes/selector-busqueda";
 import { SelectorUnidadLinea } from "@/componentes/selector-unidad-linea";
@@ -1381,23 +1382,12 @@ export default function PaginaCompras(): React.JSX.Element {
                       <th>Proveedor</th>
                       <th>Comprobante</th>
                       <th className="text-right">Total</th>
+                      <th className="text-right">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {recepciones.map((rec) => (
-                      <tr
-                        key={rec.id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => void abrirDetalleRecepcion(rec.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            void abrirDetalleRecepcion(rec.id);
-                          }
-                        }}
-                        className="cursor-pointer hover:bg-panel-alt"
-                      >
+                      <tr key={rec.id}>
                         <td className="text-texto">{formatearFecha(rec.fecha)}</td>
                         <td className="font-mono text-texto-sec">
                           {rec.ordenCompraNumero}
@@ -1406,6 +1396,12 @@ export default function PaginaCompras(): React.JSX.Element {
                         <td className="font-mono text-texto-sec">{rec.comprobante}</td>
                         <td className="text-right font-mono text-tinta">
                           {formatearPrecio(rec.total, rec.moneda)}
+                        </td>
+                        <td className="text-right">
+                          <BotonVer
+                            onVer={() => void abrirDetalleRecepcion(rec.id)}
+                            etiqueta={`Ver detalle de recepción ${rec.comprobante}`}
+                          />
                         </td>
                       </tr>
                     ))}

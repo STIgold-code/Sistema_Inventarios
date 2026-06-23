@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { PanelLateral } from "@/componentes/panel-lateral";
+import { BotonVer } from "@/componentes/boton-ver";
 import { SelectorSku } from "@/componentes/selector-sku";
 import { SelectorBusqueda, type OpcionSelector } from "@/componentes/selector-busqueda";
 import {
@@ -473,24 +474,12 @@ export default function PaginaMovimientos(): React.JSX.Element {
                   <th className="num">Cantidad</th>
                   <th className="num">Costo</th>
                   <th>Documento</th>
+                  <th className="num">Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {movimientos.map((m) => (
-                  <tr
-                    key={m.id}
-                    onClick={() => void abrirDetalle(m.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        void abrirDetalle(m.id);
-                      }
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={`Ver detalle del movimiento ${m.id}`}
-                    className="cursor-pointer hover:bg-panel-alt focus:bg-panel-alt focus:outline-none"
-                  >
+                  <tr key={m.id}>
                     <td className="text-texto-sec">{formatearFecha(m.fecha)}</td>
                     <td className="text-texto-sec">{ETIQUETA_TIPO.get(m.tipo) ?? m.tipo}</td>
                     <td className="text-tinta">
@@ -508,6 +497,12 @@ export default function PaginaMovimientos(): React.JSX.Element {
                     </td>
                     <td className="num font-mono text-texto">{formatearSoles(m.costoTotal)}</td>
                     <td className="text-texto-sec">{m.documento || "—"}</td>
+                    <td className="num">
+                      <BotonVer
+                        onVer={() => void abrirDetalle(m.id)}
+                        etiqueta={`Ver detalle del movimiento de ${m.skuNombre}`}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>

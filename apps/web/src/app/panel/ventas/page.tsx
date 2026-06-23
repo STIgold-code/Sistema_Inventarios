@@ -8,6 +8,7 @@ import { SelectorSku } from "@/componentes/selector-sku";
 import { SelectorBusqueda } from "@/componentes/selector-busqueda";
 import { SelectorUnidadLinea } from "@/componentes/selector-unidad-linea";
 import { PanelLateral } from "@/componentes/panel-lateral";
+import { BotonVer } from "@/componentes/boton-ver";
 import {
   ErrorApi,
   anularOrdenVenta,
@@ -1308,23 +1309,12 @@ export default function PaginaVentas(): React.JSX.Element {
                       <th>Orden</th>
                       <th>Cliente</th>
                       <th className="text-right">Total</th>
+                      <th className="text-right">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {comprobantes.map((comp) => (
-                      <tr
-                        key={comp.id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => void abrirDetalleComprobante(comp.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            void abrirDetalleComprobante(comp.id);
-                          }
-                        }}
-                        className="cursor-pointer hover:bg-panel-alt"
-                      >
+                      <tr key={comp.id}>
                         <td className="text-texto">{formatearFecha(comp.fechaEmision)}</td>
                         <td className="font-mono text-texto-sec">{comp.comprobante}</td>
                         <td className="font-mono text-texto-sec">
@@ -1333,6 +1323,12 @@ export default function PaginaVentas(): React.JSX.Element {
                         <td className="text-tinta">{comp.cliente}</td>
                         <td className="text-right font-mono text-tinta">
                           {formatearPrecio(comp.total, comp.moneda)}
+                        </td>
+                        <td className="text-right">
+                          <BotonVer
+                            onVer={() => void abrirDetalleComprobante(comp.id)}
+                            etiqueta={`Ver detalle del comprobante ${comp.comprobante}`}
+                          />
                         </td>
                       </tr>
                     ))}
