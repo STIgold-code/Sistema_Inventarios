@@ -112,6 +112,7 @@ function AvisoLinea({ aviso }: { aviso: Aviso }): React.JSX.Element {
 export default function PaginaProveedores(): React.JSX.Element {
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
+  const [incluirInactivos, setIncluirInactivos] = useState<boolean>(false);
   const [busqueda, setBusqueda] = useState<string>("");
 
   const [panelAbierto, setPanelAbierto] = useState<boolean>(false);
@@ -147,8 +148,9 @@ export default function PaginaProveedores(): React.JSX.Element {
 
   useEffect(() => {
     void (async (): Promise<void> => {
+      setCargando(true);
       try {
-        setProveedores(await obtenerProveedores());
+        setProveedores(await obtenerProveedores(incluirInactivos));
       } catch (error) {
         setAvisoLista({
           texto: mensajeError(error, "No se pudieron cargar los proveedores."),
@@ -158,11 +160,12 @@ export default function PaginaProveedores(): React.JSX.Element {
         setCargando(false);
       }
     })();
-  }, []);
+    // Recarga cada vez que cambia el filtro de inactivos.
+  }, [incluirInactivos]);
 
   async function refrescarProveedores(): Promise<void> {
     try {
-      setProveedores(await obtenerProveedores());
+      setProveedores(await obtenerProveedores(incluirInactivos));
     } catch {
       // El aviso de la operación principal ya informó al usuario.
     }
@@ -313,6 +316,14 @@ export default function PaginaProveedores(): React.JSX.Element {
             </span>
           </span>
           <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2 text-sm text-texto-sec">
+              <input
+                type="checkbox"
+                checked={incluirInactivos}
+                onChange={(e) => setIncluirInactivos(e.target.checked)}
+              />
+              Ver inactivos
+            </label>
             <label htmlFor="buscar-prov" className="sr-only">
               Buscar proveedor
             </label>

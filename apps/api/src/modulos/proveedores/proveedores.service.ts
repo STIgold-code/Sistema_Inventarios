@@ -61,9 +61,10 @@ export class ProveedoresService {
     return { id: id.toString(), activo: true };
   }
 
-  async listarProveedores(empresaId: bigint) {
+  /** Lista proveedores. Por defecto solo activos; incluye inactivos si se pide. */
+  async listarProveedores(empresaId: bigint, incluirInactivos = false) {
     const filas = await this.prisma.proveedor.findMany({
-      where: { empresaId, activo: true },
+      where: { empresaId, ...(incluirInactivos ? {} : { activo: true }) },
       orderBy: { razonSocial: "asc" },
     });
     return filas.map((p) => ({
@@ -78,6 +79,7 @@ export class ProveedoresService {
       cci: p.cci,
       contactoNombre: p.contactoNombre,
       tipoDocIdentidad: p.tipoDocIdentidad,
+      activo: p.activo,
     }));
   }
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { JwtGuard } from "../../auth/jwt.guard.js";
 import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
@@ -14,8 +14,14 @@ export class ProveedoresController {
 
   @Get()
   @Permisos("compra.gestionar")
-  listarProveedores(@UsuarioActual() usuario: UsuarioRequest) {
-    return this.proveedores.listarProveedores(usuario.empresaId);
+  listarProveedores(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Query("incluirInactivos") incluirInactivos?: string,
+  ) {
+    return this.proveedores.listarProveedores(
+      usuario.empresaId,
+      incluirInactivos === "true",
+    );
   }
 
   @Post()

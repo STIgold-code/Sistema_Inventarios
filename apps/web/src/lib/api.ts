@@ -1315,8 +1315,11 @@ export interface CrearRecepcionRespuesta {
 
 // ── Compras: funciones de dominio ───────────────────────────────────────────
 
-export function obtenerProveedores(): Promise<Proveedor[]> {
-  return apiFetch<Proveedor[]>("/proveedores");
+export function obtenerProveedores(
+  incluirInactivos = false,
+): Promise<Proveedor[]> {
+  const cadena = incluirInactivos ? "?incluirInactivos=true" : "";
+  return apiFetch<Proveedor[]>(`/proveedores${cadena}`);
 }
 
 export function crearProveedor(
