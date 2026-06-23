@@ -29,6 +29,7 @@ import { DevolucionesModule } from "./modulos/devoluciones/devoluciones.module.j
 import { FamiliasModule } from "./modulos/familias/familias.module.js";
 import { AuditoriaModule } from "./modulos/auditoria/auditoria.module.js";
 import { ExportModule } from "./modulos/comun/export/export.module.js";
+import { DashboardModule } from "./modulos/dashboard/dashboard.module.js";
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import { ExportModule } from "./modulos/comun/export/export.module.js";
     FamiliasModule,
     AuditoriaModule,
     ExportModule,
+    DashboardModule,
   ],
 })
 export class AppModule {}

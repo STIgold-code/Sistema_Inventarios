@@ -2232,3 +2232,81 @@ export function obtenerAsientoArchivo(
   });
   return apiFetch<ArchivoAsiento>(`/contabilidad/asientos?${params.toString()}`);
 }
+
+// ── Dashboard: tipos ────────────────────────────────────────────────────────
+
+export interface DashboardInventario {
+  /** Valor total del inventario (Decimal 2 dec en texto). */
+  valorTotal: string;
+  /** Valor inmovilizado/deteriorado (Decimal 2 dec en texto). */
+  valorDeteriorado: string;
+  skusActivos: number;
+  /** ItemStock con disponible > 0. */
+  posicionesConStock: number;
+  skusSinStock: number;
+}
+
+export interface DashboardReposicionItem {
+  /** BigInt serializado como texto. */
+  skuId: string;
+  codigoParlante: string;
+  producto: string;
+  /** Disponible total del SKU (Decimal 8 dec en texto). */
+  disponible: string;
+  /** Stock minimo del SKU (Decimal 8 dec en texto). */
+  stockMinimo: string;
+  /** Sugerido a pedir = max(stockMinimo - disponible, 0) (Decimal 8 dec). */
+  sugerido: string;
+}
+
+export interface DashboardReposicion {
+  /** Conteo total de SKUs bajo minimo. */
+  bajoMinimo: number;
+  /** Top 6, mayor faltante primero. */
+  items: DashboardReposicionItem[];
+}
+
+export interface DashboardPendientes {
+  /** RequerimientoCompra en estado BORRADOR. */
+  requerimientosPorAprobar: number;
+  /** OrdenCompra en estado EMITIDA o PARCIAL. */
+  ocPorRecibir: number;
+  /** OrdenVenta en estado PENDIENTE o PARCIAL. */
+  ventasPorDespachar: number;
+}
+
+export interface DashboardPeriodo {
+  /** Periodo contable actual en formato AAAAMM (ej. "202606"). */
+  actual: string;
+  estado: "ABIERTO" | "CERRADO";
+  /** Movimientos de entrada del periodo actual. */
+  movimientosEntrada: number;
+  /** Movimientos de salida del periodo actual. */
+  movimientosSalida: number;
+}
+
+export interface DashboardActividad {
+  accion: string;
+  entidad: string;
+  detalle: string | null;
+  /** Fecha de creacion en ISO 8601. */
+  creadoEn: string;
+  /** Nombre del usuario que ejecuto la accion. */
+  usuario: string;
+}
+
+export interface Dashboard {
+  inventario: DashboardInventario;
+  reposicion: DashboardReposicion;
+  pendientes: DashboardPendientes;
+  periodo: DashboardPeriodo;
+  /** Ultimos 8 registros de auditoria, mas recientes primero. */
+  actividad: DashboardActividad[];
+}
+
+// ── Dashboard: funciones de dominio ─────────────────────────────────────────
+
+/** Resumen gerencial del panel principal en una sola llamada. */
+export function obtenerDashboard(): Promise<Dashboard> {
+  return apiFetch<Dashboard>("/dashboard");
+}
