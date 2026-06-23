@@ -7,6 +7,15 @@ import { BotonVer } from "@/componentes/boton-ver";
 import { SelectorSku } from "@/componentes/selector-sku";
 import { SelectorBusqueda, type OpcionSelector } from "@/componentes/selector-busqueda";
 import {
+  Ficha,
+  ListaDatos,
+  FilaDato,
+  BloqueMetricas,
+  Metrica,
+  TablaResponsive,
+  mostrar,
+} from "@/componentes/ficha-detalle";
+import {
   ErrorApi,
   obtenerAlmacenes,
   obtenerDetalleMovimiento,
@@ -547,6 +556,7 @@ export default function PaginaMovimientos(): React.JSX.Element {
         titulo="Detalle del movimiento"
         descripcion={detalle ? `${detalle.sku.codigo} — ${detalle.sku.nombre}` : undefined}
         onCerrar={cerrarDetalle}
+        ancho="detalle"
       >
         {cargandoDetalle ? (
           <p className="px-1 py-10 text-center text-sm text-texto-ter">Cargando…</p>
@@ -562,43 +572,6 @@ export default function PaginaMovimientos(): React.JSX.Element {
   );
 }
 
-function FilaDato({
-  etiqueta,
-  children,
-}: {
-  etiqueta: string;
-  children: React.ReactNode;
-}): React.JSX.Element {
-  return (
-    <div className="flex items-baseline justify-between gap-3 py-1.5">
-      <dt className="text-sm text-texto-sec">{etiqueta}</dt>
-      <dd className="text-right text-sm text-tinta">{children}</dd>
-    </div>
-  );
-}
-
-function Seccion({
-  titulo,
-  children,
-}: {
-  titulo: string;
-  children: React.ReactNode;
-}): React.JSX.Element {
-  return (
-    <section>
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-ter">
-        {titulo}
-      </h3>
-      {children}
-    </section>
-  );
-}
-
-/** Muestra el valor o un guion si es null/vacio. */
-function ov(texto: string | null | undefined): string {
-  return texto && texto.trim() !== "" ? texto : "—";
-}
-
 function DetalleMovimientoContenido({
   detalle,
 }: {
@@ -608,96 +581,81 @@ function DetalleMovimientoContenido({
     detalle.sunat.serieComprobante && detalle.sunat.numeroComprobante
       ? `${detalle.sunat.serieComprobante}-${detalle.sunat.numeroComprobante}`
       : null;
+  const esSalida = detalle.signo === "SALIDA";
 
   return (
-    <div className="space-y-6">
-      <Seccion titulo="Cabecera">
-        <dl className="divide-y divide-borde">
+    <div className="space-y-5">
+      {/* Datos clave del movimiento. */}
+      <BloqueMetricas>
+        <Metrica
+          etiqueta={esSalida ? "Salida" : "Entrada"}
+          valor={`${esSalida ? "−" : "+"}${formatearNumero(detalle.cantidad)}`}
+          pie={ETIQUETA_TIPO.get(detalle.tipo) ?? detalle.tipo}
+          acento
+        />
+        <Metrica etiqueta="Costo total" valor={formatearSoles(detalle.costos.total)} />
+        <Metrica etiqueta="Saldo resultante" valor={formatearNumero(detalle.saldos.cantidad)} />
+      </BloqueMetricas>
+
+      <Ficha
+        titulo="Cabecera"
+        accion={
+          esSalida ? (
+            <span className="insignia insignia-neutra">Salida (−)</span>
+          ) : (
+            <span className="insignia insignia-exito">Entrada (+)</span>
+          )
+        }
+      >
+        <ListaDatos>
           <FilaDato etiqueta="Fecha">{formatearFecha(detalle.fecha)}</FilaDato>
           <FilaDato etiqueta="Tipo">{ETIQUETA_TIPO.get(detalle.tipo) ?? detalle.tipo}</FilaDato>
-          <FilaDato etiqueta="Sentido">
-            {detalle.signo === "SALIDA" ? (
-              <span className="insignia insignia-neutra">Salida (−)</span>
-            ) : (
-              <span className="insignia insignia-exito">Entrada (+)</span>
-            )}
-          </FilaDato>
           <FilaDato etiqueta="Artículo">
             <span className="font-mono text-xs text-texto-sec">{detalle.sku.codigo}</span>
             <span className="ml-2">{detalle.sku.nombre}</span>
           </FilaDato>
           <FilaDato etiqueta="Almacén">{detalle.almacen}</FilaDato>
           <FilaDato etiqueta="Usuario">{detalle.usuario}</FilaDato>
-          <FilaDato etiqueta="Documento origen">{ov(detalle.documento.referencia)}</FilaDato>
-          <FilaDato etiqueta="Cantidad">
-            <span className="font-mono">
-              {detalle.signo === "SALIDA" ? "−" : "+"}
-              {formatearNumero(detalle.cantidad)}
-            </span>
-          </FilaDato>
-        </dl>
-      </Seccion>
+          <FilaDato etiqueta="Documento origen">{mostrar(detalle.documento.referencia)}</FilaDato>
+        </ListaDatos>
+      </Ficha>
 
-      <Seccion titulo="SUNAT">
-        <dl className="divide-y divide-borde">
-          <FilaDato etiqueta="Periodo">{ov(detalle.sunat.periodo)}</FilaDato>
-          <FilaDato etiqueta="CUO">
-            <span className="font-mono">{ov(detalle.sunat.cuo)}</span>
-          </FilaDato>
-          <FilaDato etiqueta="N° correlativo">
-            <span className="font-mono">{ov(detalle.sunat.numeroCorrelativo)}</span>
-          </FilaDato>
-          <FilaDato etiqueta="Tipo operación (Tabla 12)">
-            <span className="font-mono">{ov(detalle.sunat.tipoOperacionSunat)}</span>
-          </FilaDato>
-          <FilaDato etiqueta="Tipo documento (Tabla 10)">
-            <span className="font-mono">{ov(detalle.sunat.tipoDocumentoSunat)}</span>
-          </FilaDato>
-          <FilaDato etiqueta="Comprobante">
-            <span className="font-mono">{ov(comprobante)}</span>
-          </FilaDato>
-        </dl>
-      </Seccion>
+      <Ficha titulo="SUNAT">
+        <ListaDatos>
+          <FilaDato etiqueta="Periodo">{mostrar(detalle.sunat.periodo)}</FilaDato>
+          <FilaDato etiqueta="CUO" mono>{mostrar(detalle.sunat.cuo)}</FilaDato>
+          <FilaDato etiqueta="N° correlativo" mono>{mostrar(detalle.sunat.numeroCorrelativo)}</FilaDato>
+          <FilaDato etiqueta="Tipo operación (Tabla 12)" mono>{mostrar(detalle.sunat.tipoOperacionSunat)}</FilaDato>
+          <FilaDato etiqueta="Tipo documento (Tabla 10)" mono>{mostrar(detalle.sunat.tipoDocumentoSunat)}</FilaDato>
+          <FilaDato etiqueta="Comprobante" mono>{mostrar(comprobante)}</FilaDato>
+        </ListaDatos>
+      </Ficha>
 
-      <Seccion titulo="Costos">
-        <dl className="divide-y divide-borde">
-          <FilaDato etiqueta="Costo unitario (S/)">
-            <span className="font-mono">{formatearSoles(detalle.costos.unitario)}</span>
+      <Ficha titulo="Costos">
+        <ListaDatos>
+          <FilaDato etiqueta="Costo unitario (S/)" mono>{formatearSoles(detalle.costos.unitario)}</FilaDato>
+          <FilaDato etiqueta="Costo total (S/)" mono>{formatearSoles(detalle.costos.total)}</FilaDato>
+          <FilaDato etiqueta="Costo unitario (USD)" mono>
+            {detalle.costos.unitarioUsd ? formatearDolares(detalle.costos.unitarioUsd) : "—"}
           </FilaDato>
-          <FilaDato etiqueta="Costo total (S/)">
-            <span className="font-mono">{formatearSoles(detalle.costos.total)}</span>
+          <FilaDato etiqueta="Costo total (USD)" mono>
+            {detalle.costos.totalUsd ? formatearDolares(detalle.costos.totalUsd) : "—"}
           </FilaDato>
-          <FilaDato etiqueta="Costo unitario (USD)">
-            <span className="font-mono">
-              {detalle.costos.unitarioUsd ? formatearDolares(detalle.costos.unitarioUsd) : "—"}
-            </span>
-          </FilaDato>
-          <FilaDato etiqueta="Costo total (USD)">
-            <span className="font-mono">
-              {detalle.costos.totalUsd ? formatearDolares(detalle.costos.totalUsd) : "—"}
-            </span>
-          </FilaDato>
-        </dl>
-      </Seccion>
+        </ListaDatos>
+      </Ficha>
 
-      <Seccion titulo="Saldos resultantes">
-        <dl className="divide-y divide-borde">
-          <FilaDato etiqueta="Cantidad">
-            <span className="font-mono">{formatearNumero(detalle.saldos.cantidad)}</span>
-          </FilaDato>
-          <FilaDato etiqueta="Costo unitario">
-            <span className="font-mono">{formatearSoles(detalle.saldos.costoUnitario)}</span>
-          </FilaDato>
-          <FilaDato etiqueta="Costo total">
-            <span className="font-mono">{formatearSoles(detalle.saldos.costoTotal)}</span>
-          </FilaDato>
-        </dl>
-      </Seccion>
+      <Ficha titulo="Saldos resultantes">
+        <ListaDatos>
+          <FilaDato etiqueta="Cantidad" mono>{formatearNumero(detalle.saldos.cantidad)}</FilaDato>
+          <FilaDato etiqueta="Costo unitario" mono>{formatearSoles(detalle.saldos.costoUnitario)}</FilaDato>
+          <FilaDato etiqueta="Costo total" mono>{formatearSoles(detalle.saldos.costoTotal)}</FilaDato>
+        </ListaDatos>
+      </Ficha>
 
       {detalle.capas.length > 0 && (
-        <Seccion titulo="Capas FIFO consumidas">
-          <div className="overflow-x-auto">
-            <table className="tabla-datos">
+        <Ficha titulo="Capas FIFO consumidas">
+          <TablaResponsive>
+            <table className="tabla-datos compacta">
               <thead>
                 <tr>
                   <th className="num">Cantidad</th>
@@ -713,18 +671,18 @@ function DetalleMovimientoContenido({
                 ))}
               </tbody>
             </table>
-          </div>
-        </Seccion>
+          </TablaResponsive>
+        </Ficha>
       )}
 
       {detalle.series.length > 0 && (
-        <Seccion titulo="Números de serie">
+        <Ficha titulo="Números de serie">
           <ul className="flex flex-wrap gap-2">
             {detalle.series.map((s) => (
               <li key={s} className="insignia insignia-neutra font-mono">{s}</li>
             ))}
           </ul>
-        </Seccion>
+        </Ficha>
       )}
     </div>
   );

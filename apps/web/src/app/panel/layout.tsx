@@ -277,7 +277,9 @@ export default function LayoutPanel({
           </div>
         </header>
 
-        <main className="flex-1 overflow-x-auto px-4 py-5 sm:px-6 lg:px-8 lg:py-7">{children}</main>
+        <main className="flex-1 px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
+          <div className="mx-auto w-full max-w-[1600px]">{children}</div>
+        </main>
       </div>
     </div>
   );

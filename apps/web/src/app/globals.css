@@ -53,9 +53,26 @@
 
   --radio: 6px;
   --radio-lg: 8px;
+  --radio-xl: 12px;
+
+  /* Anchos del panel lateral (slide-over) por densidad de contenido */
+  --drawer-formulario: 32rem;   /* formularios de alta/edición */
+  --drawer-detalle: 44rem;      /* fichas de detalle con tablas densas */
 }
 
 * { border-color: var(--borde); }
+
+/* Scroll discreto y consistente (no el feo nativo de Windows) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--borde-fuerte) transparent;
+}
+*::-webkit-scrollbar { height: 8px; width: 8px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--borde-fuerte);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--texto-ter); }
 
 body {
   background-color: var(--fondo);
@@ -213,4 +230,122 @@ h1, h2, h3, h4 {
   .aviso-peligro { background: var(--peligro-tenue); border-color: #f0b3b8; color: #8a1c25; }
   .aviso-exito   { background: var(--exito-tenue); border-color: #abd5b8; color: #145523; }
   .aviso-aviso   { background: var(--aviso-tenue); border-color: #e6cf8c; color: #7a5b00; }
+
+  /* =======================================================================
+     PRESENTACIÓN DE DETALLE — fichas, métricas y datos clave
+     Reemplazan las "dl divide-y" apretadas dentro del panel lateral.
+     ======================================================================= */
+
+  /* Ficha: bloque de detalle con cabecera propia. Agrupa datos legibles
+     con aire, en lugar de amontonarlos en una sola lista corrida. */
+  .ficha {
+    background: var(--panel-alt);
+    border: 1px solid var(--borde);
+    border-radius: var(--radio-lg);
+    overflow: hidden;
+  }
+  .ficha-cabecera {
+    @apply flex items-center gap-2 px-4 py-2.5;
+    background: var(--blanco);
+    border-bottom: 1px solid var(--borde);
+  }
+  .ficha-titulo {
+    @apply text-[0.7rem] font-semibold uppercase tracking-wide;
+    color: var(--texto-sec);
+  }
+  /* Filo dorado a la izquierda del título: carácter de marca, sin ruido. */
+  .ficha-cabecera::before {
+    content: "";
+    width: 3px;
+    height: 0.9rem;
+    border-radius: 999px;
+    background: var(--oro);
+  }
+  .ficha-cuerpo { @apply px-4 py-3; }
+
+  /* Lista de pares etiqueta/valor. En móvil se apilan; desde sm van en línea. */
+  .lista-datos { @apply divide-y divide-borde; }
+  .fila-dato {
+    @apply flex flex-col gap-0.5 py-2 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4;
+  }
+  .fila-dato-etiqueta { @apply text-[0.8rem] text-texto-sec; }
+  .fila-dato-valor {
+    @apply text-sm text-tinta sm:text-right;
+    min-width: 0;
+    word-break: break-word;
+  }
+
+  /* Métricas: el dato que el usuario busca primero (stock, total, valor).
+     Grande, tabular, jerarquía fuerte. */
+  .bloque-metricas {
+    @apply grid gap-3;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  }
+  .metrica {
+    @apply flex flex-col gap-1 px-4 py-3;
+    background: var(--blanco);
+    border: 1px solid var(--borde);
+    border-radius: var(--radio-lg);
+  }
+  .metrica-acento {
+    border-color: #f3d77a;
+    background: linear-gradient(180deg, var(--oro-tenue) 0%, var(--blanco) 100%);
+  }
+  .metrica-etiqueta {
+    @apply text-[0.7rem] font-medium uppercase tracking-wide;
+    color: var(--texto-ter);
+  }
+  .metrica-valor {
+    @apply text-[1.35rem] font-semibold leading-none;
+    color: var(--tinta);
+    font-family: var(--fuente-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .metrica-pie { @apply text-[0.7rem] text-texto-ter; }
+
+  /* Envoltura de tabla: scroll horizontal contenido + indicador de borde.
+     Evita que la tabla "rompa" el panel y desborde la pantalla. */
+  .tabla-envoltura {
+    @apply w-full overflow-x-auto;
+    border: 1px solid var(--borde);
+    border-radius: var(--radio-lg);
+    background: var(--blanco);
+  }
+  .tabla-envoltura .tabla-datos { @apply text-[0.82rem]; }
+  .tabla-envoltura .tabla-datos thead th { white-space: nowrap; }
+
+  /* Variante compacta para tablas dentro del panel lateral. */
+  .tabla-datos.compacta thead th,
+  .tabla-datos.compacta tbody td { @apply px-3 py-1.5; }
+
+  /* Pie total resaltado en tablas de datos numéricos. */
+  .tabla-datos tfoot td {
+    @apply px-4 py-2.5 font-semibold;
+    color: var(--tinta);
+    background: var(--panel-alt);
+    border-top: 2px solid var(--borde-fuerte);
+  }
+  .tabla-datos.compacta tfoot td { @apply px-3 py-1.5; }
+}
+
+/* Animaciones del panel lateral (entrada suave, sin distraer). */
+@keyframes fundido-entrada {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes deslizar-entrada {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.animacion-fundido { animation: fundido-entrada 0.18s ease-out; }
+.animacion-deslizar { animation: deslizar-entrada 0.24s cubic-bezier(0.22, 1, 0.36, 1); }
+
+/* Respeta a quien reduce el movimiento (accesibilidad). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
 }

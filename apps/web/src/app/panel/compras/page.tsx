@@ -10,6 +10,15 @@ import { SelectorSku } from "@/componentes/selector-sku";
 import { SelectorBusqueda } from "@/componentes/selector-busqueda";
 import { SelectorUnidadLinea } from "@/componentes/selector-unidad-linea";
 import {
+  BloqueMetricas,
+  Ficha,
+  FilaDato,
+  ListaDatos,
+  Metrica,
+  TablaResponsive,
+  mostrar,
+} from "@/componentes/ficha-detalle";
+import {
   ErrorApi,
   anularOrdenCompra,
   aprobarOrdenCompra,
@@ -1415,6 +1424,7 @@ export default function PaginaCompras(): React.JSX.Element {
 
       <PanelLateral
         abierto={detalleRecepcionId !== null}
+        ancho="detalle"
         titulo={
           detalleRecepcion
             ? `${detalleRecepcion.tipoDocumentoSunat} ${detalleRecepcion.serieComprobante}-${detalleRecepcion.numeroComprobante}`
@@ -1689,26 +1699,6 @@ export default function PaginaCompras(): React.JSX.Element {
   );
 }
 
-/** Sustituye nulos/vacíos por un guion largo para lectura consistente. */
-function valorRecep(texto: string | null | undefined): string {
-  return texto && texto.trim() !== "" ? texto : "—";
-}
-
-function FilaDatoRecep({
-  etiqueta,
-  children,
-}: {
-  etiqueta: string;
-  children: React.ReactNode;
-}): React.JSX.Element {
-  return (
-    <div className="flex items-baseline justify-between gap-3 py-1.5">
-      <dt className="text-sm text-texto-sec">{etiqueta}</dt>
-      <dd className="text-right text-sm text-tinta">{children}</dd>
-    </div>
-  );
-}
-
 /** Contenido del panel de detalle de una recepción: cabecera + líneas. */
 function DetalleRecepcionContenido({
   detalle,
@@ -1716,120 +1706,109 @@ function DetalleRecepcionContenido({
   detalle: DetalleRecepcion;
 }): React.JSX.Element {
   const moneda = detalle.moneda;
+  const tieneSeries = detalle.lineas.some((linea) => linea.series.length > 0);
   return (
-    <div className="space-y-6">
-      <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-ter">
-          Comprobante
-        </h3>
-        <dl className="divide-y divide-borde">
-          <FilaDatoRecep etiqueta="Orden de compra">
-            <span className="font-mono">{detalle.ordenCompraNumero}</span>
-          </FilaDatoRecep>
-          <FilaDatoRecep etiqueta="Proveedor">{detalle.proveedor}</FilaDatoRecep>
-          <FilaDatoRecep etiqueta="Tipo de documento">
-            {detalle.tipoDocumentoSunat}
-          </FilaDatoRecep>
-          <FilaDatoRecep etiqueta="Serie - número">
-            <span className="font-mono">
-              {detalle.serieComprobante}-{detalle.numeroComprobante}
-            </span>
-          </FilaDatoRecep>
-          <FilaDatoRecep etiqueta="Fecha de emisión">
+    <div className="space-y-5">
+      <BloqueMetricas>
+        <Metrica
+          etiqueta="Total del comprobante"
+          valor={formatearPrecio(detalle.total, moneda)}
+          pie={moneda}
+          acento
+        />
+        <Metrica etiqueta="Subtotal" valor={formatearPrecio(detalle.subtotal, moneda)} />
+        <Metrica etiqueta="IGV" valor={formatearPrecio(detalle.igv, moneda)} />
+        <Metrica
+          etiqueta="Líneas recibidas"
+          valor={detalle.lineas.length}
+        />
+      </BloqueMetricas>
+
+      <Ficha titulo="Comprobante">
+        <ListaDatos>
+          <FilaDato etiqueta="Orden de compra" mono>
+            {detalle.ordenCompraNumero}
+          </FilaDato>
+          <FilaDato etiqueta="Proveedor">{detalle.proveedor}</FilaDato>
+          <FilaDato etiqueta="Tipo de documento">{detalle.tipoDocumentoSunat}</FilaDato>
+          <FilaDato etiqueta="Serie - número" mono>
+            {detalle.serieComprobante}-{detalle.numeroComprobante}
+          </FilaDato>
+          <FilaDato etiqueta="Fecha de emisión">
             {formatearFecha(detalle.fechaEmisionDocumento)}
-          </FilaDatoRecep>
-          <FilaDatoRecep etiqueta="Registrada">
-            {formatearFecha(detalle.fecha)}
-          </FilaDatoRecep>
-          <FilaDatoRecep etiqueta="Moneda">{moneda}</FilaDatoRecep>
-          <FilaDatoRecep etiqueta="Tipo de cambio">
-            {valorRecep(detalle.tipoCambio)}
-          </FilaDatoRecep>
-          <FilaDatoRecep etiqueta="Guía de remisión">
-            {valorRecep(detalle.guiaRemisionProveedor)}
-          </FilaDatoRecep>
-          <FilaDatoRecep etiqueta="Registrada por">
-            {detalle.usuario}
-          </FilaDatoRecep>
-        </dl>
-      </section>
+          </FilaDato>
+          <FilaDato etiqueta="Registrada">{formatearFecha(detalle.fecha)}</FilaDato>
+          <FilaDato etiqueta="Moneda">{moneda}</FilaDato>
+          <FilaDato etiqueta="Tipo de cambio" mono>
+            {mostrar(detalle.tipoCambio)}
+          </FilaDato>
+          <FilaDato etiqueta="Guía de remisión" mono>
+            {mostrar(detalle.guiaRemisionProveedor)}
+          </FilaDato>
+          <FilaDato etiqueta="Registrada por">{detalle.usuario}</FilaDato>
+        </ListaDatos>
+      </Ficha>
 
-      <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-ter">
-          Montos
-        </h3>
-        <dl className="divide-y divide-borde">
-          <FilaDatoRecep etiqueta="Subtotal">
-            <span className="font-mono">
-              {formatearPrecio(detalle.subtotal, moneda)}
-            </span>
-          </FilaDatoRecep>
-          <FilaDatoRecep etiqueta="IGV">
-            <span className="font-mono">{formatearPrecio(detalle.igv, moneda)}</span>
-          </FilaDatoRecep>
-          <FilaDatoRecep etiqueta="Total">
-            <span className="font-mono font-semibold">
-              {formatearPrecio(detalle.total, moneda)}
-            </span>
-          </FilaDatoRecep>
-        </dl>
-      </section>
-
-      <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-ter">
-          Líneas recibidas
-        </h3>
+      <Ficha titulo="Líneas recibidas">
         {detalle.lineas.length === 0 ? (
           <p className="text-sm text-texto-ter">Sin líneas registradas.</p>
         ) : (
           <div className="space-y-3">
-            {detalle.lineas.map((linea) => (
-              <div
-                key={linea.skuId}
-                className="rounded-md border border-borde p-3"
-              >
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-sm font-medium text-tinta">
-                    {linea.skuNombre}
-                  </span>
-                  <span className="font-mono text-xs text-texto-ter">
-                    {linea.skuCodigo}
-                  </span>
-                </div>
-                <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                  <div className="flex justify-between gap-2">
-                    <span className="text-texto-sec">Cantidad</span>
-                    <span className="font-mono text-texto">{linea.cantidad}</span>
-                  </div>
-                  <div className="flex justify-between gap-2">
-                    <span className="text-texto-sec">Costo unit.</span>
-                    <span className="font-mono text-texto">
-                      {linea.costoUnitario
-                        ? formatearPrecio(linea.costoUnitario, moneda)
-                        : "—"}
-                    </span>
-                  </div>
-                </div>
-                {linea.series.length > 0 && (
-                  <div className="mt-2">
-                    <span className="text-xs text-texto-sec">Series</span>
-                    <div className="mt-1 flex flex-wrap gap-1.5">
-                      {linea.series.map((serie) => (
-                        <span
-                          key={serie}
-                          className="insignia insignia-neutra font-mono text-xs"
-                        >
-                          {serie}
-                        </span>
-                      ))}
+            <TablaResponsive>
+              <table className="tabla-datos compacta">
+                <thead>
+                  <tr>
+                    <th>SKU</th>
+                    <th className="num">Cantidad</th>
+                    <th className="num">Costo unit.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detalle.lineas.map((linea) => (
+                    <tr key={linea.skuId}>
+                      <td>
+                        <span className="font-mono text-xs text-texto-sec">
+                          {linea.skuCodigo}
+                        </span>{" "}
+                        <span className="text-texto">{linea.skuNombre}</span>
+                      </td>
+                      <td className="num font-mono">{linea.cantidad}</td>
+                      <td className="num font-mono">
+                        {linea.costoUnitario
+                          ? formatearPrecio(linea.costoUnitario, moneda)
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TablaResponsive>
+            {tieneSeries && (
+              <div className="space-y-2">
+                {detalle.lineas
+                  .filter((linea) => linea.series.length > 0)
+                  .map((linea) => (
+                    <div key={linea.skuId}>
+                      <span className="text-xs text-texto-sec">
+                        Series · {linea.skuNombre}
+                      </span>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {linea.series.map((serie) => (
+                          <span
+                            key={serie}
+                            className="insignia insignia-neutra font-mono text-xs"
+                          >
+                            {serie}
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  ))}
               </div>
-            ))}
+            )}
           </div>
         )}
-      </section>
+      </Ficha>
     </div>
   );
 }

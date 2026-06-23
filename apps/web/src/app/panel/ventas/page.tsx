@@ -10,6 +10,15 @@ import { SelectorUnidadLinea } from "@/componentes/selector-unidad-linea";
 import { PanelLateral } from "@/componentes/panel-lateral";
 import { BotonVer } from "@/componentes/boton-ver";
 import {
+  BloqueMetricas,
+  Ficha,
+  FilaDato,
+  ListaDatos,
+  Metrica,
+  TablaResponsive,
+  mostrar,
+} from "@/componentes/ficha-detalle";
+import {
   ErrorApi,
   anularOrdenVenta,
   crearDespacho,
@@ -1341,6 +1350,7 @@ export default function PaginaVentas(): React.JSX.Element {
       )}
 
       <PanelLateral
+        ancho="detalle"
         abierto={detalleComprobanteId !== null}
         titulo={
           detalleComprobante
@@ -1368,26 +1378,6 @@ export default function PaginaVentas(): React.JSX.Element {
   );
 }
 
-/** Fila etiqueta/valor del panel de detalle del comprobante. */
-function FilaDatoComp({
-  etiqueta,
-  children,
-}: {
-  etiqueta: string;
-  children: React.ReactNode;
-}): React.JSX.Element {
-  return (
-    <div className="flex items-baseline justify-between gap-4 py-2">
-      <dt className="text-sm text-texto-sec">{etiqueta}</dt>
-      <dd className="text-right text-sm text-tinta">{children}</dd>
-    </div>
-  );
-}
-
-function valorComp(texto: string | null | undefined): string {
-  return texto && texto.trim() !== "" ? texto : "—";
-}
-
 function DetalleComprobanteContenido({
   detalle,
 }: {
@@ -1395,101 +1385,76 @@ function DetalleComprobanteContenido({
 }): React.JSX.Element {
   const moneda = detalle.moneda;
   return (
-    <div className="space-y-6">
-      <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-ter">
-          Comprobante
-        </h3>
-        <dl className="divide-y divide-borde">
-          <FilaDatoComp etiqueta="Orden de venta">
-            <span className="font-mono">{detalle.ordenVentaNumero}</span>
-          </FilaDatoComp>
-          <FilaDatoComp etiqueta="Cliente">{valorComp(detalle.cliente)}</FilaDatoComp>
-          <FilaDatoComp etiqueta="Tipo de documento">
-            {detalle.tipoDocumentoSunat}
-          </FilaDatoComp>
-          <FilaDatoComp etiqueta="Serie - número">
-            <span className="font-mono">
-              {detalle.serie}-{detalle.numero}
-            </span>
-          </FilaDatoComp>
-          <FilaDatoComp etiqueta="Fecha de emisión">
+    <div className="space-y-5">
+      <BloqueMetricas>
+        <Metrica
+          etiqueta="Total"
+          valor={formatearPrecio(detalle.total, moneda)}
+          pie={moneda}
+          acento
+        />
+        <Metrica etiqueta="Subtotal" valor={formatearPrecio(detalle.subtotal, moneda)} />
+        <Metrica etiqueta="IGV" valor={formatearPrecio(detalle.igv, moneda)} />
+        <Metrica etiqueta="Líneas" valor={detalle.lineas.length} />
+      </BloqueMetricas>
+
+      <Ficha titulo="Comprobante">
+        <ListaDatos>
+          <FilaDato etiqueta="Orden de venta" mono>
+            {detalle.ordenVentaNumero}
+          </FilaDato>
+          <FilaDato etiqueta="Cliente">{mostrar(detalle.cliente)}</FilaDato>
+          <FilaDato etiqueta="Tipo de documento">{detalle.tipoDocumentoSunat}</FilaDato>
+          <FilaDato etiqueta="Serie - número" mono>
+            {detalle.serie}-{detalle.numero}
+          </FilaDato>
+          <FilaDato etiqueta="Fecha de emisión">
             {formatearFecha(detalle.fechaEmision)}
-          </FilaDatoComp>
-          <FilaDatoComp etiqueta="Moneda">{moneda}</FilaDatoComp>
-          <FilaDatoComp etiqueta="Tipo de cambio">
-            {valorComp(detalle.tipoCambio)}
-          </FilaDatoComp>
-        </dl>
-      </section>
+          </FilaDato>
+          <FilaDato etiqueta="Moneda">{moneda}</FilaDato>
+          <FilaDato etiqueta="Tipo de cambio" mono>
+            {mostrar(detalle.tipoCambio)}
+          </FilaDato>
+        </ListaDatos>
+      </Ficha>
 
-      <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-ter">
-          Montos
-        </h3>
-        <dl className="divide-y divide-borde">
-          <FilaDatoComp etiqueta="Subtotal">
-            <span className="font-mono">
-              {formatearPrecio(detalle.subtotal, moneda)}
-            </span>
-          </FilaDatoComp>
-          <FilaDatoComp etiqueta="IGV">
-            <span className="font-mono">{formatearPrecio(detalle.igv, moneda)}</span>
-          </FilaDatoComp>
-          <FilaDatoComp etiqueta="Total">
-            <span className="font-mono font-semibold">
-              {formatearPrecio(detalle.total, moneda)}
-            </span>
-          </FilaDatoComp>
-        </dl>
-      </section>
-
-      <section>
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-ter">
-          Líneas despachadas
-        </h3>
+      <Ficha titulo="Líneas despachadas">
         {detalle.lineas.length === 0 ? (
           <p className="text-sm text-texto-ter">Sin líneas registradas.</p>
         ) : (
-          <div className="space-y-3">
-            {detalle.lineas.map((linea) => (
-              <div
-                key={linea.skuId}
-                className="rounded-md border border-borde p-3"
-              >
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-sm font-medium text-tinta">
-                    {linea.skuNombre}
-                  </span>
-                  <span className="font-mono text-xs text-texto-ter">
-                    {linea.skuCodigo}
-                  </span>
-                </div>
-                <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-texto-sec">Cantidad</span>
-                    <span className="font-mono text-texto">{linea.cantidad}</span>
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-texto-sec">Precio unit.</span>
-                    <span className="font-mono text-texto">
+          <TablaResponsive>
+            <table className="tabla-datos compacta">
+              <thead>
+                <tr>
+                  <th>Artículo</th>
+                  <th>Cantidad</th>
+                  <th>Precio unit.</th>
+                  <th>Importe</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detalle.lineas.map((linea) => (
+                  <tr key={linea.skuId}>
+                    <td>
+                      <span className="text-texto">{linea.skuNombre}</span>{" "}
+                      <span className="font-mono text-xs text-texto-ter">
+                        {linea.skuCodigo}
+                      </span>
+                    </td>
+                    <td className="num">{linea.cantidad}</td>
+                    <td className="num">
                       {linea.precioUnitario
                         ? formatearPrecio(linea.precioUnitario, moneda)
                         : "—"}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    <span className="text-texto-sec">Importe</span>
-                    <span className="font-mono text-texto">
-                      {formatearPrecio(linea.importe, moneda)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+                    </td>
+                    <td className="num">{formatearPrecio(linea.importe, moneda)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TablaResponsive>
         )}
-      </section>
+      </Ficha>
     </div>
   );
 }
