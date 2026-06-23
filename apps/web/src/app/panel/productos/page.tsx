@@ -61,6 +61,7 @@ const FORMULARIO_INICIAL: EstadoFormulario = {
 export default function PaginaProductos(): React.JSX.Element {
   const [skus, setSkus] = useState<Sku[]>([]);
   const [total, setTotal] = useState<number>(0);
+  const [pagina, setPagina] = useState<number>(1);
   const [busqueda, setBusqueda] = useState<string>("");
   // "" = todos, "true" = solo renovables, "false" = solo no renovables.
   const [filtroRenovable, setFiltroRenovable] = useState<string>("");
@@ -80,18 +81,19 @@ export default function PaginaProductos(): React.JSX.Element {
   const [intentoEnvio, setIntentoEnvio] = useState<boolean>(false);
 
   const cargarSkus = useCallback(
-    async (termino: string, renovable: string): Promise<void> => {
+    async (termino: string, renovable: string, paginaPedida: number): Promise<void> => {
       setCargandoLista(true);
       setErrorLista(null);
       try {
         const respuesta = await obtenerSkus(
-          1,
+          paginaPedida,
           POR_PAGINA,
           termino,
           renovable === "" ? undefined : renovable === "true",
         );
         setSkus(respuesta.datos);
         setTotal(respuesta.total);
+        setPagina(paginaPedida);
       } catch (error) {
         setErrorLista(
           error instanceof ErrorApi ? error.message : "No se pudo cargar el catálogo.",
@@ -104,7 +106,7 @@ export default function PaginaProductos(): React.JSX.Element {
   );
 
   useEffect(() => {
-    void cargarSkus("", "");
+    void cargarSkus("", "", 1);
     void (async (): Promise<void> => {
       try {
         const [fam, uni] = await Promise.all([obtenerFamilias(), obtenerUnidades()]);
@@ -139,6 +141,8 @@ export default function PaginaProductos(): React.JSX.Element {
     () => familias.find((f) => String(f.id) === form.familiaId),
     [familias, form.familiaId],
   );
+
+  const totalPaginas = Math.max(1, Math.ceil(total / POR_PAGINA));
 
   // Errores DERIVADOS del valor actual del form. Una sola fuente de verdad:
   // se usa tanto para mostrar inline como para bloquear el submit.
@@ -191,7 +195,7 @@ export default function PaginaProductos(): React.JSX.Element {
 
   function manejarBusqueda(evento: FormEvent<HTMLFormElement>): void {
     evento.preventDefault();
-    void cargarSkus(busqueda.trim(), filtroRenovable);
+    void cargarSkus(busqueda.trim(), filtroRenovable, 1);
   }
 
   function actualizar(campo: keyof EstadoFormulario, valor: string): void {
@@ -277,7 +281,7 @@ export default function PaginaProductos(): React.JSX.Element {
       setTocado({});
       setIntentoEnvio(false);
       setPanelAbierto(false);
-      await cargarSkus(busqueda.trim(), filtroRenovable);
+      await cargarSkus(busqueda.trim(), filtroRenovable, pagina);
     } catch (error) {
       setErrorForm(
         error instanceof ErrorApi ? error.message : "No se pudo crear el producto.",
@@ -317,7 +321,7 @@ export default function PaginaProductos(): React.JSX.Element {
               value={filtroRenovable}
               onChange={(e) => {
                 setFiltroRenovable(e.target.value);
-                void cargarSkus(busqueda.trim(), e.target.value);
+                void cargarSkus(busqueda.trim(), e.target.value, 1);
               }}
               className="campo w-36"
             >
@@ -398,6 +402,37 @@ export default function PaginaProductos(): React.JSX.Element {
             </table>
           )}
         </div>
+
+        {!errorLista && !cargandoLista && skus.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-borde px-5 py-3 text-sm text-texto-sec">
+            <span>
+              Mostrando {formatearNumero((pagina - 1) * POR_PAGINA + 1)}–
+              {formatearNumero(Math.min(pagina * POR_PAGINA, total))} de{" "}
+              {formatearNumero(total)} SKUs
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn btn-contorno"
+                disabled={pagina <= 1}
+                onClick={() => void cargarSkus(busqueda.trim(), filtroRenovable, pagina - 1)}
+              >
+                « Anterior
+              </button>
+              <span className="px-1 whitespace-nowrap">
+                Página {formatearNumero(pagina)} de {formatearNumero(totalPaginas)}
+              </span>
+              <button
+                type="button"
+                className="btn btn-contorno"
+                disabled={pagina >= totalPaginas}
+                onClick={() => void cargarSkus(busqueda.trim(), filtroRenovable, pagina + 1)}
+              >
+                Siguiente »
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       <PanelLateral
