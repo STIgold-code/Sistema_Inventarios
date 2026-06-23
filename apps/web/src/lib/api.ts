@@ -210,6 +210,71 @@ export interface Sku {
   monedaVenta: string | null;
 }
 
+export interface DetalleSkuStockAlmacen {
+  almacenId: string;
+  almacen: string;
+  disponible: string;
+  comprometida: string;
+  deteriorada: string;
+  costoPromedio: string;
+  valor: string;
+}
+
+export interface DetalleSkuMovimiento {
+  fecha: string;
+  tipo: string;
+  signo: string;
+  cantidad: string;
+  almacen: string;
+  documento: string | null;
+}
+
+/** Detalle completo de un SKU (espejo del shape de GET /productos/skus/:id). */
+export interface DetalleSku {
+  id: string;
+  codigoParlante: string;
+  codigoBarras: string | null;
+  codigoUnspsc: string | null;
+  nombre: string | null;
+  producto: { id: string; nombre: string; activo: boolean };
+  familia: { id: string; codigo: string; nombre: string };
+  unidad: { id: string; codigo: string; nombre: string };
+  unidadReferencia: { id: string; codigo: string; nombre: string } | null;
+  factorConversion: string | null;
+  tipoExistencia: string;
+  metodoValuacion: string;
+  activo: boolean;
+  creadoEn: string;
+  esRenovable: boolean | null;
+  clasificacionAbc: string | null;
+  controlaSerie: boolean;
+  controlaLote: boolean;
+  controlaVencimiento: boolean;
+  precios: {
+    publico: string | null;
+    distribuidor: string | null;
+    venta3: string | null;
+    venta4: string | null;
+    moneda: string | null;
+  };
+  reposicion: {
+    stockMinimo: string | null;
+    stockMaximo: string | null;
+    puntoReposicion: string | null;
+    semanasReposicion: number | null;
+  };
+  stock: {
+    totales: {
+      disponible: string;
+      comprometida: string;
+      deteriorada: string;
+      valorTotal: string;
+    };
+    porAlmacen: DetalleSkuStockAlmacen[];
+  };
+  movimientos: DetalleSkuMovimiento[];
+}
+
 export interface CrearProductoInput {
   familiaId: number;
   nombre: string;
@@ -371,6 +436,10 @@ export function obtenerSkus(
   });
   if (esRenovable !== undefined) params.set("esRenovable", String(esRenovable));
   return apiFetch<RespuestaPaginada<Sku>>(`/productos/skus?${params.toString()}`);
+}
+
+export function obtenerDetalleSku(id: number | string): Promise<DetalleSku> {
+  return apiFetch<DetalleSku>(`/productos/skus/${id}`);
 }
 
 export function crearProducto(

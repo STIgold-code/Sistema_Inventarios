@@ -10,14 +10,21 @@ import {
 import {
   ErrorApi,
   crearProducto,
+  obtenerDetalleSku,
   obtenerFamilias,
   obtenerSkus,
   obtenerUnidades,
+  type DetalleSku,
   type Familia,
   type Sku,
   type Unidad,
 } from "@/lib/api";
-import { formatearNumero } from "@/lib/formato";
+import {
+  formatearDolares,
+  formatearFecha,
+  formatearNumero,
+  formatearSoles,
+} from "@/lib/formato";
 
 const POR_PAGINA = 20;
 
@@ -79,6 +86,35 @@ export default function PaginaProductos(): React.JSX.Element {
   // Campos que el usuario ya tocó (onBlur) o tras un intento de envío.
   const [tocado, setTocado] = useState<Record<string, boolean>>({});
   const [intentoEnvio, setIntentoEnvio] = useState<boolean>(false);
+
+  // Panel de detalle (independiente del formulario de alta).
+  const [detalleId, setDetalleId] = useState<number | null>(null);
+  const [detalle, setDetalle] = useState<DetalleSku | null>(null);
+  const [cargandoDetalle, setCargandoDetalle] = useState<boolean>(false);
+  const [errorDetalle, setErrorDetalle] = useState<string | null>(null);
+
+  const abrirDetalle = useCallback(async (id: number): Promise<void> => {
+    setDetalleId(id);
+    setDetalle(null);
+    setErrorDetalle(null);
+    setCargandoDetalle(true);
+    try {
+      const datos = await obtenerDetalleSku(id);
+      setDetalle(datos);
+    } catch (error) {
+      setErrorDetalle(
+        error instanceof ErrorApi ? error.message : "No se pudo cargar el detalle.",
+      );
+    } finally {
+      setCargandoDetalle(false);
+    }
+  }, []);
+
+  function cerrarDetalle(): void {
+    setDetalleId(null);
+    setDetalle(null);
+    setErrorDetalle(null);
+  }
 
   const cargarSkus = useCallback(
     async (termino: string, renovable: string, paginaPedida: number): Promise<void> => {
@@ -388,7 +424,20 @@ export default function PaginaProductos(): React.JSX.Element {
               </thead>
               <tbody>
                 {skus.map((sku) => (
-                  <tr key={sku.id}>
+                  <tr
+                    key={sku.id}
+                    onClick={() => void abrirDetalle(sku.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        void abrirDetalle(sku.id);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Ver detalle de ${sku.nombre ?? sku.producto.nombre}`}
+                    className="cursor-pointer hover:bg-panel-alt focus:bg-panel-alt focus:outline-none"
+                  >
                     <td className="font-mono text-texto">{sku.codigoParlante}</td>
                     <td className="text-tinta">{sku.nombre ?? sku.producto.nombre}</td>
                     <td className="text-texto-sec">{sku.producto.nombre}</td>
@@ -768,6 +817,286 @@ export default function PaginaProductos(): React.JSX.Element {
           </div>
         </form>
       </PanelLateral>
+
+      <PanelLateral
+        abierto={detalleId !== null}
+        titulo={detalle ? detalle.nombre ?? detalle.producto.nombre : "Detalle del SKU"}
+        descripcion={detalle ? detalle.codigoParlante : undefined}
+        onCerrar={cerrarDetalle}
+      >
+        {cargandoDetalle ? (
+          <p className="px-1 py-10 text-center text-sm text-texto-ter">Cargando…</p>
+        ) : errorDetalle ? (
+          <div role="alert" className="aviso aviso-peligro">
+            <span>{errorDetalle}</span>
+          </div>
+        ) : detalle ? (
+          <DetalleContenido detalle={detalle} />
+        ) : null}
+      </PanelLateral>
     </div>
   );
+}
+
+/** Muestra el valor o un guion si es null/vacio. */
+function valor(texto: string | null | undefined): string {
+  return texto && texto.trim() !== "" ? texto : "—";
+}
+
+function FilaDato({
+  etiqueta,
+  children,
+}: {
+  etiqueta: string;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-1.5">
+      <dt className="text-sm text-texto-sec">{etiqueta}</dt>
+      <dd className="text-right text-sm text-tinta">{children}</dd>
+    </div>
+  );
+}
+
+function Seccion({
+  titulo,
+  children,
+}: {
+  titulo: string;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-ter">
+        {titulo}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+function DetalleContenido({ detalle }: { detalle: DetalleSku }): React.JSX.Element {
+  const moneda = detalle.precios.moneda ?? "PEN";
+  return (
+    <div className="space-y-6">
+      <Seccion titulo="Identificación">
+        <dl className="divide-y divide-borde">
+          <FilaDato etiqueta="Código parlante">
+            <span className="font-mono">{detalle.codigoParlante}</span>
+          </FilaDato>
+          <FilaDato etiqueta="Código de barras">
+            <span className="font-mono">{valor(detalle.codigoBarras)}</span>
+          </FilaDato>
+          <FilaDato etiqueta="Código UNSPSC">
+            <span className="font-mono">{valor(detalle.codigoUnspsc)}</span>
+          </FilaDato>
+          <FilaDato etiqueta="Producto">{detalle.producto.nombre}</FilaDato>
+          <FilaDato etiqueta="Familia">
+            {detalle.familia.codigo} — {detalle.familia.nombre}
+          </FilaDato>
+          <FilaDato etiqueta="Unidad">
+            {detalle.unidad.codigo} — {detalle.unidad.nombre}
+          </FilaDato>
+          <FilaDato etiqueta="Unidad de referencia">
+            {detalle.unidadReferencia && detalle.factorConversion
+              ? `${detalle.unidadReferencia.codigo} (×${detalle.factorConversion})`
+              : "—"}
+          </FilaDato>
+          <FilaDato etiqueta="Tipo de existencia">
+            {detalle.tipoExistencia}
+          </FilaDato>
+          <FilaDato etiqueta="Método de valuación">
+            {detalle.metodoValuacion}
+          </FilaDato>
+          <FilaDato etiqueta="Estado">
+            {detalle.activo ? (
+              <span className="insignia insignia-exito">Activo</span>
+            ) : (
+              <span className="insignia insignia-neutra">Inactivo</span>
+            )}
+          </FilaDato>
+          <FilaDato etiqueta="Creado">{formatearFecha(detalle.creadoEn)}</FilaDato>
+        </dl>
+      </Seccion>
+
+      <Seccion titulo="Stock por almacén">
+        {detalle.stock.porAlmacen.length === 0 ? (
+          <p className="text-sm text-texto-ter">Sin existencias registradas.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="tabla-datos">
+              <thead>
+                <tr>
+                  <th>Almacén</th>
+                  <th className="text-right">Disponible</th>
+                  <th className="text-right">Comprometido</th>
+                  <th className="text-right">Deteriorado</th>
+                  <th className="text-right">Valor</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detalle.stock.porAlmacen.map((fila) => (
+                  <tr key={fila.almacenId}>
+                    <td className="text-tinta">{fila.almacen}</td>
+                    <td className="text-right font-mono text-texto">
+                      {formatearNumero(fila.disponible)}
+                    </td>
+                    <td className="text-right font-mono text-texto-sec">
+                      {formatearNumero(fila.comprometida)}
+                    </td>
+                    <td className="text-right font-mono text-texto-sec">
+                      {formatearNumero(fila.deteriorada)}
+                    </td>
+                    <td className="text-right font-mono text-texto">
+                      {formatearSoles(fila.valor)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="font-medium">
+                  <td className="text-tinta">Total</td>
+                  <td className="text-right font-mono text-tinta">
+                    {formatearNumero(detalle.stock.totales.disponible)}
+                  </td>
+                  <td className="text-right font-mono text-tinta">
+                    {formatearNumero(detalle.stock.totales.comprometida)}
+                  </td>
+                  <td className="text-right font-mono text-tinta">
+                    {formatearNumero(detalle.stock.totales.deteriorada)}
+                  </td>
+                  <td className="text-right font-mono text-tinta">
+                    {formatearSoles(detalle.stock.totales.valorTotal)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </Seccion>
+
+      <Seccion titulo="Precios de venta">
+        <dl className="divide-y divide-borde">
+          <FilaDato etiqueta="Moneda">{valor(detalle.precios.moneda)}</FilaDato>
+          <FilaDato etiqueta="Público">
+            {detalle.precios.publico
+              ? formatearPrecio(detalle.precios.publico, moneda)
+              : "—"}
+          </FilaDato>
+          <FilaDato etiqueta="Distribuidor">
+            {detalle.precios.distribuidor
+              ? formatearPrecio(detalle.precios.distribuidor, moneda)
+              : "—"}
+          </FilaDato>
+          <FilaDato etiqueta="Venta nivel 3">
+            {detalle.precios.venta3
+              ? formatearPrecio(detalle.precios.venta3, moneda)
+              : "—"}
+          </FilaDato>
+          <FilaDato etiqueta="Venta nivel 4">
+            {detalle.precios.venta4
+              ? formatearPrecio(detalle.precios.venta4, moneda)
+              : "—"}
+          </FilaDato>
+        </dl>
+      </Seccion>
+
+      <Seccion titulo="Reposición y clasificación">
+        <dl className="divide-y divide-borde">
+          <FilaDato etiqueta="Stock mínimo">
+            <span className="font-mono">
+              {detalle.reposicion.stockMinimo
+                ? formatearNumero(detalle.reposicion.stockMinimo)
+                : "—"}
+            </span>
+          </FilaDato>
+          <FilaDato etiqueta="Stock máximo">
+            <span className="font-mono">
+              {detalle.reposicion.stockMaximo
+                ? formatearNumero(detalle.reposicion.stockMaximo)
+                : "—"}
+            </span>
+          </FilaDato>
+          <FilaDato etiqueta="Punto de reposición">
+            <span className="font-mono">
+              {detalle.reposicion.puntoReposicion
+                ? formatearNumero(detalle.reposicion.puntoReposicion)
+                : "—"}
+            </span>
+          </FilaDato>
+          <FilaDato etiqueta="Semanas de reposición">
+            <span className="font-mono">
+              {detalle.reposicion.semanasReposicion ?? "—"}
+            </span>
+          </FilaDato>
+          <FilaDato etiqueta="Clasificación ABC">
+            {detalle.clasificacionAbc ? (
+              <span className="insignia insignia-neutra">
+                {detalle.clasificacionAbc}
+              </span>
+            ) : (
+              "—"
+            )}
+          </FilaDato>
+          <FilaDato etiqueta="Renovable">
+            {detalle.esRenovable === null ? (
+              "—"
+            ) : detalle.esRenovable ? (
+              <span className="insignia insignia-exito">Sí</span>
+            ) : (
+              <span className="insignia insignia-neutra">No</span>
+            )}
+          </FilaDato>
+          <FilaDato etiqueta="Controla serie">
+            {detalle.controlaSerie ? "Sí" : "No"}
+          </FilaDato>
+          <FilaDato etiqueta="Controla lote">
+            {detalle.controlaLote ? "Sí" : "No"}
+          </FilaDato>
+          <FilaDato etiqueta="Controla vencimiento">
+            {detalle.controlaVencimiento ? "Sí" : "No"}
+          </FilaDato>
+        </dl>
+      </Seccion>
+
+      <Seccion titulo="Movimientos recientes">
+        {detalle.movimientos.length === 0 ? (
+          <p className="text-sm text-texto-ter">Sin movimientos registrados.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="tabla-datos">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Tipo</th>
+                  <th className="text-right">Cantidad</th>
+                  <th>Almacén</th>
+                  <th>Documento</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detalle.movimientos.map((mov, indice) => (
+                  <tr key={indice}>
+                    <td className="text-texto-sec">{formatearFecha(mov.fecha)}</td>
+                    <td className="text-texto-sec">{mov.tipo}</td>
+                    <td className="text-right font-mono text-texto">
+                      {mov.signo === "SALIDA" ? "−" : "+"}
+                      {formatearNumero(mov.cantidad)}
+                    </td>
+                    <td className="text-texto-sec">{mov.almacen}</td>
+                    <td className="text-texto-sec">{valor(mov.documento)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Seccion>
+    </div>
+  );
+}
+
+/** Formatea un precio según su moneda (PEN o USD). */
+function formatearPrecio(monto: string, moneda: string): string {
+  return moneda === "USD" ? formatearDolares(monto) : formatearSoles(monto);
 }

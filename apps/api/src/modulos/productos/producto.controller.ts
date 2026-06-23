@@ -19,6 +19,7 @@ import {
   CrearProductoDto,
 } from "./dto/crear-producto.dto.js";
 import {
+  DetalleSku,
   FamiliaResumen,
   PaginaSkus,
   ProductoService,
@@ -62,6 +63,15 @@ export class ProductoController {
       esRenovable:
         esRenovable === undefined ? undefined : esRenovable === "true",
     });
+  }
+
+  @Get("skus/:id")
+  @Permisos("producto.ver")
+  obtenerDetalleSku(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id") id: string,
+  ): Promise<DetalleSku> {
+    return this.productos.obtenerDetalleSku(usuario.empresaId, BigInt(id));
   }
 
   @Post()

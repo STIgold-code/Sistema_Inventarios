@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import { ReportesService } from "../reportes/reportes.service.js";
@@ -65,6 +69,70 @@ export interface SkuListado {
   } | null;
   /** Cuantas unidades de control equivalen a UNA de referencia (null si no aplica). */
   factorConversion: string | null;
+}
+
+export interface DetalleStockPorAlmacen {
+  almacenId: string;
+  almacen: string;
+  disponible: string;
+  comprometida: string;
+  deteriorada: string;
+  costoPromedio: string;
+  valor: string;
+}
+
+export interface DetalleMovimiento {
+  fecha: string;
+  tipo: string;
+  signo: string;
+  cantidad: string;
+  almacen: string;
+  documento: string | null;
+}
+
+export interface DetalleSku {
+  id: string;
+  codigoParlante: string;
+  codigoBarras: string | null;
+  codigoUnspsc: string | null;
+  nombre: string | null;
+  producto: { id: string; nombre: string; activo: boolean };
+  familia: { id: string; codigo: string; nombre: string };
+  unidad: { id: string; codigo: string; nombre: string };
+  unidadReferencia: { id: string; codigo: string; nombre: string } | null;
+  factorConversion: string | null;
+  tipoExistencia: string;
+  metodoValuacion: string;
+  activo: boolean;
+  creadoEn: string;
+  esRenovable: boolean | null;
+  clasificacionAbc: string | null;
+  controlaSerie: boolean;
+  controlaLote: boolean;
+  controlaVencimiento: boolean;
+  precios: {
+    publico: string | null;
+    distribuidor: string | null;
+    venta3: string | null;
+    venta4: string | null;
+    moneda: string | null;
+  };
+  reposicion: {
+    stockMinimo: string | null;
+    stockMaximo: string | null;
+    puntoReposicion: string | null;
+    semanasReposicion: number | null;
+  };
+  stock: {
+    totales: {
+      disponible: string;
+      comprometida: string;
+      deteriorada: string;
+      valorTotal: string;
+    };
+    porAlmacen: DetalleStockPorAlmacen[];
+  };
+  movimientos: DetalleMovimiento[];
 }
 
 export interface FiltroSkus {
@@ -369,6 +437,161 @@ export class ProductoService {
       pagina,
       porPagina,
       total,
+    };
+  }
+
+  /**
+   * Detalle completo de un SKU: identificacion, precios, reposicion, stock
+   * agregado por almacen y ultimos movimientos. Cada posicion de stock se
+   * agrega por almacen (suma de disponible/comprometida/deteriorada y costo
+   * promedio derivado como valor/disponible). Lanza NotFoundException si el
+   * SKU no existe o no pertenece a la empresa.
+   */
+  async obtenerDetalleSku(empresaId: bigint, skuId: bigint): Promise<DetalleSku> {
+    const sku = await this.prisma.sku.findFirst({
+      where: { id: skuId, empresaId },
+      include: {
+        producto: { include: { familia: true } },
+        unidad: true,
+        unidadReferencia: true,
+      },
+    });
+    if (!sku) throw new NotFoundException("SKU no encontrado");
+
+    const [items, movimientos, almacenes] = await this.prisma.$transaction([
+      this.prisma.itemStock.findMany({ where: { empresaId, skuId } }),
+      this.prisma.movimientoStock.findMany({
+        where: { empresaId, skuId },
+        orderBy: [{ fechaMovimiento: "desc" }, { secuencia: "desc" }],
+        take: 12,
+      }),
+      this.prisma.almacen.findMany({ where: { empresaId } }),
+    ]);
+
+    const nombreAlmacen = new Map<string, string>(
+      almacenes.map((a) => [a.id.toString(), a.nombre]),
+    );
+
+    // Agregacion de stock por almacen. El valor se acumula por posicion
+    // (disponible * costoPromedio de esa fila) y el costo promedio del almacen
+    // se deriva como valor / disponible.
+    const porAlmacen = new Map<
+      string,
+      {
+        disp: Prisma.Decimal;
+        comp: Prisma.Decimal;
+        det: Prisma.Decimal;
+        valor: Prisma.Decimal;
+      }
+    >();
+    let totalDisp = new D(0);
+    let totalComp = new D(0);
+    let totalDet = new D(0);
+    let totalValor = new D(0);
+    for (const item of items) {
+      const clave = item.almacenId.toString();
+      const acum =
+        porAlmacen.get(clave) ??
+        { disp: new D(0), comp: new D(0), det: new D(0), valor: new D(0) };
+      const valorItem = item.cantidadDisponible.mul(item.costoPromedio);
+      acum.disp = acum.disp.plus(item.cantidadDisponible);
+      acum.comp = acum.comp.plus(item.cantidadComprometida);
+      acum.det = acum.det.plus(item.cantidadDeteriorada);
+      acum.valor = acum.valor.plus(valorItem);
+      porAlmacen.set(clave, acum);
+      totalDisp = totalDisp.plus(item.cantidadDisponible);
+      totalComp = totalComp.plus(item.cantidadComprometida);
+      totalDet = totalDet.plus(item.cantidadDeteriorada);
+      totalValor = totalValor.plus(valorItem);
+    }
+
+    return {
+      id: sku.id.toString(),
+      codigoParlante: sku.codigoParlante,
+      codigoBarras: sku.codigoBarras,
+      codigoUnspsc: sku.codigoUnspsc,
+      nombre: sku.nombre,
+      producto: {
+        id: sku.producto.id.toString(),
+        nombre: sku.producto.nombre,
+        activo: sku.producto.activo,
+      },
+      familia: {
+        id: sku.producto.familia.id.toString(),
+        codigo: sku.producto.familia.codigo,
+        nombre: sku.producto.familia.nombre,
+      },
+      unidad: {
+        id: sku.unidad.id.toString(),
+        codigo: sku.unidad.codigo,
+        nombre: sku.unidad.nombre,
+      },
+      unidadReferencia: sku.unidadReferencia
+        ? {
+            id: sku.unidadReferencia.id.toString(),
+            codigo: sku.unidadReferencia.codigo,
+            nombre: sku.unidadReferencia.nombre,
+          }
+        : null,
+      factorConversion: sku.factorConversion
+        ? sku.factorConversion.toString()
+        : null,
+      tipoExistencia: sku.tipoExistencia,
+      metodoValuacion: sku.metodoValuacion,
+      activo: sku.activo,
+      creadoEn: sku.creadoEn.toISOString(),
+      esRenovable: sku.esRenovable,
+      clasificacionAbc: sku.clasificacionAbc,
+      controlaSerie: sku.controlaSerie,
+      controlaLote: sku.controlaLote,
+      controlaVencimiento: sku.controlaVencimiento,
+      precios: {
+        publico: sku.precioPublico ? sku.precioPublico.toString() : null,
+        distribuidor: sku.precioDistribuidor
+          ? sku.precioDistribuidor.toString()
+          : null,
+        venta3: sku.precioVenta3 ? sku.precioVenta3.toString() : null,
+        venta4: sku.precioVenta4 ? sku.precioVenta4.toString() : null,
+        moneda: sku.monedaVenta,
+      },
+      reposicion: {
+        stockMinimo: sku.stockMinimo ? sku.stockMinimo.toString() : null,
+        stockMaximo: sku.stockMaximo ? sku.stockMaximo.toString() : null,
+        puntoReposicion: sku.puntoReposicion
+          ? sku.puntoReposicion.toString()
+          : null,
+        semanasReposicion: sku.semanasReposicion,
+      },
+      stock: {
+        totales: {
+          disponible: totalDisp.toString(),
+          comprometida: totalComp.toString(),
+          deteriorada: totalDet.toString(),
+          valorTotal: totalValor.toString(),
+        },
+        porAlmacen: [...porAlmacen.entries()].map(([almId, v]) => ({
+          almacenId: almId,
+          almacen: nombreAlmacen.get(almId) ?? "—",
+          disponible: v.disp.toString(),
+          comprometida: v.comp.toString(),
+          deteriorada: v.det.toString(),
+          costoPromedio: v.disp.isZero() ? "0" : v.valor.div(v.disp).toString(),
+          valor: v.valor.toString(),
+        })),
+      },
+      movimientos: movimientos.map((m) => {
+        const documento = `${m.documentoTipo} ${m.serieComprobante ?? ""}${
+          m.numeroComprobante ? "-" + m.numeroComprobante : ""
+        }`.trim();
+        return {
+          fecha: m.fechaMovimiento.toISOString(),
+          tipo: m.tipo,
+          signo: m.signo,
+          cantidad: m.cantidad.toString(),
+          almacen: nombreAlmacen.get(m.almacenId.toString()) ?? "—",
+          documento: documento.length > 0 ? documento : null,
+        };
+      }),
     };
   }
 
