@@ -82,46 +82,39 @@ export default function PaginaSeries(): React.JSX.Element {
         descripcion="Consulta la trazabilidad por número de serie de los artículos serializados, con su estado y almacén actual."
       />
 
-      <section className="panel">
-        <div className="panel-cabecera">
-          <span className="panel-titulo">Filtros</span>
-        </div>
-        <div className="grid gap-4 p-5 sm:grid-cols-2">
-          <div>
-            <label className="etiqueta-campo">Artículo (SKU)</label>
-            <SelectorSku
-              valor={sku}
-              onSeleccionar={setSku}
-              placeholder="Busca por código o nombre…"
-            />
-          </div>
-          <div>
-            <label htmlFor="filtro-estado" className="etiqueta-campo">
+      <section className="panel mt-6">
+        <div className="panel-cabecera flex-wrap gap-3">
+          <span className="panel-titulo">
+            Series
+            {consultado && !cargando && (
+              <span className="ml-2 text-xs font-normal text-texto-ter">
+                {series.length} total · {disponibles} disponibles · {despachadas} despachadas
+              </span>
+            )}
+          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="w-64">
+              <label className="sr-only">Artículo (SKU)</label>
+              <SelectorSku
+                valor={sku}
+                onSeleccionar={setSku}
+                placeholder="Filtrar por artículo…"
+              />
+            </div>
+            <label htmlFor="filtro-estado" className="sr-only">
               Estado
             </label>
             <select
               id="filtro-estado"
               value={estado}
               onChange={(e) => setEstado(e.target.value as FiltroEstado)}
-              className="campo"
+              className="campo w-40"
             >
-              <option value="">Todos</option>
+              <option value="">Todos los estados</option>
               <option value="DISPONIBLE">Disponible</option>
               <option value="DESPACHADO">Despachado</option>
             </select>
           </div>
-        </div>
-      </section>
-
-      <section className="panel mt-6">
-        <div className="panel-cabecera flex items-center justify-between">
-          <span className="panel-titulo">Series</span>
-          {consultado && !cargando && (
-            <span className="text-xs text-texto-ter">
-              {series.length} total · {disponibles} disponibles · {despachadas}{" "}
-              despachadas
-            </span>
-          )}
         </div>
         <div className="p-5">
           {aviso && (
