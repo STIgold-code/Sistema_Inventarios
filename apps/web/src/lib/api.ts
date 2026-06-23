@@ -759,6 +759,8 @@ export type EstadoRequerimiento =
 export interface LineaRequerimiento {
   id: number;
   skuId: number;
+  skuCodigo: string | null;
+  skuNombre: string | null;
   cantidad: string;
   justificacion: string | null;
 }
@@ -1447,6 +1449,8 @@ export type EstadoDevolucionVenta = "REGISTRADA" | "ANULADA";
 export interface LineaDevolucionVenta {
   id: string;
   skuId: string;
+  codigoSku: string | null;
+  nombreSku: string | null;
   cantidad: string;
   motivo: string | null;
   costoUnitario: string;

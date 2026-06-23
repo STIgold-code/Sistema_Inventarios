@@ -451,7 +451,7 @@ export default function PaginaRequerimientos(): React.JSX.Element {
                     <table className="tabla-datos">
                       <thead>
                         <tr>
-                          <th>SKU</th>
+                          <th>Artículo</th>
                           <th>Cantidad</th>
                           <th>Justificación</th>
                         </tr>
@@ -459,7 +459,12 @@ export default function PaginaRequerimientos(): React.JSX.Element {
                       <tbody>
                         {req.lineas.map((linea) => (
                           <tr key={linea.id}>
-                            <td className="num">{linea.skuId}</td>
+                            <td>
+                              <span className="font-mono text-xs text-texto-sec">
+                                {linea.skuCodigo ?? `#${linea.skuId}`}
+                              </span>{" "}
+                              <span className="text-texto">{linea.skuNombre ?? ""}</span>
+                            </td>
                             <td className="num">{linea.cantidad}</td>
                             <td className="text-texto-sec">{linea.justificacion ?? "—"}</td>
                           </tr>

@@ -24,6 +24,12 @@ export class RequerimientosService {
       include: { centroCosto: true, solicitante: true, lineas: true },
       orderBy: { fecha: "desc" },
     });
+    const skuIds = [...new Set(filas.flatMap((r) => r.lineas.map((l) => l.skuId)))];
+    const skus = await this.prisma.sku.findMany({
+      where: { id: { in: skuIds }, empresaId },
+      select: { id: true, codigoParlante: true, nombre: true },
+    });
+    const skuPorId = new Map(skus.map((s) => [s.id.toString(), s]));
     return filas.map((r) => ({
       id: r.id.toString(),
       numero: r.numero,
@@ -35,12 +41,17 @@ export class RequerimientosService {
       solicitante: r.solicitante.nombre,
       aprobadoPorId: r.aprobadoPorId ? r.aprobadoPorId.toString() : null,
       observaciones: r.observaciones,
-      lineas: r.lineas.map((l) => ({
-        id: l.id.toString(),
-        skuId: l.skuId.toString(),
-        cantidad: l.cantidad.toString(),
-        justificacion: l.justificacion,
-      })),
+      lineas: r.lineas.map((l) => {
+        const sku = skuPorId.get(l.skuId.toString());
+        return {
+          id: l.id.toString(),
+          skuId: l.skuId.toString(),
+          skuCodigo: sku ? sku.codigoParlante : null,
+          skuNombre: sku ? sku.nombre : null,
+          cantidad: l.cantidad.toString(),
+          justificacion: l.justificacion,
+        };
+      }),
     }));
   }
 

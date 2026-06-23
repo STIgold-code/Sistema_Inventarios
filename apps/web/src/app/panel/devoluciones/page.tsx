@@ -499,7 +499,7 @@ export default function PaginaDevoluciones(): React.JSX.Element {
                     <table className="tabla-datos">
                       <thead>
                         <tr>
-                          <th>SKU</th>
+                          <th>Artículo</th>
                           <th>Cantidad</th>
                           <th>Costo unit.</th>
                           <th>Motivo</th>
@@ -508,7 +508,12 @@ export default function PaginaDevoluciones(): React.JSX.Element {
                       <tbody>
                         {dev.lineas.map((linea) => (
                           <tr key={linea.id}>
-                            <td className="font-mono text-xs text-texto-sec">{linea.skuId}</td>
+                            <td>
+                              <span className="font-mono text-xs text-texto-sec">
+                                {linea.codigoSku ?? `#${linea.skuId}`}
+                              </span>{" "}
+                              <span className="text-texto">{linea.nombreSku ?? ""}</span>
+                            </td>
                             <td className="num">{linea.cantidad}</td>
                             <td className="num">{linea.costoUnitario}</td>
                             <td className="text-texto-sec">{linea.motivo ?? "—"}</td>

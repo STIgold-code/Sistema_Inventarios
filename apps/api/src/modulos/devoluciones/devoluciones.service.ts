@@ -235,6 +235,14 @@ export class DevolucionesService {
       include: { lineas: true, ordenVenta: true },
       orderBy: { fecha: "desc" },
     });
+    const skuIds = [
+      ...new Set(devoluciones.flatMap((d) => d.lineas.map((l) => l.skuId))),
+    ];
+    const skus = await this.prisma.sku.findMany({
+      where: { id: { in: skuIds }, empresaId },
+      select: { id: true, codigoParlante: true, nombre: true },
+    });
+    const skuPorId = new Map(skus.map((s) => [s.id.toString(), s]));
     return devoluciones.map((d) => ({
       id: d.id.toString(),
       numero: d.numero,
@@ -245,16 +253,21 @@ export class DevolucionesService {
       ordenVentaNumero: d.ordenVenta.numero,
       comprobanteVentaId: d.comprobanteVentaId ? d.comprobanteVentaId.toString() : null,
       guiaRemisionId: d.guiaRemisionId ? d.guiaRemisionId.toString() : null,
-      lineas: d.lineas.map((l) => ({
-        id: l.id.toString(),
-        skuId: l.skuId.toString(),
-        cantidad: l.cantidad.toString(),
-        motivo: l.motivo,
-        costoUnitario: l.costoUnitario.toString(),
-        movimientoEntradaId: l.movimientoEntradaId
-          ? l.movimientoEntradaId.toString()
-          : null,
-      })),
+      lineas: d.lineas.map((l) => {
+        const sku = skuPorId.get(l.skuId.toString());
+        return {
+          id: l.id.toString(),
+          skuId: l.skuId.toString(),
+          codigoSku: sku ? sku.codigoParlante : null,
+          nombreSku: sku ? sku.nombre : null,
+          cantidad: l.cantidad.toString(),
+          motivo: l.motivo,
+          costoUnitario: l.costoUnitario.toString(),
+          movimientoEntradaId: l.movimientoEntradaId
+            ? l.movimientoEntradaId.toString()
+            : null,
+        };
+      }),
     }));
   }
 }
