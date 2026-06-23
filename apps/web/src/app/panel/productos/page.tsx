@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { PanelLateral } from "@/componentes/panel-lateral";
 import {
@@ -105,8 +105,8 @@ export default function PaginaProductos(): React.JSX.Element {
     [],
   );
 
+  // Catálogos de apoyo (familias/unidades) para el formulario de alta.
   useEffect(() => {
-    void cargarSkus("", "", 1);
     void (async (): Promise<void> => {
       try {
         const [fam, uni] = await Promise.all([obtenerFamilias(), obtenerUnidades()]);
@@ -116,7 +116,23 @@ export default function PaginaProductos(): React.JSX.Element {
         setErrorForm("No se pudieron cargar familias o unidades.");
       }
     })();
-  }, [cargarSkus]);
+  }, []);
+
+  // Búsqueda en vivo: la primera carga es inmediata; los cambios posteriores en
+  // el término o el filtro se aplican con un retardo (debounce) para no disparar
+  // una consulta por cada tecla. Siempre vuelve a la página 1.
+  const primeraCarga = useRef(true);
+  useEffect(() => {
+    if (primeraCarga.current) {
+      primeraCarga.current = false;
+      void cargarSkus("", "", 1);
+      return;
+    }
+    const id = window.setTimeout(() => {
+      void cargarSkus(busqueda.trim(), filtroRenovable, 1);
+    }, 300);
+    return () => window.clearTimeout(id);
+  }, [busqueda, filtroRenovable, cargarSkus]);
 
   const opcionesFamilia = useMemo<OpcionSelector[]>(
     () => familias.map((f) => ({ valor: String(f.id), etiqueta: `${f.codigo} — ${f.nombre}` })),
@@ -191,11 +207,6 @@ export default function PaginaProductos(): React.JSX.Element {
 
   function marcarTocado(campo: keyof EstadoFormulario): void {
     setTocado((previo) => ({ ...previo, [campo]: true }));
-  }
-
-  function manejarBusqueda(evento: FormEvent<HTMLFormElement>): void {
-    evento.preventDefault();
-    void cargarSkus(busqueda.trim(), filtroRenovable, 1);
   }
 
   function actualizar(campo: keyof EstadoFormulario, valor: string): void {
@@ -319,31 +330,32 @@ export default function PaginaProductos(): React.JSX.Element {
             <select
               id="filtroRenovable"
               value={filtroRenovable}
-              onChange={(e) => {
-                setFiltroRenovable(e.target.value);
-                void cargarSkus(busqueda.trim(), e.target.value, 1);
-              }}
+              onChange={(e) => setFiltroRenovable(e.target.value)}
               className="campo w-36"
             >
               <option value="">Todas</option>
               <option value="true">Renovables</option>
               <option value="false">No renovables</option>
             </select>
-            <form onSubmit={manejarBusqueda} className="flex gap-2" role="search">
+            <div role="search" className="relative">
               <label htmlFor="busqueda" className="sr-only">
                 Buscar SKU
               </label>
               <input
                 id="busqueda"
+                type="search"
                 value={busqueda}
                 onChange={(e) => setBusqueda(e.target.value)}
                 placeholder="Buscar por nombre o código…"
                 className="campo w-60"
+                autoComplete="off"
               />
-              <button type="submit" className="btn btn-contorno">
-                Buscar
-              </button>
-            </form>
+              {cargandoLista && busqueda.trim() !== "" && (
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-texto-ter">
+                  Buscando…
+                </span>
+              )}
+            </div>
             <button type="button" onClick={abrirNuevo} className="btn btn-primario whitespace-nowrap">
               Nuevo producto
             </button>
