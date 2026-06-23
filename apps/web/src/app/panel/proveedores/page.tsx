@@ -10,6 +10,7 @@ import {
   actualizarProveedor,
   crearProveedor,
   desactivarProveedor,
+  reactivarProveedor,
   obtenerProveedores,
   type Proveedor,
 } from "@/lib/api";
@@ -264,6 +265,22 @@ export default function PaginaProveedores(): React.JSX.Element {
     }
   }
 
+  async function reactivar(proveedor: Proveedor): Promise<void> {
+    try {
+      await reactivarProveedor(proveedor.id);
+      setAvisoLista({
+        texto: `Proveedor ${proveedor.razonSocial} reactivado.`,
+        tono: "exito",
+      });
+      await refrescarProveedores();
+    } catch (error) {
+      setAvisoLista({
+        texto: mensajeError(error, "No se pudo reactivar el proveedor."),
+        tono: "error",
+      });
+    }
+  }
+
   const termino = busqueda.trim().toLowerCase();
   const visibles = termino
     ? proveedores.filter(
@@ -365,13 +382,21 @@ export default function PaginaProveedores(): React.JSX.Element {
                         >
                           Editar
                         </button>
-                        {proveedor.activo && (
+                        {proveedor.activo ? (
                           <button
                             type="button"
                             onClick={() => setProveedorADesactivar(proveedor)}
                             className="btn btn-peligro h-8"
                           >
                             Desactivar
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void reactivar(proveedor)}
+                            className="btn btn-contorno h-8"
+                          >
+                            Reactivar
                           </button>
                         )}
                       </div>

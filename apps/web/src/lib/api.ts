@@ -1347,6 +1347,15 @@ export function desactivarProveedor(
   );
 }
 
+export function reactivarProveedor(
+  id: number,
+): Promise<{ id: number; activo: true }> {
+  return apiFetch<{ id: number; activo: true }>(
+    `/proveedores/${id}/reactivar`,
+    { method: "POST" },
+  );
+}
+
 export function obtenerOrdenesCompra(): Promise<OrdenCompra[]> {
   return apiFetch<OrdenCompra[]>("/compras/ordenes");
 }

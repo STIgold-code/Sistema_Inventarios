@@ -53,6 +53,14 @@ export class ProveedoresService {
     return { id: id.toString(), activo: false };
   }
 
+  /** Reactiva un proveedor dado de baja. Valida pertenencia a la empresa. */
+  async reactivarProveedor(empresaId: bigint, id: bigint) {
+    const proveedor = await this.prisma.proveedor.findFirst({ where: { id, empresaId } });
+    if (!proveedor) throw new NotFoundException("Proveedor no encontrado");
+    await this.prisma.proveedor.update({ where: { id }, data: { activo: true } });
+    return { id: id.toString(), activo: true };
+  }
+
   async listarProveedores(empresaId: bigint) {
     const filas = await this.prisma.proveedor.findMany({
       where: { empresaId, activo: true },

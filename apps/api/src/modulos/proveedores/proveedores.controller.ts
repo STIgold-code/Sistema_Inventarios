@@ -45,4 +45,13 @@ export class ProveedoresController {
   ) {
     return this.proveedores.desactivarProveedor(usuario.empresaId, BigInt(id));
   }
+
+  @Post(":id/reactivar")
+  @Permisos("compra.gestionar")
+  reactivarProveedor(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id") id: string,
+  ) {
+    return this.proveedores.reactivarProveedor(usuario.empresaId, BigInt(id));
+  }
 }
