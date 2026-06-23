@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../../comun/prisma/prisma.service.js";
 
@@ -93,6 +93,89 @@ export interface OpcionesExistencias {
   almacenId?: bigint;
   /** Filtra por renovabilidad. Omitido = todos. */
   esRenovable?: boolean;
+}
+
+// ── Ledger de movimientos (listado + detalle) ──────────────────────────────
+
+export interface OpcionesMovimientos {
+  pagina: number;
+  porPagina: number;
+  skuId?: bigint;
+  almacenId?: bigint;
+  /** Tipo de movimiento (enum TipoMovimiento). Omitido = todos. */
+  tipo?: string;
+  /** Filtra desde esta fecha (inclusive). */
+  desde?: Date;
+  /** Filtra hasta esta fecha (inclusive). */
+  hasta?: Date;
+}
+
+/** Fila del listado paginado del ledger. */
+export interface MovimientoItem {
+  id: string;
+  fecha: string;
+  tipo: string;
+  signo: string;
+  cantidad: string;
+  skuId: string;
+  skuCodigo: string;
+  skuNombre: string;
+  /** Nombre del almacen (o su codigo como respaldo). */
+  almacen: string;
+  costoUnitario: string;
+  costoTotal: string;
+  /** Referencia legible del documento origen. */
+  documento: string;
+}
+
+export interface MovimientosRespuesta {
+  datos: MovimientoItem[];
+  total: number;
+  pagina: number;
+  porPagina: number;
+}
+
+/** Capa FIFO consumida por un movimiento de salida. */
+export interface CapaConsumida {
+  cantidad: string;
+  costoUnitario: string;
+}
+
+/** Detalle completo de un movimiento del ledger. */
+export interface DetalleMovimiento {
+  id: string;
+  fecha: string;
+  tipo: string;
+  signo: string;
+  sku: { id: string; codigo: string; nombre: string };
+  almacen: string;
+  usuario: string;
+  documento: { tipo: string; referencia: string };
+  sunat: {
+    periodo: string;
+    cuo: string;
+    numeroCorrelativo: string;
+    tipoOperacionSunat: string;
+    tipoDocumentoSunat: string;
+    serieComprobante: string | null;
+    numeroComprobante: string | null;
+  };
+  cantidad: string;
+  costos: {
+    unitario: string;
+    total: string;
+    unitarioUsd: string | null;
+    totalUsd: string | null;
+  };
+  saldos: {
+    cantidad: string;
+    costoUnitario: string;
+    costoTotal: string;
+  };
+  /** Capas FIFO consumidas (solo salidas). Vacio si no aplica. */
+  capas: CapaConsumida[];
+  /** Numeros de serie ligados al movimiento. Vacio si no aplica. */
+  series: string[];
 }
 
 @Injectable()
@@ -352,6 +435,179 @@ export class StockService {
         nombre: a.nombre,
       })),
       valorizadoTotal: valorizadoTotal.toString(),
+    };
+  }
+
+  /** Serie-numero del comprobante si son reales (los defaults son "0"). */
+  private comprobanteLegible(serie: string, numero: string): string | null {
+    return serie !== "0" && numero !== "0" ? `${serie}-${numero}` : null;
+  }
+
+  /**
+   * Listado paginado del ledger de movimientos de stock. Resuelve codigo/nombre
+   * de SKU y nombre de almacen con consultas batch (IN [...] y un Map), sin N+1.
+   * Ordenado por fecha desc y secuencia desc (lo mas reciente primero).
+   */
+  async listarMovimientos(
+    empresaId: bigint,
+    opciones: OpcionesMovimientos,
+  ): Promise<MovimientosRespuesta> {
+    const { pagina, porPagina, skuId, almacenId, tipo, desde, hasta } = opciones;
+
+    const where: Prisma.MovimientoStockWhereInput = {
+      empresaId,
+      ...(skuId ? { skuId } : {}),
+      ...(almacenId ? { almacenId } : {}),
+      ...(tipo ? { tipo: tipo as Prisma.EnumTipoMovimientoFilter["equals"] } : {}),
+      ...(desde || hasta
+        ? {
+            fechaMovimiento: {
+              ...(desde ? { gte: desde } : {}),
+              ...(hasta ? { lte: hasta } : {}),
+            },
+          }
+        : {}),
+    };
+
+    const [total, movimientos] = await this.prisma.$transaction([
+      this.prisma.movimientoStock.count({ where }),
+      this.prisma.movimientoStock.findMany({
+        where,
+        orderBy: [{ fechaMovimiento: "desc" }, { secuencia: "desc" }],
+        skip: (pagina - 1) * porPagina,
+        take: porPagina,
+      }),
+    ]);
+
+    // Resolucion batch: un findMany de SKUs IN [...] y un Map de almacenes.
+    const skuIds = [...new Set(movimientos.map((m) => m.skuId))];
+    const skus = skuIds.length
+      ? await this.prisma.sku.findMany({
+          where: { id: { in: skuIds } },
+          select: { id: true, codigoParlante: true, nombre: true, producto: { select: { nombre: true } } },
+        })
+      : [];
+    const skuPorId = new Map(
+      skus.map((s) => [
+        s.id.toString(),
+        { codigo: s.codigoParlante, nombre: s.nombre ?? s.producto.nombre },
+      ]),
+    );
+    const almacenPorId = new Map(
+      (await this.prisma.almacen.findMany({ where: { empresaId } })).map((a) => [
+        a.id.toString(),
+        a.nombre,
+      ]),
+    );
+
+    return {
+      datos: movimientos.map((m) => {
+        const sku = skuPorId.get(m.skuId.toString());
+        return {
+          id: m.id.toString(),
+          fecha: m.fechaMovimiento.toISOString(),
+          tipo: m.tipo,
+          signo: m.signo,
+          cantidad: m.cantidad.toString(),
+          skuId: m.skuId.toString(),
+          skuCodigo: sku?.codigo ?? m.skuId.toString(),
+          skuNombre: sku?.nombre ?? "—",
+          almacen: almacenPorId.get(m.almacenId.toString()) ?? m.almacenId.toString(),
+          costoUnitario: m.costoUnitario.toString(),
+          costoTotal: m.costoTotal.toString(),
+          documento: this.construirReferenciaKardex(m),
+        };
+      }),
+      total,
+      pagina,
+      porPagina,
+    };
+  }
+
+  /**
+   * Detalle completo de un movimiento del ledger: cabecera, bloque SUNAT,
+   * costos en S/ y USD, saldos, capas FIFO consumidas (solo salidas) y series.
+   * Lanza NotFoundException si no existe o no pertenece a la empresa.
+   */
+  async detalleMovimiento(
+    empresaId: bigint,
+    id: bigint,
+  ): Promise<DetalleMovimiento> {
+    const m = await this.prisma.movimientoStock.findFirst({
+      where: { id, empresaId },
+      include: {
+        sku: { select: { codigoParlante: true, nombre: true, producto: { select: { nombre: true } } } },
+        usuario: { select: { nombre: true } },
+        consumos: {
+          orderBy: { id: "asc" },
+          select: { cantidad: true, costoUnitario: true },
+        },
+        seriesEntrada: { select: { numeroSerie: true }, orderBy: { numeroSerie: "asc" } },
+        seriesSalida: { select: { numeroSerie: true }, orderBy: { numeroSerie: "asc" } },
+      },
+    });
+
+    if (!m) {
+      throw new NotFoundException("El movimiento no existe.");
+    }
+
+    const almacen = await this.prisma.almacen.findUnique({
+      where: { id: m.almacenId },
+      select: { nombre: true },
+    });
+
+    // Las capas FIFO solo aplican a salidas; las series, segun el signo.
+    const series =
+      m.signo === "SALIDA"
+        ? m.seriesSalida.map((s) => s.numeroSerie)
+        : m.seriesEntrada.map((s) => s.numeroSerie);
+
+    return {
+      id: m.id.toString(),
+      fecha: m.fechaMovimiento.toISOString(),
+      tipo: m.tipo,
+      signo: m.signo,
+      sku: {
+        id: m.skuId.toString(),
+        codigo: m.sku.codigoParlante,
+        nombre: m.sku.nombre ?? m.sku.producto.nombre,
+      },
+      almacen: almacen?.nombre ?? m.almacenId.toString(),
+      usuario: m.usuario.nombre,
+      documento: {
+        tipo: m.documentoTipo,
+        referencia: this.construirReferenciaKardex(m),
+      },
+      sunat: {
+        periodo: m.periodo,
+        cuo: m.cuo,
+        numeroCorrelativo: m.numeroCorrelativo,
+        tipoOperacionSunat: m.tipoOperacionSunat,
+        tipoDocumentoSunat: m.tipoDocumentoSunat,
+        serieComprobante: this.comprobanteLegible(m.serieComprobante, m.numeroComprobante)
+          ? m.serieComprobante
+          : null,
+        numeroComprobante: this.comprobanteLegible(m.serieComprobante, m.numeroComprobante)
+          ? m.numeroComprobante
+          : null,
+      },
+      cantidad: m.cantidad.toString(),
+      costos: {
+        unitario: m.costoUnitario.toString(),
+        total: m.costoTotal.toString(),
+        unitarioUsd: m.costoUnitarioUsd?.toString() ?? null,
+        totalUsd: m.costoTotalUsd?.toString() ?? null,
+      },
+      saldos: {
+        cantidad: m.saldoCantidad.toString(),
+        costoUnitario: m.saldoCostoUnitario.toString(),
+        costoTotal: m.saldoCostoTotal.toString(),
+      },
+      capas: m.consumos.map((c) => ({
+        cantidad: c.cantidad.toString(),
+        costoUnitario: c.costoUnitario.toString(),
+      })),
+      series,
     };
   }
 }

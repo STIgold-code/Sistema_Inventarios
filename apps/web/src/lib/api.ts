@@ -577,6 +577,99 @@ export function obtenerAlmacenes(): Promise<Almacen[]> {
   return apiFetch<Almacen[]>("/inventario/almacenes");
 }
 
+// ── Ledger de movimientos de stock (listado + detalle) ───────────────────────
+
+/** Fila del listado paginado del ledger de movimientos. */
+export interface Movimiento {
+  id: string;
+  fecha: string;
+  tipo: string;
+  signo: string;
+  cantidad: string;
+  skuId: string;
+  skuCodigo: string;
+  skuNombre: string;
+  almacen: string;
+  costoUnitario: string;
+  costoTotal: string;
+  documento: string;
+}
+
+/** Capa FIFO consumida por un movimiento de salida. */
+export interface CapaConsumida {
+  cantidad: string;
+  costoUnitario: string;
+}
+
+/** Detalle completo de un movimiento del ledger. */
+export interface DetalleMovimiento {
+  id: string;
+  fecha: string;
+  tipo: string;
+  signo: string;
+  sku: { id: string; codigo: string; nombre: string };
+  almacen: string;
+  usuario: string;
+  documento: { tipo: string; referencia: string };
+  sunat: {
+    periodo: string;
+    cuo: string;
+    numeroCorrelativo: string;
+    tipoOperacionSunat: string;
+    tipoDocumentoSunat: string;
+    serieComprobante: string | null;
+    numeroComprobante: string | null;
+  };
+  cantidad: string;
+  costos: {
+    unitario: string;
+    total: string;
+    unitarioUsd: string | null;
+    totalUsd: string | null;
+  };
+  saldos: {
+    cantidad: string;
+    costoUnitario: string;
+    costoTotal: string;
+  };
+  capas: CapaConsumida[];
+  series: string[];
+}
+
+export interface FiltrosMovimientos {
+  pagina: number;
+  porPagina: number;
+  skuId?: number;
+  almacenId?: number;
+  tipo?: string;
+  desde?: string;
+  hasta?: string;
+}
+
+export function obtenerMovimientos(
+  filtros: FiltrosMovimientos,
+): Promise<RespuestaPaginada<Movimiento>> {
+  const params = new URLSearchParams({
+    pagina: String(filtros.pagina),
+    porPagina: String(filtros.porPagina),
+  });
+  if (filtros.skuId !== undefined) params.set("skuId", String(filtros.skuId));
+  if (filtros.almacenId !== undefined)
+    params.set("almacenId", String(filtros.almacenId));
+  if (filtros.tipo) params.set("tipo", filtros.tipo);
+  if (filtros.desde) params.set("desde", filtros.desde);
+  if (filtros.hasta) params.set("hasta", filtros.hasta);
+  return apiFetch<RespuestaPaginada<Movimiento>>(
+    `/inventario/movimientos?${params.toString()}`,
+  );
+}
+
+export function obtenerDetalleMovimiento(
+  id: string | number,
+): Promise<DetalleMovimiento> {
+  return apiFetch<DetalleMovimiento>(`/inventario/movimientos/${id}`);
+}
+
 // ── Existencias (stock de todos los SKUs por almacén) ────────────────────────
 
 export interface StockEnAlmacen {

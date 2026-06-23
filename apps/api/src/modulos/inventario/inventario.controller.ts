@@ -1,6 +1,22 @@
-import { Body, Controller, Get, Post, Query, Res, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  Res,
+  UseGuards,
+} from "@nestjs/common";
 import type { Response } from "express";
-import { IsBoolean, IsInt, IsOptional, IsString, Matches } from "class-validator";
+import {
+  IsBoolean,
+  IsDateString,
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+} from "class-validator";
 import { JwtGuard } from "../../auth/jwt.guard.js";
 import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
@@ -45,6 +61,16 @@ class ExistenciasDto {
   @IsOptional() @IsString() busqueda?: string;
   @IsOptional() @IsInt() almacenId?: number;
   @IsOptional() @IsBoolean() esRenovable?: boolean;
+}
+
+class MovimientosDto {
+  @IsOptional() @IsInt() pagina?: number;
+  @IsOptional() @IsInt() porPagina?: number;
+  @IsOptional() @IsInt() skuId?: number;
+  @IsOptional() @IsInt() almacenId?: number;
+  @IsOptional() @IsString() tipo?: string;
+  @IsOptional() @IsDateString() desde?: string;
+  @IsOptional() @IsDateString() hasta?: string;
 }
 
 @Controller("inventario")
@@ -126,6 +152,40 @@ export class InventarioController {
       BigInt(dto.skuId),
       dto.almacenId ? BigInt(dto.almacenId) : undefined,
     );
+  }
+
+  @Get("movimientos")
+  @Permisos("inventario.ver")
+  listarMovimientos(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Query() dto: MovimientosDto,
+  ) {
+    // El filtro "hasta" llega como fecha (medianoche): se extiende al fin del
+    // dia para que el rango sea inclusivo del dia indicado.
+    let hasta: Date | undefined;
+    if (dto.hasta) {
+      hasta = new Date(dto.hasta);
+      hasta.setHours(23, 59, 59, 999);
+    }
+    return this.stock.listarMovimientos(usuario.empresaId, {
+      pagina: dto.pagina && dto.pagina > 0 ? dto.pagina : 1,
+      porPagina:
+        dto.porPagina && dto.porPagina > 0 ? Math.min(dto.porPagina, 100) : 20,
+      skuId: dto.skuId ? BigInt(dto.skuId) : undefined,
+      almacenId: dto.almacenId ? BigInt(dto.almacenId) : undefined,
+      tipo: dto.tipo,
+      desde: dto.desde ? new Date(dto.desde) : undefined,
+      hasta,
+    });
+  }
+
+  @Get("movimientos/:id")
+  @Permisos("inventario.ver")
+  detalleMovimiento(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id") id: string,
+  ) {
+    return this.stock.detalleMovimiento(usuario.empresaId, BigInt(id));
   }
 
   @Get("stock")
