@@ -18,6 +18,21 @@ export class VentasController {
     return this.ventas.listarOrdenes(usuario.empresaId);
   }
 
+  @Get("comprobantes")
+  @Permisos("venta.gestionar")
+  listarComprobantes(@UsuarioActual() usuario: UsuarioRequest) {
+    return this.ventas.listarComprobantes(usuario.empresaId);
+  }
+
+  @Get("comprobantes/:id")
+  @Permisos("venta.gestionar")
+  obtenerComprobante(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id") id: string,
+  ) {
+    return this.ventas.obtenerDetalleComprobante(usuario.empresaId, BigInt(id));
+  }
+
   @Get("precio-sugerido")
   @Permisos("venta.gestionar")
   precioSugerido(

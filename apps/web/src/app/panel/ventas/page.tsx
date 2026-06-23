@@ -7,26 +7,36 @@ import { FormularioGuia } from "@/componentes/formulario-guia";
 import { SelectorSku } from "@/componentes/selector-sku";
 import { SelectorBusqueda } from "@/componentes/selector-busqueda";
 import { SelectorUnidadLinea } from "@/componentes/selector-unidad-linea";
+import { PanelLateral } from "@/componentes/panel-lateral";
 import {
   ErrorApi,
   anularOrdenVenta,
   crearDespacho,
   crearOrdenVenta,
   obtenerClientes,
+  obtenerComprobantes,
+  obtenerDetalleComprobante,
   obtenerOrdenesVenta,
   obtenerPrecioSugerido,
   type Cliente,
+  type Comprobante,
+  type DetalleComprobante,
   type EstadoOrdenVenta,
   type OrdenVenta,
   type Sku,
 } from "@/lib/api";
 import { COMPROBANTES_VENTA } from "@/lib/comprobantes";
-import { formatearSoles } from "@/lib/formato";
+import { formatearDolares, formatearFecha, formatearSoles } from "@/lib/formato";
+
+/** Formatea un monto en la moneda de su comprobante (PEN/USD). */
+function formatearPrecio(valor: string, moneda: string): string {
+  return moneda === "PEN" ? formatearSoles(valor) : formatearDolares(valor);
+}
 
 const ALMACEN_PRINCIPAL = 1;
 const IGV_TASA = 0.18;
 
-type Pestania = "ordenes" | "despacho";
+type Pestania = "ordenes" | "despacho" | "comprobantes";
 type Moneda = "PEN" | "USD";
 
 interface Aviso {
@@ -54,6 +64,7 @@ interface SeriesDespachoBorrador {
 const PESTANIAS: readonly { id: Pestania; etiqueta: string }[] = [
   { id: "ordenes", etiqueta: "Órdenes de venta" },
   { id: "despacho", etiqueta: "Despacho" },
+  { id: "comprobantes", etiqueta: "Comprobantes emitidos" },
 ];
 
 const INSIGNIA_ESTADO: Record<EstadoOrdenVenta, string> = {
@@ -114,6 +125,15 @@ export default function PaginaVentas(): React.JSX.Element {
   const [guardandoDespacho, setGuardandoDespacho] = useState<boolean>(false);
   const [avisoDespacho, setAvisoDespacho] = useState<Aviso | null>(null);
 
+  // Comprobantes emitidos
+  const [comprobantes, setComprobantes] = useState<Comprobante[]>([]);
+  const [cargandoComprobantes, setCargandoComprobantes] = useState<boolean>(false);
+  const [detalleComprobanteId, setDetalleComprobanteId] = useState<string | null>(null);
+  const [detalleComprobante, setDetalleComprobante] =
+    useState<DetalleComprobante | null>(null);
+  const [cargandoDetalleComp, setCargandoDetalleComp] = useState<boolean>(false);
+  const [errorDetalleComp, setErrorDetalleComp] = useState<string | null>(null);
+
   useEffect(() => {
     void (async (): Promise<void> => {
       try {
@@ -140,6 +160,46 @@ export default function PaginaVentas(): React.JSX.Element {
     } catch {
       // El aviso de la operación principal ya informó al usuario.
     }
+  }
+
+  async function refrescarComprobantes(): Promise<void> {
+    setCargandoComprobantes(true);
+    try {
+      setComprobantes(await obtenerComprobantes());
+    } catch {
+      // El listado es auxiliar: el flujo principal ya informó al usuario.
+    } finally {
+      setCargandoComprobantes(false);
+    }
+  }
+
+  // Carga la lista al entrar a la pestaña de comprobantes (una vez por entrada).
+  useEffect(() => {
+    if (pestania !== "comprobantes") return;
+    void refrescarComprobantes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pestania]);
+
+  async function abrirDetalleComprobante(id: string): Promise<void> {
+    setDetalleComprobanteId(id);
+    setDetalleComprobante(null);
+    setErrorDetalleComp(null);
+    setCargandoDetalleComp(true);
+    try {
+      setDetalleComprobante(await obtenerDetalleComprobante(id));
+    } catch (error) {
+      setErrorDetalleComp(
+        mensajeError(error, "No se pudo cargar el detalle del comprobante."),
+      );
+    } finally {
+      setCargandoDetalleComp(false);
+    }
+  }
+
+  function cerrarDetalleComprobante(): void {
+    setDetalleComprobanteId(null);
+    setDetalleComprobante(null);
+    setErrorDetalleComp(null);
   }
 
   // ── Visibilidad del feedback inline ──────────────────────────────────────────
@@ -497,6 +557,8 @@ export default function PaginaVentas(): React.JSX.Element {
       });
       limpiarComprobante();
       await refrescarOrdenes();
+      // El despacho emite un comprobante: refrescar el listado para reflejarlo.
+      await refrescarComprobantes();
     } catch (error) {
       setAvisoDespacho({
         texto: mensajeError(error, "No se pudo registrar el despacho."),
@@ -1223,6 +1285,215 @@ export default function PaginaVentas(): React.JSX.Element {
           </form>
         </section>
       )}
+
+      {pestania === "comprobantes" && (
+        <section className="panel mt-6">
+          <div className="panel-cabecera">
+            <span className="panel-titulo">Comprobantes emitidos</span>
+          </div>
+          <div className="p-5">
+            {cargandoComprobantes ? (
+              <p className="py-8 text-center text-sm text-texto-ter">Cargando…</p>
+            ) : comprobantes.length === 0 ? (
+              <p className="py-8 text-center text-sm text-texto-ter">
+                Aún no hay comprobantes emitidos.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="tabla-datos">
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Comprobante</th>
+                      <th>Orden</th>
+                      <th>Cliente</th>
+                      <th className="text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comprobantes.map((comp) => (
+                      <tr
+                        key={comp.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => void abrirDetalleComprobante(comp.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            void abrirDetalleComprobante(comp.id);
+                          }
+                        }}
+                        className="cursor-pointer hover:bg-panel-alt"
+                      >
+                        <td className="text-texto">{formatearFecha(comp.fechaEmision)}</td>
+                        <td className="font-mono text-texto-sec">{comp.comprobante}</td>
+                        <td className="font-mono text-texto-sec">
+                          {comp.ordenVentaNumero}
+                        </td>
+                        <td className="text-tinta">{comp.cliente}</td>
+                        <td className="text-right font-mono text-tinta">
+                          {formatearPrecio(comp.total, comp.moneda)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      <PanelLateral
+        abierto={detalleComprobanteId !== null}
+        titulo={
+          detalleComprobante
+            ? `${detalleComprobante.tipoDocumentoSunat} ${detalleComprobante.serie}-${detalleComprobante.numero}`
+            : "Detalle del comprobante"
+        }
+        descripcion={
+          detalleComprobante
+            ? `OV ${detalleComprobante.ordenVentaNumero}`
+            : undefined
+        }
+        onCerrar={cerrarDetalleComprobante}
+      >
+        {cargandoDetalleComp ? (
+          <p className="px-1 py-10 text-center text-sm text-texto-ter">Cargando…</p>
+        ) : errorDetalleComp ? (
+          <div role="alert" className="aviso aviso-peligro">
+            <span>{errorDetalleComp}</span>
+          </div>
+        ) : detalleComprobante ? (
+          <DetalleComprobanteContenido detalle={detalleComprobante} />
+        ) : null}
+      </PanelLateral>
+    </div>
+  );
+}
+
+/** Fila etiqueta/valor del panel de detalle del comprobante. */
+function FilaDatoComp({
+  etiqueta,
+  children,
+}: {
+  etiqueta: string;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
+    <div className="flex items-baseline justify-between gap-4 py-2">
+      <dt className="text-sm text-texto-sec">{etiqueta}</dt>
+      <dd className="text-right text-sm text-tinta">{children}</dd>
+    </div>
+  );
+}
+
+function valorComp(texto: string | null | undefined): string {
+  return texto && texto.trim() !== "" ? texto : "—";
+}
+
+function DetalleComprobanteContenido({
+  detalle,
+}: {
+  detalle: DetalleComprobante;
+}): React.JSX.Element {
+  const moneda = detalle.moneda;
+  return (
+    <div className="space-y-6">
+      <section>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-ter">
+          Comprobante
+        </h3>
+        <dl className="divide-y divide-borde">
+          <FilaDatoComp etiqueta="Orden de venta">
+            <span className="font-mono">{detalle.ordenVentaNumero}</span>
+          </FilaDatoComp>
+          <FilaDatoComp etiqueta="Cliente">{valorComp(detalle.cliente)}</FilaDatoComp>
+          <FilaDatoComp etiqueta="Tipo de documento">
+            {detalle.tipoDocumentoSunat}
+          </FilaDatoComp>
+          <FilaDatoComp etiqueta="Serie - número">
+            <span className="font-mono">
+              {detalle.serie}-{detalle.numero}
+            </span>
+          </FilaDatoComp>
+          <FilaDatoComp etiqueta="Fecha de emisión">
+            {formatearFecha(detalle.fechaEmision)}
+          </FilaDatoComp>
+          <FilaDatoComp etiqueta="Moneda">{moneda}</FilaDatoComp>
+          <FilaDatoComp etiqueta="Tipo de cambio">
+            {valorComp(detalle.tipoCambio)}
+          </FilaDatoComp>
+        </dl>
+      </section>
+
+      <section>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-ter">
+          Montos
+        </h3>
+        <dl className="divide-y divide-borde">
+          <FilaDatoComp etiqueta="Subtotal">
+            <span className="font-mono">
+              {formatearPrecio(detalle.subtotal, moneda)}
+            </span>
+          </FilaDatoComp>
+          <FilaDatoComp etiqueta="IGV">
+            <span className="font-mono">{formatearPrecio(detalle.igv, moneda)}</span>
+          </FilaDatoComp>
+          <FilaDatoComp etiqueta="Total">
+            <span className="font-mono font-semibold">
+              {formatearPrecio(detalle.total, moneda)}
+            </span>
+          </FilaDatoComp>
+        </dl>
+      </section>
+
+      <section>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-texto-ter">
+          Líneas despachadas
+        </h3>
+        {detalle.lineas.length === 0 ? (
+          <p className="text-sm text-texto-ter">Sin líneas registradas.</p>
+        ) : (
+          <div className="space-y-3">
+            {detalle.lineas.map((linea) => (
+              <div
+                key={linea.skuId}
+                className="rounded-md border border-borde p-3"
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-sm font-medium text-tinta">
+                    {linea.skuNombre}
+                  </span>
+                  <span className="font-mono text-xs text-texto-ter">
+                    {linea.skuCodigo}
+                  </span>
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-texto-sec">Cantidad</span>
+                    <span className="font-mono text-texto">{linea.cantidad}</span>
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-texto-sec">Precio unit.</span>
+                    <span className="font-mono text-texto">
+                      {linea.precioUnitario
+                        ? formatearPrecio(linea.precioUnitario, moneda)
+                        : "—"}
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-texto-sec">Importe</span>
+                    <span className="font-mono text-texto">
+                      {formatearPrecio(linea.importe, moneda)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

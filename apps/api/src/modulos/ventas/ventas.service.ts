@@ -55,6 +55,46 @@ interface Despacho {
   }>;
 }
 
+/** Fila del listado de comprobantes de venta emitidos. */
+export interface ComprobanteListado {
+  id: string;
+  fechaEmision: string;
+  comprobante: string;
+  ordenVentaId: string;
+  ordenVentaNumero: string;
+  cliente: string;
+  moneda: string;
+  total: string;
+}
+
+/** Linea del detalle de un comprobante, derivada de lo despachado. */
+export interface DetalleComprobanteLinea {
+  skuId: string;
+  skuCodigo: string;
+  skuNombre: string;
+  cantidad: string;
+  precioUnitario: string | null;
+  importe: string;
+}
+
+/** Detalle completo de un comprobante: cabecera + lineas despachadas. */
+export interface DetalleComprobante {
+  id: string;
+  tipoDocumentoSunat: string;
+  serie: string;
+  numero: string;
+  fechaEmision: string;
+  cliente: string;
+  ordenVentaId: string;
+  ordenVentaNumero: string;
+  moneda: string;
+  tipoCambio: string | null;
+  subtotal: string;
+  igv: string;
+  total: string;
+  lineas: DetalleComprobanteLinea[];
+}
+
 @Injectable()
 export class VentasService {
   constructor(
@@ -322,6 +362,110 @@ export class VentasService {
         },
       ]),
     );
+  }
+
+  /**
+   * Lista los comprobantes de venta emitidos por la empresa, mas recientes
+   * primero. Cada item resume documento, orden y cliente para auditoria rapida
+   * desde la tabla.
+   */
+  async listarComprobantes(empresaId: bigint): Promise<ComprobanteListado[]> {
+    const comprobantes = await this.prisma.comprobanteVenta.findMany({
+      where: { empresaId },
+      include: { ordenVenta: true, cliente: true },
+      orderBy: { fechaEmision: "desc" },
+    });
+    return comprobantes.map((c) => ({
+      id: c.id.toString(),
+      fechaEmision: c.fechaEmision.toISOString(),
+      comprobante: `${c.tipoDocumentoSunat} ${c.serie}-${c.numero}`,
+      ordenVentaId: c.ordenVentaId.toString(),
+      ordenVentaNumero: c.ordenVenta.numero,
+      cliente: c.cliente ? c.cliente.razonSocial : "—",
+      moneda: c.moneda,
+      total: c.total.toString(),
+    }));
+  }
+
+  /**
+   * Detalle completo de un comprobante: cabecera y lineas DESPACHADAS en este
+   * comprobante. ComprobanteVenta NO tiene lineas propias; las lineas se derivan
+   * de los MovimientoStock cuyo documentoId apunta a este comprobante (cantidad
+   * exacta despachada en ESTE comprobante, no toda la orden). El precio de venta
+   * vive en OrdenVentaLinea.precioUnitario (el movimiento solo guarda costo), por
+   * lo que se enriquece por skuId contra las lineas de la orden. El importe es
+   * cantidad x precioUnitario. Lanza NotFoundException si no existe o no es de la
+   * empresa.
+   */
+  async obtenerDetalleComprobante(
+    empresaId: bigint,
+    id: bigint,
+  ): Promise<DetalleComprobante> {
+    const comprobante = await this.prisma.comprobanteVenta.findFirst({
+      where: { id, empresaId },
+      include: {
+        ordenVenta: { include: { lineas: true } },
+        cliente: true,
+      },
+    });
+    if (!comprobante) throw new NotFoundException("Comprobante no encontrado");
+
+    // Movimientos de venta enlazados a ESTE comprobante (lo despachado aqui).
+    const movimientos = await this.prisma.movimientoStock.findMany({
+      where: {
+        empresaId,
+        documentoTipo: "VENTA",
+        documentoId: comprobante.id,
+      },
+      select: { skuId: true, cantidad: true },
+    });
+
+    // Precio de venta por SKU desde las lineas de la orden (fuente economica).
+    const precioPorSku = new Map<string, string>();
+    for (const l of comprobante.ordenVenta.lineas) {
+      precioPorSku.set(l.skuId.toString(), l.precioUnitario.toString());
+    }
+
+    const skus = await this.cargarSkus(
+      empresaId,
+      movimientos.map((m) => m.skuId),
+    );
+
+    // Cliente: razon social + doc si esta disponible.
+    const cliente = comprobante.cliente
+      ? `${comprobante.cliente.razonSocial} (${comprobante.cliente.numeroDoc})`
+      : "—";
+
+    return {
+      id: comprobante.id.toString(),
+      tipoDocumentoSunat: comprobante.tipoDocumentoSunat,
+      serie: comprobante.serie,
+      numero: comprobante.numero,
+      fechaEmision: comprobante.fechaEmision.toISOString(),
+      cliente,
+      ordenVentaId: comprobante.ordenVentaId.toString(),
+      ordenVentaNumero: comprobante.ordenVenta.numero,
+      moneda: comprobante.moneda,
+      tipoCambio: comprobante.tipoCambio ? comprobante.tipoCambio.toString() : null,
+      subtotal: comprobante.subtotal.toString(),
+      igv: comprobante.igv.toString(),
+      total: comprobante.total.toString(),
+      lineas: movimientos.map((m) => {
+        const skuId = m.skuId.toString();
+        const cantidad = m.cantidad.toString();
+        const precio = precioPorSku.get(skuId) ?? null;
+        const importe =
+          precio !== null ? new D(cantidad).mul(new D(precio)).toString() : "0";
+        return {
+          skuId,
+          skuCodigo: skus.get(skuId)?.codigo ?? "",
+          skuNombre: skus.get(skuId)?.nombre ?? `SKU ${skuId}`,
+          cantidad,
+          precioUnitario: precio,
+          importe,
+        };
+      }),
+    };
   }
 
   /**

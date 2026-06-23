@@ -1495,6 +1495,56 @@ export function anularOrdenVenta(
   });
 }
 
+/** Item del listado de comprobantes (espejo de GET /ventas/comprobantes). */
+export interface Comprobante {
+  id: string;
+  fechaEmision: string;
+  comprobante: string;
+  ordenVentaId: string;
+  ordenVentaNumero: string;
+  cliente: string;
+  moneda: string;
+  total: string;
+}
+
+/** Linea del detalle de un comprobante (lo despachado en este comprobante). */
+export interface DetalleComprobanteLinea {
+  skuId: string;
+  skuCodigo: string;
+  skuNombre: string;
+  cantidad: string;
+  precioUnitario: string | null;
+  importe: string;
+}
+
+/** Detalle completo (espejo de GET /ventas/comprobantes/:id). */
+export interface DetalleComprobante {
+  id: string;
+  tipoDocumentoSunat: string;
+  serie: string;
+  numero: string;
+  fechaEmision: string;
+  cliente: string;
+  ordenVentaId: string;
+  ordenVentaNumero: string;
+  moneda: string;
+  tipoCambio: string | null;
+  subtotal: string;
+  igv: string;
+  total: string;
+  lineas: DetalleComprobanteLinea[];
+}
+
+export function obtenerComprobantes(): Promise<Comprobante[]> {
+  return apiFetch<Comprobante[]>("/ventas/comprobantes");
+}
+
+export function obtenerDetalleComprobante(
+  id: number | string,
+): Promise<DetalleComprobante> {
+  return apiFetch<DetalleComprobante>(`/ventas/comprobantes/${id}`);
+}
+
 // ── Devoluciones de venta (reverso de despacho): tipos ──────────────────────
 
 export type EstadoDevolucionVenta = "REGISTRADA" | "ANULADA";
