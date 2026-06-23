@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
+import { RecuperacionChunks } from "@/componentes/recuperacion-chunks";
 import "./globals.css";
 
 const base = IBM_Plex_Sans({
@@ -27,7 +28,10 @@ export default function RootLayout({
 }): React.JSX.Element {
   return (
     <html lang="es" className={`${base.variable} ${mono.variable}`}>
-      <body className="min-h-screen antialiased">{children}</body>
+      <body className="min-h-screen antialiased">
+        <RecuperacionChunks />
+        {children}
+      </body>
     </html>
   );
 }
