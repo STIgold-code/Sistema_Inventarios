@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
 import { SelectorBusqueda } from "@/componentes/selector-busqueda";
@@ -60,6 +60,9 @@ export default function PaginaOrdenesTrabajo(): React.JSX.Element {
   const [centroCostoId, setCentroCostoId] = useState<string>("");
   const [guardando, setGuardando] = useState<boolean>(false);
   const [avisoForm, setAvisoForm] = useState<Aviso | null>(null);
+  // Visibilidad del feedback inline del formulario.
+  const [tocado, setTocado] = useState<Record<string, boolean>>({});
+  const [intentoEnvio, setIntentoEnvio] = useState<boolean>(false);
 
   const [avisoLista, setAvisoLista] = useState<Aviso | null>(null);
   const [cierre, setCierre] = useState<CierrePendiente | null>(null);
@@ -93,11 +96,30 @@ export default function PaginaOrdenesTrabajo(): React.JSX.Element {
     }
   }
 
+  // Errores DERIVADOS del formulario. Misma fuente de verdad que el submit.
+  const errores = useMemo<Record<string, string>>(() => {
+    const e: Record<string, string> = {};
+    if (!descripcion.trim()) e.descripcion = "Ingresa una descripción.";
+    if (!centroCostoId) e.centroCostoId = "Selecciona un centro de costo.";
+    return e;
+  }, [descripcion, centroCostoId]);
+
+  function errorVisible(campo: string): string | undefined {
+    if (!tocado[campo] && !intentoEnvio) return undefined;
+    return errores[campo];
+  }
+
+  function marcarTocado(campo: string): void {
+    setTocado((previo) => ({ ...previo, [campo]: true }));
+  }
+
   function limpiarFormulario(): void {
     setEditandoId(null);
     setDescripcion("");
     setCentroCostoId("");
     setAvisoForm(null);
+    setTocado({});
+    setIntentoEnvio(false);
   }
 
   function iniciarEdicion(ot: OrdenTrabajo): void {
@@ -105,17 +127,15 @@ export default function PaginaOrdenesTrabajo(): React.JSX.Element {
     setDescripcion(ot.descripcion);
     setCentroCostoId(String(ot.centroCostoId));
     setAvisoForm(null);
+    setTocado({});
+    setIntentoEnvio(false);
   }
 
   async function manejarEnvio(evento: FormEvent<HTMLFormElement>): Promise<void> {
     evento.preventDefault();
     setAvisoForm(null);
-    if (!descripcion.trim()) {
-      setAvisoForm({ texto: "Ingresa una descripción.", tono: "error" });
-      return;
-    }
-    if (!centroCostoId) {
-      setAvisoForm({ texto: "Selecciona un centro de costo.", tono: "error" });
+    setIntentoEnvio(true);
+    if (Object.keys(errores).length > 0) {
       return;
     }
     setGuardando(true);
@@ -208,10 +228,15 @@ export default function PaginaOrdenesTrabajo(): React.JSX.Element {
                   id="ot-descripcion"
                   value={descripcion}
                   onChange={(e) => setDescripcion(e.target.value)}
+                  onBlur={() => marcarTocado("descripcion")}
                   required
+                  aria-invalid={errorVisible("descripcion") ? "true" : undefined}
                   placeholder="Trabajo, obra o proyecto"
                   className="campo"
                 />
+                {errorVisible("descripcion") && (
+                  <p className="mt-1.5 text-xs text-peligro">{errorVisible("descripcion")}</p>
+                )}
               </div>
               <div>
                 <label htmlFor="ot-centro-costo" className="etiqueta-campo">
@@ -220,7 +245,10 @@ export default function PaginaOrdenesTrabajo(): React.JSX.Element {
                 <SelectorBusqueda
                   id="ot-centro-costo"
                   valor={centroCostoId}
-                  onCambio={(v) => setCentroCostoId(v)}
+                  onCambio={(v) => {
+                    setCentroCostoId(v);
+                    marcarTocado("centroCostoId");
+                  }}
                   disabled={cargandoBase}
                   requerido
                   placeholder={cargandoBase ? "Cargando…" : "Selecciona…"}
@@ -229,6 +257,9 @@ export default function PaginaOrdenesTrabajo(): React.JSX.Element {
                     etiqueta: `${centro.codigo} — ${centro.nombre}`,
                   }))}
                 />
+                {errorVisible("centroCostoId") && (
+                  <p className="mt-1.5 text-xs text-peligro">{errorVisible("centroCostoId")}</p>
+                )}
               </div>
             </div>
 

@@ -75,6 +75,9 @@ export default function PaginaProductos(): React.JSX.Element {
   const [enviando, setEnviando] = useState<boolean>(false);
   const [errorForm, setErrorForm] = useState<string | null>(null);
   const [exito, setExito] = useState<string | null>(null);
+  // Campos que el usuario ya tocó (onBlur) o tras un intento de envío.
+  const [tocado, setTocado] = useState<Record<string, boolean>>({});
+  const [intentoEnvio, setIntentoEnvio] = useState<boolean>(false);
 
   const cargarSkus = useCallback(
     async (termino: string, renovable: string): Promise<void> => {
@@ -131,17 +134,88 @@ export default function PaginaProductos(): React.JSX.Element {
     [unidades, form.unidadId],
   );
 
+  // Familia seleccionada (para prefijo y validación del código parlante).
+  const familiaSeleccionada = useMemo<Familia | undefined>(
+    () => familias.find((f) => String(f.id) === form.familiaId),
+    [familias, form.familiaId],
+  );
+
+  // Errores DERIVADOS del valor actual del form. Una sola fuente de verdad:
+  // se usa tanto para mostrar inline como para bloquear el submit.
+  const errores = useMemo<Partial<Record<keyof EstadoFormulario, string>>>(() => {
+    const e: Partial<Record<keyof EstadoFormulario, string>> = {};
+
+    if (!form.familiaId) {
+      e.familiaId = "Selecciona una familia.";
+    }
+
+    if (form.codigoParlante.length !== 14) {
+      e.codigoParlante = "El código parlante debe tener 14 dígitos.";
+    } else if (familiaSeleccionada && !form.codigoParlante.startsWith(familiaSeleccionada.codigo)) {
+      e.codigoParlante = `Los 3 primeros dígitos deben coincidir con la familia (${familiaSeleccionada.codigo}).`;
+    }
+
+    if (!form.unidadId) {
+      e.unidadId = "Selecciona una unidad.";
+    }
+
+    // Multi-unidad: unidad de referencia y factor van juntos o ninguno.
+    const tieneRef = Boolean(form.unidadReferenciaId);
+    const tieneFactor = Boolean(form.factorConversion.trim());
+    if (tieneRef !== tieneFactor) {
+      const mensaje =
+        "La unidad de referencia y el factor deben indicarse juntos o dejarse ambos vacíos.";
+      if (!tieneRef) e.unidadReferenciaId = mensaje;
+      if (!tieneFactor) e.factorConversion = mensaje;
+    } else if (tieneRef) {
+      if (form.unidadReferenciaId === form.unidadId) {
+        e.unidadReferenciaId = "Debe ser distinta de la unidad principal.";
+      }
+      if (!(Number(form.factorConversion) > 0)) {
+        e.factorConversion = "El factor debe ser mayor que cero.";
+      }
+    }
+
+    return e;
+  }, [form, familiaSeleccionada]);
+
+  // Un error se muestra inline solo si el campo fue tocado o hubo intento de envío.
+  function errorVisible(campo: keyof EstadoFormulario): string | undefined {
+    if (!tocado[campo] && !intentoEnvio) return undefined;
+    return errores[campo];
+  }
+
+  function marcarTocado(campo: keyof EstadoFormulario): void {
+    setTocado((previo) => ({ ...previo, [campo]: true }));
+  }
+
   function manejarBusqueda(evento: FormEvent<HTMLFormElement>): void {
     evento.preventDefault();
     void cargarSkus(busqueda.trim(), filtroRenovable);
   }
 
   function actualizar(campo: keyof EstadoFormulario, valor: string): void {
-    setForm((previo) => ({ ...previo, [campo]: valor }));
+    setForm((previo) => {
+      const siguiente = { ...previo, [campo]: valor };
+
+      // Al elegir una familia, prefilla/ajusta el prefijo (3 dígitos) del
+      // código parlante conservando los dígitos restantes ya escritos.
+      if (campo === "familiaId") {
+        const familia = familias.find((f) => String(f.id) === valor);
+        if (familia) {
+          const resto = previo.codigoParlante.slice(3);
+          siguiente.codigoParlante = (familia.codigo + resto).slice(0, 14);
+        }
+      }
+
+      return siguiente;
+    });
   }
 
   function abrirNuevo(): void {
     setForm(FORMULARIO_INICIAL);
+    setTocado({});
+    setIntentoEnvio(false);
     setErrorForm(null);
     setExito(null);
     setPanelAbierto(true);
@@ -151,53 +225,28 @@ export default function PaginaProductos(): React.JSX.Element {
     if (enviando) return;
     setPanelAbierto(false);
     setForm(FORMULARIO_INICIAL);
+    setTocado({});
+    setIntentoEnvio(false);
     setErrorForm(null);
   }
 
   async function manejarCreacion(evento: FormEvent<HTMLFormElement>): Promise<void> {
     evento.preventDefault();
     setErrorForm(null);
+    setIntentoEnvio(true);
+
+    // El submit respeta los MISMOS errores derivados (no se duplica la lógica).
+    if (Object.keys(errores).length > 0) {
+      return;
+    }
 
     const familia = familias.find((f) => String(f.id) === form.familiaId);
     if (!familia) {
       setErrorForm("Selecciona una familia.");
       return;
     }
-    if (form.codigoParlante.length !== 14) {
-      setErrorForm("El código parlante debe tener 14 dígitos.");
-      return;
-    }
-    // Validacion de UX: los 3 primeros digitos deben coincidir con la familia.
-    if (!form.codigoParlante.startsWith(familia.codigo)) {
-      setErrorForm(
-        `Los primeros dígitos del código parlante deben coincidir con la familia (${familia.codigo}).`,
-      );
-      return;
-    }
-    if (!form.unidadId) {
-      setErrorForm("Selecciona una unidad.");
-      return;
-    }
 
-    // Multi-unidad: la unidad de referencia y el factor van juntos o ninguno.
     const tieneRef = Boolean(form.unidadReferenciaId);
-    const tieneFactor = Boolean(form.factorConversion.trim());
-    if (tieneRef !== tieneFactor) {
-      setErrorForm(
-        "La unidad de referencia y el factor de conversión deben indicarse juntos o dejarse ambos vacíos.",
-      );
-      return;
-    }
-    if (tieneRef) {
-      if (form.unidadReferenciaId === form.unidadId) {
-        setErrorForm("La unidad de referencia debe ser distinta de la unidad principal.");
-        return;
-      }
-      if (!(Number(form.factorConversion) > 0)) {
-        setErrorForm("El factor de conversión debe ser mayor que cero.");
-        return;
-      }
-    }
 
     setEnviando(true);
     try {
@@ -225,6 +274,8 @@ export default function PaginaProductos(): React.JSX.Element {
       });
       setExito(`Producto creado correctamente (SKU #${respuesta.skuId}).`);
       setForm(FORMULARIO_INICIAL);
+      setTocado({});
+      setIntentoEnvio(false);
       setPanelAbierto(false);
       await cargarSkus(busqueda.trim(), filtroRenovable);
     } catch (error) {
@@ -371,11 +422,17 @@ export default function PaginaProductos(): React.JSX.Element {
                 id="familia"
                 opciones={opcionesFamilia}
                 valor={form.familiaId}
-                onCambio={(valor) => actualizar("familiaId", valor)}
+                onCambio={(valor) => {
+                  actualizar("familiaId", valor);
+                  marcarTocado("familiaId");
+                }}
                 placeholder="Selecciona…"
                 requerido
                 ariaLabel="Familia"
               />
+              {errorVisible("familiaId") && (
+                <p className="mt-1.5 text-xs text-peligro">{errorVisible("familiaId")}</p>
+              )}
             </div>
             <div>
               <label htmlFor="unidad" className="etiqueta-campo">
@@ -385,11 +442,17 @@ export default function PaginaProductos(): React.JSX.Element {
                 id="unidad"
                 opciones={opcionesUnidad}
                 valor={form.unidadId}
-                onCambio={(valor) => actualizar("unidadId", valor)}
+                onCambio={(valor) => {
+                  actualizar("unidadId", valor);
+                  marcarTocado("unidadId");
+                }}
                 placeholder="Selecciona…"
                 requerido
                 ariaLabel="Unidad"
               />
+              {errorVisible("unidadId") && (
+                <p className="mt-1.5 text-xs text-peligro">{errorVisible("unidadId")}</p>
+              )}
             </div>
           </div>
 
@@ -416,14 +479,33 @@ export default function PaginaProductos(): React.JSX.Element {
               onChange={(e) =>
                 actualizar("codigoParlante", e.target.value.replace(/\D/g, "").slice(0, 14))
               }
+              onBlur={() => marcarTocado("codigoParlante")}
               inputMode="numeric"
               required
+              aria-invalid={errorVisible("codigoParlante") ? "true" : undefined}
               aria-describedby="codigoParlante-ayuda"
               className="campo font-mono"
             />
-            <p id="codigoParlante-ayuda" className="mt-1.5 text-xs text-texto-ter">
-              Los 3 primeros dígitos deben coincidir con el código de la familia.
-            </p>
+            <div className="mt-1.5 flex items-center justify-between gap-3">
+              <p id="codigoParlante-ayuda" className="text-xs text-texto-ter">
+                Los 3 primeros dígitos deben coincidir con el código de la familia.
+              </p>
+              <span
+                className={`shrink-0 font-mono text-xs ${
+                  form.codigoParlante.length === 14 ? "text-exito" : "text-texto-ter"
+                }`}
+              >
+                {form.codigoParlante.length} / 14 dígitos
+              </span>
+            </div>
+            {errorVisible("codigoParlante") ? (
+              <p className="mt-1.5 text-xs text-peligro">{errorVisible("codigoParlante")}</p>
+            ) : (
+              form.codigoParlante.length === 14 &&
+              !errores.codigoParlante && (
+                <p className="mt-1.5 text-xs text-exito">Código parlante válido.</p>
+              )
+            )}
           </div>
 
           <div>
@@ -586,10 +668,19 @@ export default function PaginaProductos(): React.JSX.Element {
                 id="unidadReferencia"
                 opciones={opcionesUnidadReferencia}
                 valor={form.unidadReferenciaId}
-                onCambio={(valor) => actualizar("unidadReferenciaId", valor)}
+                onCambio={(valor) => {
+                  actualizar("unidadReferenciaId", valor);
+                  marcarTocado("unidadReferenciaId");
+                  marcarTocado("factorConversion");
+                }}
                 placeholder="Sin unidad de referencia"
                 ariaLabel="Unidad de referencia"
               />
+              {errorVisible("unidadReferenciaId") && (
+                <p className="mt-1.5 text-xs text-peligro">
+                  {errorVisible("unidadReferenciaId")}
+                </p>
+              )}
             </div>
             <div>
               <label htmlFor="factorConversion" className="etiqueta-campo">
@@ -601,11 +692,18 @@ export default function PaginaProductos(): React.JSX.Element {
                 onChange={(e) =>
                   actualizar("factorConversion", e.target.value.replace(/[^\d.]/g, ""))
                 }
+                onBlur={() => marcarTocado("factorConversion")}
                 inputMode="decimal"
                 placeholder="Ej. 12"
+                aria-invalid={errorVisible("factorConversion") ? "true" : undefined}
                 aria-describedby="factorConversion-ayuda"
                 className="campo font-mono"
               />
+              {errorVisible("factorConversion") && (
+                <p className="mt-1.5 text-xs text-peligro">
+                  {errorVisible("factorConversion")}
+                </p>
+              )}
               <p id="factorConversion-ayuda" className="mt-1.5 text-xs text-texto-ter">
                 Cuántas unidades de la unidad principal equivalen a UNA unidad de
                 referencia. Ej.: 1 caja = 12 unidades → factor 12.

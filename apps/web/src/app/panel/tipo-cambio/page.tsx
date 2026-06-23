@@ -122,6 +122,20 @@ export default function PaginaTipoCambio(): React.JSX.Element {
     );
   }
 
+  // Error derivado por celda: solo aplica cuando la fila tiene cambios sin
+  // guardar (sucio). Una celda vacía no se marca en rojo; una con un valor
+  // no positivo sí. Esta es la misma regla que respeta guardarFila.
+  function errorCelda(fila: FilaDia, campo: "compra" | "venta"): string | undefined {
+    if (!fila.sucio) return undefined;
+    const texto = fila[campo].trim();
+    if (texto === "") return undefined;
+    const numero = Number(texto);
+    if (!Number.isFinite(numero) || numero <= 0) {
+      return "Debe ser mayor que cero.";
+    }
+    return undefined;
+  }
+
   async function guardarFila(fila: FilaDia): Promise<void> {
     setAviso(null);
     const compra = Number(fila.compra);
@@ -279,11 +293,17 @@ export default function PaginaTipoCambio(): React.JSX.Element {
                         min="0"
                         className="campo h-9 w-28 text-right"
                         aria-label={`Compra del ${fila.fecha}`}
+                        aria-invalid={errorCelda(fila, "compra") ? "true" : undefined}
                         value={fila.compra}
                         onChange={(e) =>
                           editarFila(fila.dia, "compra", e.target.value)
                         }
                       />
+                      {errorCelda(fila, "compra") && (
+                        <p className="mt-1.5 text-xs text-peligro">
+                          {errorCelda(fila, "compra")}
+                        </p>
+                      )}
                     </td>
                     <td className="num">
                       <input
@@ -293,11 +313,17 @@ export default function PaginaTipoCambio(): React.JSX.Element {
                         min="0"
                         className="campo h-9 w-28 text-right"
                         aria-label={`Venta del ${fila.fecha}`}
+                        aria-invalid={errorCelda(fila, "venta") ? "true" : undefined}
                         value={fila.venta}
                         onChange={(e) =>
                           editarFila(fila.dia, "venta", e.target.value)
                         }
                       />
+                      {errorCelda(fila, "venta") && (
+                        <p className="mt-1.5 text-xs text-peligro">
+                          {errorCelda(fila, "venta")}
+                        </p>
+                      )}
                     </td>
                     <td className="text-right">
                       <button

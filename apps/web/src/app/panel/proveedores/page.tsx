@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
 import { PanelLateral } from "@/componentes/panel-lateral";
@@ -57,6 +57,31 @@ function mensajeError(error: unknown, porDefecto: string): string {
   return error instanceof ErrorApi ? error.message : porDefecto;
 }
 
+const REGEX_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Errores derivados del formulario, una entrada por campo inválido.
+ * Única fuente de verdad: el submit reutiliza esta misma función.
+ */
+function calcularErrores(
+  form: FormProveedor,
+  esEdicion: boolean,
+): Partial<Record<keyof FormProveedor, string>> {
+  const errores: Partial<Record<keyof FormProveedor, string>> = {};
+
+  // El RUC solo se ingresa al crear; en edición no se puede modificar.
+  if (!esEdicion && !/^\d{11}$/.test(form.ruc)) {
+    errores.ruc = "El RUC debe tener 11 dígitos.";
+  }
+  if (!form.razonSocial.trim()) {
+    errores.razonSocial = "La razón social es obligatoria.";
+  }
+  if (form.email.trim() && !REGEX_EMAIL.test(form.email.trim())) {
+    errores.email = "Ingresa un email válido.";
+  }
+  return errores;
+}
+
 function proveedorAForm(p: Proveedor): FormProveedor {
   return {
     ruc: p.ruc,
@@ -100,6 +125,25 @@ export default function PaginaProveedores(): React.JSX.Element {
   const [proveedorADesactivar, setProveedorADesactivar] = useState<Proveedor | null>(null);
   const [desactivando, setDesactivando] = useState<boolean>(false);
 
+  // Visibilidad del feedback inline: el error existe siempre (derivado),
+  // pero solo se muestra tras tocar el campo o intentar enviar.
+  const [tocado, setTocado] = useState<Record<string, boolean>>({});
+  const [intentoEnvio, setIntentoEnvio] = useState<boolean>(false);
+
+  const errores = useMemo(
+    () => calcularErrores(form, editandoId !== null),
+    [form, editandoId],
+  );
+
+  function errorVisible(campo: keyof FormProveedor): string | undefined {
+    if (!tocado[campo] && !intentoEnvio) return undefined;
+    return errores[campo];
+  }
+
+  function marcarTocado(campo: keyof FormProveedor): void {
+    setTocado((previo) => ({ ...previo, [campo]: true }));
+  }
+
   useEffect(() => {
     void (async (): Promise<void> => {
       try {
@@ -131,6 +175,8 @@ export default function PaginaProveedores(): React.JSX.Element {
     setEditandoId(null);
     setForm(PROVEEDOR_VACIO);
     setAvisoForm(null);
+    setTocado({});
+    setIntentoEnvio(false);
     setPanelAbierto(true);
   }
 
@@ -138,6 +184,8 @@ export default function PaginaProveedores(): React.JSX.Element {
     setEditandoId(proveedor.id);
     setForm(proveedorAForm(proveedor));
     setAvisoForm(null);
+    setTocado({});
+    setIntentoEnvio(false);
     setPanelAbierto(true);
   }
 
@@ -147,15 +195,15 @@ export default function PaginaProveedores(): React.JSX.Element {
     setEditandoId(null);
     setForm(PROVEEDOR_VACIO);
     setAvisoForm(null);
+    setTocado({});
+    setIntentoEnvio(false);
   }
 
   async function manejarProveedor(evento: FormEvent<HTMLFormElement>): Promise<void> {
     evento.preventDefault();
     setAvisoForm(null);
-    if (editandoId === null && !/^\d{11}$/.test(form.ruc)) {
-      setAvisoForm({ texto: "El RUC debe tener 11 dígitos.", tono: "error" });
-      return;
-    }
+    setIntentoEnvio(true);
+    if (Object.keys(errores).length > 0) return;
     setGuardando(true);
     try {
       const camposOpcionales = {
@@ -182,6 +230,8 @@ export default function PaginaProveedores(): React.JSX.Element {
       setPanelAbierto(false);
       setEditandoId(null);
       setForm(PROVEEDOR_VACIO);
+      setTocado({});
+      setIntentoEnvio(false);
       await refrescarProveedores();
     } catch (error) {
       setAvisoForm({
@@ -354,15 +404,19 @@ export default function PaginaProveedores(): React.JSX.Element {
               id="ruc"
               value={form.ruc}
               onChange={(e) => actualizarForm("ruc", e.target.value)}
+              onBlur={() => marcarTocado("ruc")}
               inputMode="numeric"
               maxLength={11}
               required
               disabled={editandoId !== null}
+              aria-invalid={errorVisible("ruc") ? "true" : undefined}
               className="campo font-mono disabled:opacity-60"
             />
-            {editandoId !== null && (
+            {editandoId !== null ? (
               <p className="mt-1.5 text-xs text-texto-ter">El RUC no se puede modificar.</p>
-            )}
+            ) : errorVisible("ruc") ? (
+              <p className="mt-1.5 text-xs text-peligro">{errorVisible("ruc")}</p>
+            ) : null}
           </div>
           <div>
             <label htmlFor="razon-social" className="etiqueta-campo">
@@ -372,9 +426,14 @@ export default function PaginaProveedores(): React.JSX.Element {
               id="razon-social"
               value={form.razonSocial}
               onChange={(e) => actualizarForm("razonSocial", e.target.value)}
+              onBlur={() => marcarTocado("razonSocial")}
               required
+              aria-invalid={errorVisible("razonSocial") ? "true" : undefined}
               className="campo"
             />
+            {errorVisible("razonSocial") && (
+              <p className="mt-1.5 text-xs text-peligro">{errorVisible("razonSocial")}</p>
+            )}
           </div>
           <div>
             <label htmlFor="direccion" className="etiqueta-campo">
@@ -409,8 +468,13 @@ export default function PaginaProveedores(): React.JSX.Element {
                 type="email"
                 value={form.email}
                 onChange={(e) => actualizarForm("email", e.target.value)}
+                onBlur={() => marcarTocado("email")}
+                aria-invalid={errorVisible("email") ? "true" : undefined}
                 className="campo"
               />
+              {errorVisible("email") && (
+                <p className="mt-1.5 text-xs text-peligro">{errorVisible("email")}</p>
+              )}
             </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">

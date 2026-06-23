@@ -162,6 +162,18 @@ export default function PaginaCompras(): React.JSX.Element {
     }
   }
 
+  // ── Visibilidad del feedback inline ──────────────────────────────────────────
+  // Los errores existen siempre (derivados del estado); la visibilidad depende de
+  // si el usuario tocó el campo (onBlur / onCambio) o intentó enviar el formulario.
+  const [tocado, setTocado] = useState<Record<string, boolean>>({});
+  const [intentoOrden, setIntentoOrden] = useState<boolean>(false);
+  const [intentoRecepcion, setIntentoRecepcion] = useState<boolean>(false);
+  const [intentoCotizacion, setIntentoCotizacion] = useState<boolean>(false);
+
+  function marcarTocado(campo: string): void {
+    setTocado((previo) => ({ ...previo, [campo]: true }));
+  }
+
   const subtotalBorrador = useMemo(() => {
     return lineas.reduce((acumulado, linea) => {
       const cantidad = Number(linea.cantidad);
@@ -188,6 +200,83 @@ export default function PaginaCompras(): React.JSX.Element {
     () => ordenes.find((o) => String(o.id) === ordenRecepcion) ?? null,
     [ordenes, ordenRecepcion],
   );
+
+  // ── Errores derivados (fuente única de verdad; el submit los reutiliza) ──────
+
+  const erroresOrden = useMemo(() => {
+    const e: {
+      proveedorOrden?: string;
+      tipoCambio?: string;
+      lineas: { cantidad?: string; costoUnitario?: string; sku?: string }[];
+      general?: string;
+    } = { lineas: [] };
+    if (!proveedorOrden) e.proveedorOrden = "Selecciona un proveedor.";
+    if (moneda === "USD" && (!tipoCambio.trim() || Number(tipoCambio) <= 0)) {
+      e.tipoCambio = "Ingresa un tipo de cambio mayor a 0.";
+    }
+    lineas.forEach((linea) => {
+      const eLinea: { cantidad?: string; costoUnitario?: string; sku?: string } = {};
+      const cant = linea.cantidad.trim();
+      const costo = linea.costoUnitario.trim();
+      if (cant && !(Number(linea.cantidad) > 0)) {
+        eLinea.cantidad = "Ingresa una cantidad mayor a 0.";
+      }
+      if (costo && !(Number(linea.costoUnitario) > 0)) {
+        eLinea.costoUnitario = "Ingresa un costo mayor a 0.";
+      }
+      if ((cant || costo) && !linea.sku) {
+        eLinea.sku = "Selecciona un producto.";
+      }
+      e.lineas.push(eLinea);
+    });
+    const conDatos = lineas.filter((l) => l.cantidad && l.costoUnitario);
+    if (conDatos.length === 0) {
+      e.general = "Agrega al menos una línea con SKU, cantidad y costo.";
+    }
+    return e;
+  }, [proveedorOrden, moneda, tipoCambio, lineas]);
+
+  const erroresRecepcion = useMemo(() => {
+    const e: {
+      tipoDocumento?: string;
+      serie?: string;
+      numeroComprobante?: string;
+      fechaEmision?: string;
+      subtotalRecep?: string;
+      igvRecep?: string;
+      totalRecep?: string;
+    } = {};
+    if (!tipoDocumento) e.tipoDocumento = "Selecciona el tipo de comprobante.";
+    if (!serie.trim()) e.serie = "Ingresa la serie.";
+    if (!numeroComprobante.trim()) e.numeroComprobante = "Ingresa el número.";
+    if (!fechaEmision) e.fechaEmision = "Indica la fecha de emisión.";
+    if (subtotalRecep.trim() && !(Number(subtotalRecep) >= 0)) {
+      e.subtotalRecep = "Ingresa un subtotal válido.";
+    } else if (!subtotalRecep.trim()) {
+      e.subtotalRecep = "Ingresa el subtotal.";
+    }
+    if (igvRecep.trim() && !(Number(igvRecep) >= 0)) {
+      e.igvRecep = "Ingresa un IGV válido.";
+    } else if (!igvRecep.trim()) {
+      e.igvRecep = "Ingresa el IGV.";
+    }
+    if (totalRecep.trim() && !(Number(totalRecep) > 0)) {
+      e.totalRecep = "Ingresa un total mayor a 0.";
+    } else if (!totalRecep.trim()) {
+      e.totalRecep = "Ingresa el total.";
+    }
+    return e;
+  }, [tipoDocumento, serie, numeroComprobante, fechaEmision, subtotalRecep, igvRecep, totalRecep]);
+
+  const erroresCotizacion = useMemo(() => {
+    const e: { proveedorCot?: string; precioCot?: string; fechaCot?: string } = {};
+    if (!proveedorCot) e.proveedorCot = "Selecciona un proveedor.";
+    if (!precioCot.trim() || !(Number(precioCot) > 0)) {
+      e.precioCot = "Ingresa un precio unitario mayor a 0.";
+    }
+    if (!fechaCot) e.fechaCot = "Indica la fecha de la cotización.";
+    return e;
+  }, [proveedorCot, precioCot, fechaCot]);
 
   // ── Órdenes de compra ────────────────────────────────────────────────────────
 
@@ -220,29 +309,17 @@ export default function PaginaCompras(): React.JSX.Element {
   async function manejarOrden(evento: FormEvent<HTMLFormElement>): Promise<void> {
     evento.preventDefault();
     setAvisoOrden(null);
-    if (!proveedorOrden) {
-      setAvisoOrden({ texto: "Selecciona un proveedor.", tono: "error" });
-      return;
-    }
-    if (moneda === "USD" && (!tipoCambio.trim() || Number(tipoCambio) <= 0)) {
-      setAvisoOrden({ texto: "Ingresa un tipo de cambio válido para dólares.", tono: "error" });
-      return;
-    }
+    setIntentoOrden(true);
     const lineasConDatos = lineas.filter((l) => l.cantidad && l.costoUnitario);
-    if (lineasConDatos.length === 0) {
-      setAvisoOrden({
-        texto: "Agrega al menos una línea con SKU, cantidad y costo.",
-        tono: "error",
-      });
-      return;
-    }
+    const hayErrores =
+      Boolean(erroresOrden.proveedorOrden) ||
+      Boolean(erroresOrden.tipoCambio) ||
+      Boolean(erroresOrden.general) ||
+      erroresOrden.lineas.some((l) => l.cantidad || l.costoUnitario || l.sku);
+    if (hayErrores) return;
     const lineasValidas = lineasConDatos.filter(
       (l): l is LineaBorrador & { sku: Sku } => l.sku !== null,
     );
-    if (lineasValidas.length !== lineasConDatos.length) {
-      setAvisoOrden({ texto: "Selecciona un producto en cada línea.", tono: "error" });
-      return;
-    }
     setGuardandoOrden(true);
     try {
       const respuesta = await crearOrdenCompra({
@@ -269,6 +346,7 @@ export default function PaginaCompras(): React.JSX.Element {
       setTipoCambio("");
       setObservaciones("");
       setLineas([lineaVacia()]);
+      setIntentoOrden(false);
       await refrescarOrdenes();
     } catch (error) {
       setAvisoOrden({
@@ -347,33 +425,18 @@ export default function PaginaCompras(): React.JSX.Element {
     setGuiaRemision("");
     setRecibidos({});
     setSeriesRecep({});
+    setIntentoRecepcion(false);
   }
 
   async function manejarRecepcion(evento: FormEvent<HTMLFormElement>): Promise<void> {
     evento.preventDefault();
     setAvisoRecepcion(null);
+    setIntentoRecepcion(true);
     if (!ordenSeleccionada) {
       setAvisoRecepcion({ texto: "Selecciona una orden de compra.", tono: "error" });
       return;
     }
-    if (!tipoDocumento) {
-      setAvisoRecepcion({ texto: "Selecciona el tipo de comprobante.", tono: "error" });
-      return;
-    }
-    if (!serie.trim() || !numeroComprobante.trim() || !fechaEmision) {
-      setAvisoRecepcion({
-        texto: "Completa serie, número y fecha de emisión del comprobante.",
-        tono: "error",
-      });
-      return;
-    }
-    if (!subtotalRecep.trim() || !igvRecep.trim() || !totalRecep.trim()) {
-      setAvisoRecepcion({
-        texto: "Completa subtotal, IGV y total del comprobante.",
-        tono: "error",
-      });
-      return;
-    }
+    if (Object.keys(erroresRecepcion).length > 0) return;
     const lineasConCantidad = ordenSeleccionada.lineas
       .map((linea) => ({
         linea,
@@ -483,22 +546,12 @@ export default function PaginaCompras(): React.JSX.Element {
   ): Promise<void> {
     evento.preventDefault();
     setAvisoCotizacion(null);
+    setIntentoCotizacion(true);
     if (!skuCotizacion) {
       setAvisoCotizacion({ texto: "Selecciona un SKU primero.", tono: "error" });
       return;
     }
-    if (!proveedorCot) {
-      setAvisoCotizacion({ texto: "Selecciona un proveedor.", tono: "error" });
-      return;
-    }
-    if (!precioCot.trim() || Number(precioCot) <= 0) {
-      setAvisoCotizacion({ texto: "Ingresa un precio unitario válido.", tono: "error" });
-      return;
-    }
-    if (!fechaCot) {
-      setAvisoCotizacion({ texto: "Indica la fecha de la cotización.", tono: "error" });
-      return;
-    }
+    if (Object.keys(erroresCotizacion).length > 0) return;
     setGuardandoCotizacion(true);
     try {
       await crearCotizacion({
@@ -517,6 +570,7 @@ export default function PaginaCompras(): React.JSX.Element {
       setFechaCot("");
       setNumeroCot("");
       setRefOcCot("");
+      setIntentoCotizacion(false);
       await cargarCotizaciones(skuCotizacion);
     } catch (error) {
       setAvisoCotizacion({
@@ -611,7 +665,10 @@ export default function PaginaCompras(): React.JSX.Element {
                   <SelectorBusqueda
                     id="proveedor-orden"
                     valor={proveedorOrden}
-                    onCambio={(v) => setProveedorOrden(v)}
+                    onCambio={(v) => {
+                      setProveedorOrden(v);
+                      marcarTocado("proveedorOrden");
+                    }}
                     disabled={cargandoBase}
                     requerido
                     placeholder={cargandoBase ? "Cargando…" : "Selecciona…"}
@@ -622,6 +679,11 @@ export default function PaginaCompras(): React.JSX.Element {
                         etiqueta: `${proveedor.ruc} — ${proveedor.razonSocial}`,
                       }))}
                   />
+                  {(tocado.proveedorOrden || intentoOrden) && erroresOrden.proveedorOrden && (
+                    <p className="mt-1.5 text-xs text-peligro">
+                      {erroresOrden.proveedorOrden}
+                    </p>
+                  )}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -647,9 +709,20 @@ export default function PaginaCompras(): React.JSX.Element {
                         id="tipo-cambio"
                         value={tipoCambio}
                         onChange={(e) => setTipoCambio(e.target.value)}
+                        onBlur={() => marcarTocado("tipoCambio")}
                         inputMode="decimal"
+                        aria-invalid={
+                          (tocado.tipoCambio || intentoOrden) && erroresOrden.tipoCambio
+                            ? "true"
+                            : undefined
+                        }
                         className="campo font-mono"
                       />
+                      {(tocado.tipoCambio || intentoOrden) && erroresOrden.tipoCambio && (
+                        <p className="mt-1.5 text-xs text-peligro">
+                          {erroresOrden.tipoCambio}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -674,6 +747,9 @@ export default function PaginaCompras(): React.JSX.Element {
                     Agregar línea
                   </button>
                 </div>
+                {intentoOrden && erroresOrden.general && (
+                  <p className="text-xs text-peligro">{erroresOrden.general}</p>
+                )}
 
                 {lineas.map((linea, indice) => (
                   <div
@@ -686,9 +762,18 @@ export default function PaginaCompras(): React.JSX.Element {
                       </label>
                       <SelectorSku
                         valor={linea.sku}
-                        onSeleccionar={(sku) => cambiarSkuLinea(indice, sku)}
+                        onSeleccionar={(sku) => {
+                          cambiarSkuLinea(indice, sku);
+                          marcarTocado(`oc-sku-${indice}`);
+                        }}
                         placeholder="Busca por código o nombre…"
                       />
+                      {(tocado[`oc-sku-${indice}`] || intentoOrden) &&
+                        erroresOrden.lineas[indice]?.sku && (
+                          <p className="mt-1.5 text-xs text-peligro">
+                            {erroresOrden.lineas[indice]?.sku}
+                          </p>
+                        )}
                     </div>
                     <div>
                       <label htmlFor={`linea-cantidad-${indice}`} className="etiqueta-campo">
@@ -698,9 +783,22 @@ export default function PaginaCompras(): React.JSX.Element {
                         id={`linea-cantidad-${indice}`}
                         value={linea.cantidad}
                         onChange={(e) => actualizarLinea(indice, { cantidad: e.target.value })}
+                        onBlur={() => marcarTocado(`oc-cantidad-${indice}`)}
                         inputMode="decimal"
+                        aria-invalid={
+                          (tocado[`oc-cantidad-${indice}`] || intentoOrden) &&
+                          erroresOrden.lineas[indice]?.cantidad
+                            ? "true"
+                            : undefined
+                        }
                         className="campo w-28 font-mono"
                       />
+                      {(tocado[`oc-cantidad-${indice}`] || intentoOrden) &&
+                        erroresOrden.lineas[indice]?.cantidad && (
+                          <p className="mt-1.5 text-xs text-peligro">
+                            {erroresOrden.lineas[indice]?.cantidad}
+                          </p>
+                        )}
                     </div>
                     <SelectorUnidadLinea
                       sku={linea.sku}
@@ -721,9 +819,22 @@ export default function PaginaCompras(): React.JSX.Element {
                         onChange={(e) =>
                           actualizarLinea(indice, { costoUnitario: e.target.value })
                         }
+                        onBlur={() => marcarTocado(`oc-costo-${indice}`)}
                         inputMode="decimal"
+                        aria-invalid={
+                          (tocado[`oc-costo-${indice}`] || intentoOrden) &&
+                          erroresOrden.lineas[indice]?.costoUnitario
+                            ? "true"
+                            : undefined
+                        }
                         className="campo w-32 font-mono"
                       />
+                      {(tocado[`oc-costo-${indice}`] || intentoOrden) &&
+                        erroresOrden.lineas[indice]?.costoUnitario && (
+                          <p className="mt-1.5 text-xs text-peligro">
+                            {erroresOrden.lineas[indice]?.costoUnitario}
+                          </p>
+                        )}
                     </div>
                     <div className="flex items-end">
                       <button
@@ -990,7 +1101,10 @@ export default function PaginaCompras(): React.JSX.Element {
                       <SelectorBusqueda
                         id="tipo-documento"
                         valor={tipoDocumento}
-                        onCambio={(v) => setTipoDocumento(v)}
+                        onCambio={(v) => {
+                          setTipoDocumento(v);
+                          marcarTocado("rc-tipoDocumento");
+                        }}
                         requerido
                         placeholder="Selecciona…"
                         opciones={COMPROBANTES_COMPRA.map((opcion) => ({
@@ -998,6 +1112,12 @@ export default function PaginaCompras(): React.JSX.Element {
                           etiqueta: `${opcion.codigo} — ${opcion.etiqueta}`,
                         }))}
                       />
+                      {(tocado["rc-tipoDocumento"] || intentoRecepcion) &&
+                        erroresRecepcion.tipoDocumento && (
+                          <p className="mt-1.5 text-xs text-peligro">
+                            {erroresRecepcion.tipoDocumento}
+                          </p>
+                        )}
                     </div>
                     <div>
                       <label htmlFor="serie" className="etiqueta-campo">
@@ -1007,10 +1127,19 @@ export default function PaginaCompras(): React.JSX.Element {
                         id="serie"
                         value={serie}
                         onChange={(e) => setSerie(e.target.value)}
+                        onBlur={() => marcarTocado("rc-serie")}
                         required
                         placeholder="Ej. F001"
+                        aria-invalid={
+                          (tocado["rc-serie"] || intentoRecepcion) && erroresRecepcion.serie
+                            ? "true"
+                            : undefined
+                        }
                         className="campo font-mono"
                       />
+                      {(tocado["rc-serie"] || intentoRecepcion) && erroresRecepcion.serie && (
+                        <p className="mt-1.5 text-xs text-peligro">{erroresRecepcion.serie}</p>
+                      )}
                     </div>
                     <div>
                       <label htmlFor="numero-comprobante" className="etiqueta-campo">
@@ -1020,10 +1149,23 @@ export default function PaginaCompras(): React.JSX.Element {
                         id="numero-comprobante"
                         value={numeroComprobante}
                         onChange={(e) => setNumeroComprobante(e.target.value)}
+                        onBlur={() => marcarTocado("rc-numero")}
                         required
                         placeholder="Ej. 0001234"
+                        aria-invalid={
+                          (tocado["rc-numero"] || intentoRecepcion) &&
+                          erroresRecepcion.numeroComprobante
+                            ? "true"
+                            : undefined
+                        }
                         className="campo font-mono"
                       />
+                      {(tocado["rc-numero"] || intentoRecepcion) &&
+                        erroresRecepcion.numeroComprobante && (
+                          <p className="mt-1.5 text-xs text-peligro">
+                            {erroresRecepcion.numeroComprobante}
+                          </p>
+                        )}
                     </div>
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2">
@@ -1036,9 +1178,22 @@ export default function PaginaCompras(): React.JSX.Element {
                         type="date"
                         value={fechaEmision}
                         onChange={(e) => setFechaEmision(e.target.value)}
+                        onBlur={() => marcarTocado("rc-fecha")}
                         required
+                        aria-invalid={
+                          (tocado["rc-fecha"] || intentoRecepcion) &&
+                          erroresRecepcion.fechaEmision
+                            ? "true"
+                            : undefined
+                        }
                         className="campo"
                       />
+                      {(tocado["rc-fecha"] || intentoRecepcion) &&
+                        erroresRecepcion.fechaEmision && (
+                          <p className="mt-1.5 text-xs text-peligro">
+                            {erroresRecepcion.fechaEmision}
+                          </p>
+                        )}
                     </div>
                     <div>
                       <label htmlFor="guia-remision" className="etiqueta-campo">
@@ -1061,10 +1216,23 @@ export default function PaginaCompras(): React.JSX.Element {
                         id="subtotal-recep"
                         value={subtotalRecep}
                         onChange={(e) => setSubtotalRecep(e.target.value)}
+                        onBlur={() => marcarTocado("rc-subtotal")}
                         inputMode="decimal"
                         required
+                        aria-invalid={
+                          (tocado["rc-subtotal"] || intentoRecepcion) &&
+                          erroresRecepcion.subtotalRecep
+                            ? "true"
+                            : undefined
+                        }
                         className="campo font-mono"
                       />
+                      {(tocado["rc-subtotal"] || intentoRecepcion) &&
+                        erroresRecepcion.subtotalRecep && (
+                          <p className="mt-1.5 text-xs text-peligro">
+                            {erroresRecepcion.subtotalRecep}
+                          </p>
+                        )}
                     </div>
                     <div>
                       <label htmlFor="igv-recep" className="etiqueta-campo">
@@ -1074,10 +1242,21 @@ export default function PaginaCompras(): React.JSX.Element {
                         id="igv-recep"
                         value={igvRecep}
                         onChange={(e) => setIgvRecep(e.target.value)}
+                        onBlur={() => marcarTocado("rc-igv")}
                         inputMode="decimal"
                         required
+                        aria-invalid={
+                          (tocado["rc-igv"] || intentoRecepcion) && erroresRecepcion.igvRecep
+                            ? "true"
+                            : undefined
+                        }
                         className="campo font-mono"
                       />
+                      {(tocado["rc-igv"] || intentoRecepcion) && erroresRecepcion.igvRecep && (
+                        <p className="mt-1.5 text-xs text-peligro">
+                          {erroresRecepcion.igvRecep}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label htmlFor="total-recep" className="etiqueta-campo">
@@ -1087,10 +1266,23 @@ export default function PaginaCompras(): React.JSX.Element {
                         id="total-recep"
                         value={totalRecep}
                         onChange={(e) => setTotalRecep(e.target.value)}
+                        onBlur={() => marcarTocado("rc-total")}
                         inputMode="decimal"
                         required
+                        aria-invalid={
+                          (tocado["rc-total"] || intentoRecepcion) &&
+                          erroresRecepcion.totalRecep
+                            ? "true"
+                            : undefined
+                        }
                         className="campo font-mono"
                       />
+                      {(tocado["rc-total"] || intentoRecepcion) &&
+                        erroresRecepcion.totalRecep && (
+                          <p className="mt-1.5 text-xs text-peligro">
+                            {erroresRecepcion.totalRecep}
+                          </p>
+                        )}
                     </div>
                   </div>
                   <p className="text-xs text-texto-ter">
@@ -1220,7 +1412,10 @@ export default function PaginaCompras(): React.JSX.Element {
                     <SelectorBusqueda
                       id="proveedor-cot"
                       valor={proveedorCot}
-                      onCambio={(v) => setProveedorCot(v)}
+                      onCambio={(v) => {
+                        setProveedorCot(v);
+                        marcarTocado("cot-proveedor");
+                      }}
                       disabled={cargandoBase}
                       requerido
                       placeholder={cargandoBase ? "Cargando…" : "Selecciona…"}
@@ -1231,6 +1426,12 @@ export default function PaginaCompras(): React.JSX.Element {
                           etiqueta: `${proveedor.ruc} — ${proveedor.razonSocial}`,
                         }))}
                     />
+                    {(tocado["cot-proveedor"] || intentoCotizacion) &&
+                      erroresCotizacion.proveedorCot && (
+                        <p className="mt-1.5 text-xs text-peligro">
+                          {erroresCotizacion.proveedorCot}
+                        </p>
+                      )}
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -1255,10 +1456,23 @@ export default function PaginaCompras(): React.JSX.Element {
                         id="precio-cot"
                         value={precioCot}
                         onChange={(e) => setPrecioCot(e.target.value)}
+                        onBlur={() => marcarTocado("cot-precio")}
                         inputMode="decimal"
                         required
+                        aria-invalid={
+                          (tocado["cot-precio"] || intentoCotizacion) &&
+                          erroresCotizacion.precioCot
+                            ? "true"
+                            : undefined
+                        }
                         className="campo font-mono"
                       />
+                      {(tocado["cot-precio"] || intentoCotizacion) &&
+                        erroresCotizacion.precioCot && (
+                          <p className="mt-1.5 text-xs text-peligro">
+                            {erroresCotizacion.precioCot}
+                          </p>
+                        )}
                     </div>
                   </div>
                 </div>
@@ -1272,9 +1486,22 @@ export default function PaginaCompras(): React.JSX.Element {
                       type="date"
                       value={fechaCot}
                       onChange={(e) => setFechaCot(e.target.value)}
+                      onBlur={() => marcarTocado("cot-fecha")}
                       required
+                      aria-invalid={
+                        (tocado["cot-fecha"] || intentoCotizacion) &&
+                        erroresCotizacion.fechaCot
+                          ? "true"
+                          : undefined
+                      }
                       className="campo"
                     />
+                    {(tocado["cot-fecha"] || intentoCotizacion) &&
+                      erroresCotizacion.fechaCot && (
+                        <p className="mt-1.5 text-xs text-peligro">
+                          {erroresCotizacion.fechaCot}
+                        </p>
+                      )}
                   </div>
                   <div>
                     <label htmlFor="numero-cot" className="etiqueta-campo">

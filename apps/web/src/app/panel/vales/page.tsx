@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { SelectorSeriesSalida } from "@/componentes/captura-series";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
@@ -108,6 +108,9 @@ export default function PaginaVales(): React.JSX.Element {
   const [lineas, setLineas] = useState<LineaBorrador[]>([lineaVacia()]);
   const [guardando, setGuardando] = useState<boolean>(false);
   const [avisoForm, setAvisoForm] = useState<Aviso | null>(null);
+  // Visibilidad del feedback inline de la cabecera del vale.
+  const [tocado, setTocado] = useState<Record<string, boolean>>({});
+  const [intentoEnvio, setIntentoEnvio] = useState<boolean>(false);
 
   const [avisoLista, setAvisoLista] = useState<Aviso | null>(null);
   const [accion, setAccion] = useState<AccionPendiente | null>(null);
@@ -151,6 +154,38 @@ export default function PaginaVales(): React.JSX.Element {
     }
   }
 
+  // Errores DERIVADOS de la cabecera. Misma fuente de verdad que el submit.
+  const erroresCabecera = useMemo<Record<string, string>>(() => {
+    const e: Record<string, string> = {};
+    if (!almacenId) e.almacenId = "Selecciona un almacén de origen.";
+    if (!centroCostoId) e.centroCostoId = "Selecciona un centro de costo.";
+    if (!destino.trim()) e.destino = "Indica el destino del vale.";
+    return e;
+  }, [almacenId, centroCostoId, destino]);
+
+  function errorVisible(campo: string): string | undefined {
+    if (!tocado[campo] && !intentoEnvio) return undefined;
+    return erroresCabecera[campo];
+  }
+
+  function marcarTocado(campo: string): void {
+    setTocado((previo) => ({ ...previo, [campo]: true }));
+  }
+
+  // Error DERIVADO por línea: solo se evalúa cuando la línea ya tiene contenido.
+  function errorLinea(linea: LineaBorrador): string | undefined {
+    const texto = linea.cantidad.trim();
+    const tieneCantidad = texto !== "";
+    const tieneSku = linea.sku !== null;
+    if (!tieneCantidad && !tieneSku) return undefined;
+    if (!tieneSku) return "Selecciona un producto para esta línea.";
+    if (!tieneCantidad) return "Ingresa la cantidad.";
+    if (!/^\d+(\.\d+)?$/.test(texto) || Number(texto) <= 0) {
+      return "Ingresa una cantidad mayor que cero.";
+    }
+    return undefined;
+  }
+
   function actualizarLinea(indice: number, cambios: Partial<LineaBorrador>): void {
     setLineas((previas) =>
       previas.map((linea, i) => (i === indice ? { ...linea, ...cambios } : linea)),
@@ -180,16 +215,8 @@ export default function PaginaVales(): React.JSX.Element {
   async function manejarCreacion(evento: FormEvent<HTMLFormElement>): Promise<void> {
     evento.preventDefault();
     setAvisoForm(null);
-    if (!almacenId) {
-      setAvisoForm({ texto: "Selecciona un almacén de origen.", tono: "error" });
-      return;
-    }
-    if (!centroCostoId) {
-      setAvisoForm({ texto: "Selecciona un centro de costo.", tono: "error" });
-      return;
-    }
-    if (!destino.trim()) {
-      setAvisoForm({ texto: "Indica el destino del vale.", tono: "error" });
+    setIntentoEnvio(true);
+    if (Object.keys(erroresCabecera).length > 0) {
       return;
     }
     const conDatos = lineas.filter((l) => l.cantidad.trim() && Number(l.cantidad) > 0);
@@ -232,6 +259,8 @@ export default function PaginaVales(): React.JSX.Element {
       setDestino("");
       setObservaciones("");
       setLineas([lineaVacia()]);
+      setTocado({});
+      setIntentoEnvio(false);
       await refrescar();
     } catch (error) {
       setAvisoForm({
@@ -383,7 +412,10 @@ export default function PaginaVales(): React.JSX.Element {
                 <SelectorBusqueda
                   id="vale-almacen"
                   valor={almacenId}
-                  onCambio={(v) => setAlmacenId(v)}
+                  onCambio={(v) => {
+                    setAlmacenId(v);
+                    marcarTocado("almacenId");
+                  }}
                   disabled={cargandoBase}
                   requerido
                   placeholder={cargandoBase ? "Cargando…" : "Selecciona…"}
@@ -392,6 +424,9 @@ export default function PaginaVales(): React.JSX.Element {
                     etiqueta: `${almacen.codigo} — ${almacen.nombre}`,
                   }))}
                 />
+                {errorVisible("almacenId") && (
+                  <p className="mt-1.5 text-xs text-peligro">{errorVisible("almacenId")}</p>
+                )}
               </div>
               <div>
                 <label htmlFor="vale-centro-costo" className="etiqueta-campo">
@@ -400,7 +435,10 @@ export default function PaginaVales(): React.JSX.Element {
                 <SelectorBusqueda
                   id="vale-centro-costo"
                   valor={centroCostoId}
-                  onCambio={(v) => cambiarCentroCosto(v)}
+                  onCambio={(v) => {
+                    cambiarCentroCosto(v);
+                    marcarTocado("centroCostoId");
+                  }}
                   disabled={cargandoBase}
                   requerido
                   placeholder={cargandoBase ? "Cargando…" : "Selecciona…"}
@@ -409,6 +447,9 @@ export default function PaginaVales(): React.JSX.Element {
                     etiqueta: `${centro.codigo} — ${centro.nombre}`,
                   }))}
                 />
+                {errorVisible("centroCostoId") && (
+                  <p className="mt-1.5 text-xs text-peligro">{errorVisible("centroCostoId")}</p>
+                )}
               </div>
               <div>
                 <label htmlFor="vale-orden-trabajo" className="etiqueta-campo">
@@ -440,10 +481,15 @@ export default function PaginaVales(): React.JSX.Element {
                   id="vale-destino"
                   value={destino}
                   onChange={(e) => setDestino(e.target.value)}
+                  onBlur={() => marcarTocado("destino")}
                   required
+                  aria-invalid={errorVisible("destino") ? "true" : undefined}
                   placeholder="Área, obra o proyecto"
                   className="campo"
                 />
+                {errorVisible("destino") && (
+                  <p className="mt-1.5 text-xs text-peligro">{errorVisible("destino")}</p>
+                )}
               </div>
               <div>
                 <label htmlFor="vale-observaciones" className="etiqueta-campo">
@@ -466,7 +512,9 @@ export default function PaginaVales(): React.JSX.Element {
                 </button>
               </div>
 
-              {lineas.map((linea, indice) => (
+              {lineas.map((linea, indice) => {
+                const errLinea = errorLinea(linea);
+                return (
                 <div
                   key={indice}
                   className="grid gap-3 rounded-md border border-borde bg-panel-alt p-3 sm:grid-cols-[1fr_auto_auto_1fr_auto]"
@@ -490,6 +538,7 @@ export default function PaginaVales(): React.JSX.Element {
                       value={linea.cantidad}
                       onChange={(e) => actualizarLinea(indice, { cantidad: e.target.value })}
                       inputMode="decimal"
+                      aria-invalid={errLinea ? "true" : undefined}
                       className="campo w-28 font-mono"
                     />
                   </div>
@@ -526,8 +575,12 @@ export default function PaginaVales(): React.JSX.Element {
                       Quitar
                     </button>
                   </div>
+                  {errLinea && (
+                    <p className="mt-1 text-xs text-peligro sm:col-span-5">{errLinea}</p>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="flex justify-end border-t border-borde pt-4">
@@ -721,6 +774,9 @@ export default function PaginaVales(): React.JSX.Element {
                 .map((linea) => {
                   const pendiente =
                     Number(linea.cantidad) - Number(linea.cantidadDespachada);
+                  const seleccionadas = (seriesPorLinea[linea.id] ?? []).length;
+                  // Feedback en vivo del avance de selección de series por línea.
+                  const faltanSeries = seleccionadas !== pendiente;
                   return (
                     <div
                       key={linea.id}
@@ -744,6 +800,13 @@ export default function PaginaVales(): React.JSX.Element {
                           }))
                         }
                       />
+                      <p
+                        className={`mt-1.5 text-xs ${
+                          faltanSeries ? "text-peligro" : "text-exito"
+                        }`}
+                      >
+                        {seleccionadas} / {pendiente} número(s) de serie seleccionados
+                      </p>
                     </div>
                   );
                 })}

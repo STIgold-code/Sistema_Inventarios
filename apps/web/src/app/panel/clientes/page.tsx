@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
 import { PanelLateral } from "@/componentes/panel-lateral";
@@ -61,6 +61,33 @@ function mensajeError(error: unknown, porDefecto: string): string {
   return error instanceof ErrorApi ? error.message : porDefecto;
 }
 
+const REGEX_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Errores derivados del formulario, una entrada por campo inválido.
+ * Única fuente de verdad: el submit reutiliza esta misma función.
+ */
+function calcularErrores(form: FormCliente): Partial<Record<keyof FormCliente, string>> {
+  const errores: Partial<Record<keyof FormCliente, string>> = {};
+
+  const numeroDoc = form.numeroDoc.trim();
+  if (!numeroDoc) {
+    errores.numeroDoc = "El número de documento es obligatorio.";
+  } else if (form.tipoDocIdentidad === "6" && !/^\d{11}$/.test(numeroDoc)) {
+    errores.numeroDoc = "El RUC debe tener 11 dígitos.";
+  } else if (form.tipoDocIdentidad === "1" && !/^\d{8}$/.test(numeroDoc)) {
+    errores.numeroDoc = "El DNI debe tener 8 dígitos.";
+  }
+
+  if (!form.razonSocial.trim()) {
+    errores.razonSocial = "La razón social es obligatoria.";
+  }
+  if (form.email.trim() && !REGEX_EMAIL.test(form.email.trim())) {
+    errores.email = "Ingresa un email válido.";
+  }
+  return errores;
+}
+
 function clienteAForm(c: Cliente): FormCliente {
   return {
     tipoDocIdentidad: c.tipoDocIdentidad || "6",
@@ -106,6 +133,22 @@ export default function PaginaClientes(): React.JSX.Element {
   const [clienteADesactivar, setClienteADesactivar] = useState<Cliente | null>(null);
   const [desactivando, setDesactivando] = useState<boolean>(false);
 
+  // Visibilidad del feedback inline: el error existe siempre (derivado),
+  // pero solo se muestra tras tocar el campo o intentar enviar.
+  const [tocado, setTocado] = useState<Record<string, boolean>>({});
+  const [intentoEnvio, setIntentoEnvio] = useState<boolean>(false);
+
+  const errores = useMemo(() => calcularErrores(form), [form]);
+
+  function errorVisible(campo: keyof FormCliente): string | undefined {
+    if (!tocado[campo] && !intentoEnvio) return undefined;
+    return errores[campo];
+  }
+
+  function marcarTocado(campo: keyof FormCliente): void {
+    setTocado((previo) => ({ ...previo, [campo]: true }));
+  }
+
   useEffect(() => {
     void (async (): Promise<void> => {
       try {
@@ -137,6 +180,8 @@ export default function PaginaClientes(): React.JSX.Element {
     setEditandoId(null);
     setForm(CLIENTE_VACIO);
     setAvisoForm(null);
+    setTocado({});
+    setIntentoEnvio(false);
     setPanelAbierto(true);
   }
 
@@ -144,6 +189,8 @@ export default function PaginaClientes(): React.JSX.Element {
     setEditandoId(cliente.id);
     setForm(clienteAForm(cliente));
     setAvisoForm(null);
+    setTocado({});
+    setIntentoEnvio(false);
     setPanelAbierto(true);
   }
 
@@ -153,18 +200,15 @@ export default function PaginaClientes(): React.JSX.Element {
     setEditandoId(null);
     setForm(CLIENTE_VACIO);
     setAvisoForm(null);
+    setTocado({});
+    setIntentoEnvio(false);
   }
 
   async function manejarCliente(evento: FormEvent<HTMLFormElement>): Promise<void> {
     evento.preventDefault();
     setAvisoForm(null);
-    if (!form.numeroDoc.trim() || !form.razonSocial.trim()) {
-      setAvisoForm({
-        texto: "Completa el número de documento y la razón social.",
-        tono: "error",
-      });
-      return;
-    }
+    setIntentoEnvio(true);
+    if (Object.keys(errores).length > 0) return;
     setGuardando(true);
     try {
       const datos = {
@@ -186,6 +230,8 @@ export default function PaginaClientes(): React.JSX.Element {
       setPanelAbierto(false);
       setEditandoId(null);
       setForm(CLIENTE_VACIO);
+      setTocado({});
+      setIntentoEnvio(false);
       await refrescar();
     } catch (error) {
       setAvisoForm({
@@ -366,10 +412,15 @@ export default function PaginaClientes(): React.JSX.Element {
                 id="numero-doc"
                 value={form.numeroDoc}
                 onChange={(e) => actualizarForm("numeroDoc", e.target.value)}
+                onBlur={() => marcarTocado("numeroDoc")}
                 inputMode="numeric"
                 required
+                aria-invalid={errorVisible("numeroDoc") ? "true" : undefined}
                 className="campo font-mono"
               />
+              {errorVisible("numeroDoc") && (
+                <p className="mt-1.5 text-xs text-peligro">{errorVisible("numeroDoc")}</p>
+              )}
             </div>
           </div>
           <div>
@@ -380,9 +431,14 @@ export default function PaginaClientes(): React.JSX.Element {
               id="razon-social"
               value={form.razonSocial}
               onChange={(e) => actualizarForm("razonSocial", e.target.value)}
+              onBlur={() => marcarTocado("razonSocial")}
               required
+              aria-invalid={errorVisible("razonSocial") ? "true" : undefined}
               className="campo"
             />
+            {errorVisible("razonSocial") && (
+              <p className="mt-1.5 text-xs text-peligro">{errorVisible("razonSocial")}</p>
+            )}
           </div>
           <div>
             <label htmlFor="direccion" className="etiqueta-campo">
@@ -417,8 +473,13 @@ export default function PaginaClientes(): React.JSX.Element {
                 type="email"
                 value={form.email}
                 onChange={(e) => actualizarForm("email", e.target.value)}
+                onBlur={() => marcarTocado("email")}
+                aria-invalid={errorVisible("email") ? "true" : undefined}
                 className="campo"
               />
+              {errorVisible("email") && (
+                <p className="mt-1.5 text-xs text-peligro">{errorVisible("email")}</p>
+              )}
             </div>
           </div>
           <div>

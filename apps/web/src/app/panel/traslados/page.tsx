@@ -147,6 +147,38 @@ export default function PaginaTraslados(): React.JSX.Element {
 
   // ── Crear orden de traslado ──────────────────────────────────────────────────
 
+  // Error DERIVADO de "almacenes iguales": se muestra apenas origen y destino
+  // coinciden, sin esperar al submit.
+  const errorDestino: string | undefined =
+    origenId && destinoId && origenId === destinoId
+      ? "El almacén de destino debe ser diferente del de origen."
+      : undefined;
+
+  // Error DERIVADO por línea de la orden. Solo se evalúa cuando la línea ya
+  // tiene contenido (cantidad o SKU), para no marcar en rojo líneas vacías.
+  function errorLineaOrden(linea: LineaBorrador): string | undefined {
+    const texto = linea.cantidad.trim();
+    const tieneCantidad = texto !== "";
+    const tieneSku = linea.sku !== null;
+    if (!tieneCantidad && !tieneSku) return undefined;
+    if (!tieneSku) return "Selecciona un producto para esta línea.";
+    if (!tieneCantidad) return "Ingresa la cantidad.";
+    if (!/^\d+(\.\d+)?$/.test(texto) || Number(texto) <= 0) {
+      return "Ingresa una cantidad mayor que cero.";
+    }
+    return undefined;
+  }
+
+  // Error DERIVADO por línea de recepción (cantidad recibida válida).
+  function errorRecepcionLinea(lineaId: number, despachada: string): string | undefined {
+    const texto = (recibidos[lineaId] ?? despachada).trim();
+    if (texto === "") return "Ingresa la cantidad recibida.";
+    if (!/^\d+(\.\d+)?$/.test(texto) || Number(texto) < 0) {
+      return "Ingresa una cantidad recibida válida.";
+    }
+    return undefined;
+  }
+
   function actualizarLinea(indice: number, cambios: Partial<LineaBorrador>): void {
     setLineas((previas) =>
       previas.map((linea, i) => (i === indice ? { ...linea, ...cambios } : linea)),
@@ -432,6 +464,9 @@ export default function PaginaTraslados(): React.JSX.Element {
                     requerido
                     placeholder={cargandoBase ? "Cargando…" : "Selecciona…"}
                   />
+                  {errorDestino && (
+                    <p className="mt-1.5 text-xs text-peligro">{errorDestino}</p>
+                  )}
                 </div>
               </div>
 
@@ -455,7 +490,9 @@ export default function PaginaTraslados(): React.JSX.Element {
                   </button>
                 </div>
 
-                {lineas.map((linea, indice) => (
+                {lineas.map((linea, indice) => {
+                  const errorLinea = errorLineaOrden(linea);
+                  return (
                   <div
                     key={indice}
                     className="grid gap-3 rounded-md border border-borde bg-panel-alt p-3 sm:grid-cols-[1fr_auto_auto]"
@@ -479,9 +516,13 @@ export default function PaginaTraslados(): React.JSX.Element {
                         value={linea.cantidad}
                         onChange={(e) => actualizarLinea(indice, { cantidad: e.target.value })}
                         inputMode="decimal"
+                        aria-invalid={errorLinea ? "true" : undefined}
                         className="campo w-28 font-mono"
                       />
                     </div>
+                    {errorLinea && (
+                      <p className="mt-1 text-xs text-peligro sm:col-span-3">{errorLinea}</p>
+                    )}
                     <div className="flex items-end">
                       <button
                         type="button"
@@ -494,7 +535,8 @@ export default function PaginaTraslados(): React.JSX.Element {
                       </button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="flex justify-end border-t border-borde pt-4">
@@ -694,8 +736,18 @@ export default function PaginaTraslados(): React.JSX.Element {
                               onChange={(e) => actualizarRecibido(linea.id, e.target.value)}
                               inputMode="decimal"
                               aria-label={`Cantidad recibida de ${linea.nombreSku}`}
+                              aria-invalid={
+                                errorRecepcionLinea(linea.id, linea.cantidadDespachada)
+                                  ? "true"
+                                  : undefined
+                              }
                               className="campo w-28 font-mono"
                             />
+                            {errorRecepcionLinea(linea.id, linea.cantidadDespachada) && (
+                              <p className="mt-1.5 text-xs text-peligro">
+                                {errorRecepcionLinea(linea.id, linea.cantidadDespachada)}
+                              </p>
+                            )}
                           </td>
                         </tr>
                       ))}

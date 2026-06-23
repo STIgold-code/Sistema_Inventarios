@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
@@ -73,6 +73,41 @@ export default function PaginaRequerimientos(): React.JSX.Element {
   const [accion, setAccion] = useState<AccionPendiente | null>(null);
   const [procesandoAccion, setProcesandoAccion] = useState<boolean>(false);
 
+  // Visibilidad del feedback inline: un error existe siempre (derivado), pero solo
+  // se muestra una vez que el usuario tocó el campo o intentó enviar.
+  const [tocado, setTocado] = useState<Record<string, boolean>>({});
+  const [intentoEnvio, setIntentoEnvio] = useState<boolean>(false);
+
+  function marcarTocado(campo: string): void {
+    setTocado((previo) => ({ ...previo, [campo]: true }));
+  }
+
+  // Errores derivados del estado actual. Fuente única de verdad: el submit la reutiliza.
+  const errores = useMemo(() => {
+    const e: {
+      centroCostoId?: string;
+      lineas: { cantidad?: string; sku?: string }[];
+      general?: string;
+    } = { lineas: [] };
+    if (!centroCostoId) e.centroCostoId = "Selecciona un centro de costo.";
+    const conDatos = lineas.filter((l) => l.cantidad.trim() && Number(l.cantidad) > 0);
+    lineas.forEach((linea) => {
+      const erroresLinea: { cantidad?: string; sku?: string } = {};
+      const cantidadTexto = linea.cantidad.trim();
+      if (cantidadTexto && !(Number(linea.cantidad) > 0)) {
+        erroresLinea.cantidad = "Ingresa una cantidad mayor a 0.";
+      }
+      if (cantidadTexto && Number(linea.cantidad) > 0 && !linea.sku) {
+        erroresLinea.sku = "Selecciona un producto.";
+      }
+      e.lineas.push(erroresLinea);
+    });
+    if (conDatos.length === 0) {
+      e.general = "Agrega al menos una línea con SKU y cantidad.";
+    }
+    return e;
+  }, [centroCostoId, lineas]);
+
   useEffect(() => {
     void (async (): Promise<void> => {
       try {
@@ -120,25 +155,16 @@ export default function PaginaRequerimientos(): React.JSX.Element {
   async function manejarCreacion(evento: FormEvent<HTMLFormElement>): Promise<void> {
     evento.preventDefault();
     setAvisoForm(null);
-    if (!centroCostoId) {
-      setAvisoForm({ texto: "Selecciona un centro de costo.", tono: "error" });
-      return;
-    }
+    setIntentoEnvio(true);
     const conDatos = lineas.filter((l) => l.cantidad.trim() && Number(l.cantidad) > 0);
-    if (conDatos.length === 0) {
-      setAvisoForm({
-        texto: "Agrega al menos una línea con SKU y cantidad.",
-        tono: "error",
-      });
-      return;
-    }
+    const hayErrores =
+      Boolean(errores.centroCostoId) ||
+      Boolean(errores.general) ||
+      errores.lineas.some((l) => l.cantidad || l.sku);
+    if (hayErrores) return;
     const validas = conDatos.filter(
       (l): l is LineaBorrador & { sku: Sku } => l.sku !== null,
     );
-    if (validas.length !== conDatos.length) {
-      setAvisoForm({ texto: "Selecciona un producto en cada línea.", tono: "error" });
-      return;
-    }
     setGuardando(true);
     try {
       const respuesta = await crearRequerimiento({
@@ -157,6 +183,8 @@ export default function PaginaRequerimientos(): React.JSX.Element {
       setCentroCostoId("");
       setObservaciones("");
       setLineas([lineaVacia()]);
+      setTocado({});
+      setIntentoEnvio(false);
       await refrescar();
     } catch (error) {
       setAvisoForm({
@@ -224,7 +252,10 @@ export default function PaginaRequerimientos(): React.JSX.Element {
                 <SelectorBusqueda
                   id="centro-costo"
                   valor={centroCostoId}
-                  onCambio={(v) => setCentroCostoId(v)}
+                  onCambio={(v) => {
+                    setCentroCostoId(v);
+                    marcarTocado("centroCostoId");
+                  }}
                   disabled={cargandoBase}
                   requerido
                   placeholder={cargandoBase ? "Cargando…" : "Selecciona…"}
@@ -233,6 +264,9 @@ export default function PaginaRequerimientos(): React.JSX.Element {
                     etiqueta: `${centro.codigo} — ${centro.nombre}`,
                   }))}
                 />
+                {(tocado.centroCostoId || intentoEnvio) && errores.centroCostoId && (
+                  <p className="mt-1.5 text-xs text-peligro">{errores.centroCostoId}</p>
+                )}
               </div>
               <div>
                 <label htmlFor="observaciones-req" className="etiqueta-campo">
@@ -254,6 +288,9 @@ export default function PaginaRequerimientos(): React.JSX.Element {
                   Agregar línea
                 </button>
               </div>
+              {intentoEnvio && errores.general && (
+                <p className="text-xs text-peligro">{errores.general}</p>
+              )}
 
               {lineas.map((linea, indice) => (
                 <div
@@ -266,9 +303,18 @@ export default function PaginaRequerimientos(): React.JSX.Element {
                     </label>
                     <SelectorSku
                       valor={linea.sku}
-                      onSeleccionar={(sku) => actualizarLinea(indice, { sku })}
+                      onSeleccionar={(sku) => {
+                        actualizarLinea(indice, { sku });
+                        marcarTocado(`sku-${indice}`);
+                      }}
                       placeholder="Busca por código o nombre…"
                     />
+                    {(tocado[`sku-${indice}`] || intentoEnvio) &&
+                      errores.lineas[indice]?.sku && (
+                        <p className="mt-1.5 text-xs text-peligro">
+                          {errores.lineas[indice]?.sku}
+                        </p>
+                      )}
                   </div>
                   <div>
                     <label htmlFor={`req-cantidad-${indice}`} className="etiqueta-campo">
@@ -278,9 +324,22 @@ export default function PaginaRequerimientos(): React.JSX.Element {
                       id={`req-cantidad-${indice}`}
                       value={linea.cantidad}
                       onChange={(e) => actualizarLinea(indice, { cantidad: e.target.value })}
+                      onBlur={() => marcarTocado(`cantidad-${indice}`)}
                       inputMode="decimal"
+                      aria-invalid={
+                        (tocado[`cantidad-${indice}`] || intentoEnvio) &&
+                        errores.lineas[indice]?.cantidad
+                          ? "true"
+                          : undefined
+                      }
                       className="campo w-28 font-mono"
                     />
+                    {(tocado[`cantidad-${indice}`] || intentoEnvio) &&
+                      errores.lineas[indice]?.cantidad && (
+                        <p className="mt-1.5 text-xs text-peligro">
+                          {errores.lineas[indice]?.cantidad}
+                        </p>
+                      )}
                   </div>
                   <div>
                     <label htmlFor={`req-justif-${indice}`} className="etiqueta-campo">

@@ -81,6 +81,9 @@ export default function PaginaCondicion(): React.JSX.Element {
   const [aviso, setAviso] = useState<Aviso | null>(null);
   const [stock, setStock] = useState<StockSku[]>([]);
   const [modalAbierto, setModalAbierto] = useState<boolean>(false);
+  // Visibilidad del feedback inline: tras tocar el campo o intentar enviar.
+  const [tocado, setTocado] = useState<Record<string, boolean>>({});
+  const [intentoEnvio, setIntentoEnvio] = useState<boolean>(false);
 
   const accion = useMemo(
     () => ACCIONES.find((a) => a.id === accionId) ?? DETERIORAR,
@@ -104,20 +107,33 @@ export default function PaginaCondicion(): React.JSX.Element {
     setAviso(null);
   }
 
-  function validar(): string | null {
-    if (!sku) return "Selecciona un producto.";
-    if (!almacenId) return "Selecciona un almacén.";
-    if (!/^\d+(\.\d+)?$/.test(cantidad) || Number(cantidad) <= 0) {
-      return "Ingresa una cantidad válida.";
+  // Errores DERIVADOS del estado actual. Única fuente de verdad: el submit
+  // reutiliza estas mismas reglas para bloquear la confirmación.
+  const errores = useMemo<Record<string, string>>(() => {
+    const e: Record<string, string> = {};
+    if (!sku) e.sku = "Selecciona un producto.";
+    if (!almacenId) e.almacenId = "Selecciona un almacén.";
+    if (cantidad.trim() !== "" && (!/^\d+(\.\d+)?$/.test(cantidad) || Number(cantidad) <= 0)) {
+      e.cantidad = "Ingresa una cantidad mayor que cero.";
+    } else if (cantidad.trim() === "") {
+      e.cantidad = "Ingresa una cantidad.";
     }
-    if (!motivo.trim()) return "Indica el motivo.";
-    return null;
+    if (!motivo.trim()) e.motivo = "Indica el motivo.";
+    return e;
+  }, [sku, almacenId, cantidad, motivo]);
+
+  function errorVisible(campo: string): string | undefined {
+    if (!tocado[campo] && !intentoEnvio) return undefined;
+    return errores[campo];
+  }
+
+  function marcarTocado(campo: string): void {
+    setTocado((previo) => ({ ...previo, [campo]: true }));
   }
 
   function abrirConfirmacion(): void {
-    const err = validar();
-    if (err) {
-      setAviso({ texto: err, tono: "error" });
+    setIntentoEnvio(true);
+    if (Object.keys(errores).length > 0) {
       return;
     }
     setAviso(null);
@@ -137,6 +153,8 @@ export default function PaginaCondicion(): React.JSX.Element {
       setAviso({ texto: accion.exito, tono: "exito" });
       setCantidad("");
       setMotivo("");
+      setTocado({});
+      setIntentoEnvio(false);
       setStock(await obtenerStock(sku.id));
     } catch (error) {
       setAviso({
@@ -210,7 +228,16 @@ export default function PaginaCondicion(): React.JSX.Element {
 
             <div>
               <label className="etiqueta-campo">Producto</label>
-              <SelectorSku valor={sku} onSeleccionar={setSku} />
+              <SelectorSku
+                valor={sku}
+                onSeleccionar={(s) => {
+                  setSku(s);
+                  marcarTocado("sku");
+                }}
+              />
+              {errorVisible("sku") && (
+                <p className="mt-1.5 text-xs text-peligro">{errorVisible("sku")}</p>
+              )}
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -221,9 +248,15 @@ export default function PaginaCondicion(): React.JSX.Element {
                   ariaLabel="Almacén"
                   opciones={opcionesAlmacen}
                   valor={almacenId}
-                  onCambio={setAlmacenId}
+                  onCambio={(valor) => {
+                    setAlmacenId(valor);
+                    marcarTocado("almacenId");
+                  }}
                   placeholder="Selecciona…"
                 />
+                {errorVisible("almacenId") && (
+                  <p className="mt-1.5 text-xs text-peligro">{errorVisible("almacenId")}</p>
+                )}
               </div>
               <div>
                 <label htmlFor="cantidad" className="etiqueta-campo">Cantidad</label>
@@ -233,8 +266,13 @@ export default function PaginaCondicion(): React.JSX.Element {
                   inputMode="decimal"
                   value={cantidad}
                   onChange={(e) => setCantidad(e.target.value)}
+                  onBlur={() => marcarTocado("cantidad")}
+                  aria-invalid={errorVisible("cantidad") ? "true" : undefined}
                   placeholder="0"
                 />
+                {errorVisible("cantidad") && (
+                  <p className="mt-1.5 text-xs text-peligro">{errorVisible("cantidad")}</p>
+                )}
               </div>
             </div>
 
@@ -245,8 +283,13 @@ export default function PaginaCondicion(): React.JSX.Element {
                 className="campo"
                 value={motivo}
                 onChange={(e) => setMotivo(e.target.value)}
+                onBlur={() => marcarTocado("motivo")}
+                aria-invalid={errorVisible("motivo") ? "true" : undefined}
                 placeholder="Ej. golpe en transporte, óxido, recuperación tras reparación…"
               />
+              {errorVisible("motivo") && (
+                <p className="mt-1.5 text-xs text-peligro">{errorVisible("motivo")}</p>
+              )}
             </div>
 
             <p className="text-xs text-texto-ter">

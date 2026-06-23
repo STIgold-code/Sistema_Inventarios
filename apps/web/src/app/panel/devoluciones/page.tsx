@@ -119,6 +119,36 @@ export default function PaginaDevoluciones(): React.JSX.Element {
     return borrador[lineaId] ?? borradorLineaVacio();
   }
 
+  // Error DERIVADO por línea sobre la cantidad a devolver. Solo aplica cuando
+  // el usuario escribió algo en esa línea (las líneas vacías no se devuelven,
+  // así que no se marcan en rojo). Misma regla que respeta lineasParaEnviar.
+  function errorCantidadLinea(linea: LineaOrdenVenta): string | undefined {
+    const dato = leerBorrador(linea.id);
+    const texto = dato.cantidad.trim();
+    if (texto === "") return undefined;
+    const cantidad = Number(texto);
+    if (!Number.isFinite(cantidad) || cantidad <= 0) {
+      return "Ingresa una cantidad mayor que cero.";
+    }
+    if (cantidad > Number(linea.cantidadDespachada)) {
+      return `No puedes devolver más de lo despachado (${linea.cantidadDespachada}).`;
+    }
+    return undefined;
+  }
+
+  // Falta de series cuando la línea las controla y ya tiene cantidad válida.
+  function errorSeriesLinea(linea: LineaOrdenVenta): string | undefined {
+    if (!linea.controlaSerie) return undefined;
+    const dato = leerBorrador(linea.id);
+    const cantidad = Number(dato.cantidad);
+    if (!Number.isInteger(cantidad) || cantidad <= 0) return undefined;
+    const series = dato.series.filter((s) => s.trim() !== "");
+    if (series.length !== cantidad) {
+      return `Ingresa ${cantidad} número(s) de serie.`;
+    }
+    return undefined;
+  }
+
   function actualizarBorrador(
     lineaId: number,
     cambios: Partial<BorradorLinea>,
@@ -367,8 +397,16 @@ export default function PaginaDevoluciones(): React.JSX.Element {
                                     }
                                     inputMode="decimal"
                                     aria-label={`Cantidad a devolver de ${linea.nombreSku}`}
+                                    aria-invalid={
+                                      errorCantidadLinea(linea) ? "true" : undefined
+                                    }
                                     className="campo w-28 font-mono"
                                   />
+                                  {errorCantidadLinea(linea) && (
+                                    <p className="mt-1.5 text-xs text-peligro">
+                                      {errorCantidadLinea(linea)}
+                                    </p>
+                                  )}
                                 </td>
                                 <td>
                                   <input
@@ -394,6 +432,11 @@ export default function PaginaDevoluciones(): React.JSX.Element {
                                       }
                                       idBase={`devolucion-${linea.id}`}
                                     />
+                                    {errorSeriesLinea(linea) && (
+                                      <p className="mt-1.5 text-xs text-peligro">
+                                        {errorSeriesLinea(linea)}
+                                      </p>
+                                    )}
                                   </td>
                                 </tr>
                               )}

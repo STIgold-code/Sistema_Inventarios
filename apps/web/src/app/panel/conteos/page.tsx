@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { SelectorSku } from "@/componentes/selector-sku";
 import {
@@ -53,6 +53,9 @@ export default function PaginaConteos(): React.JSX.Element {
   const [cantidadContada, setCantidadContada] = useState<string>("");
   const [guardandoLinea, setGuardandoLinea] = useState<boolean>(false);
   const [avisoLinea, setAvisoLinea] = useState<Aviso | null>(null);
+  // Visibilidad del feedback inline de la línea en borrador.
+  const [tocadoLinea, setTocadoLinea] = useState<Record<string, boolean>>({});
+  const [intentoLinea, setIntentoLinea] = useState<boolean>(false);
 
   // Nombres de SKU acumulados a partir de los seleccionados, para la tabla de líneas.
   const [nombreSku, setNombreSku] = useState<Map<number, string>>(new Map());
@@ -62,6 +65,29 @@ export default function PaginaConteos(): React.JSX.Element {
   const [avisoAplicar, setAvisoAplicar] = useState<Aviso | null>(null);
 
   const conteoAbierto = conteo?.estado === "ABIERTO";
+
+  // Errores DERIVADOS de la línea en borrador. Misma fuente de verdad que
+  // usa manejarLinea para bloquear el registro.
+  const erroresLinea = useMemo<Record<string, string>>(() => {
+    const e: Record<string, string> = {};
+    if (!skuLinea) e.sku = "Selecciona un SKU.";
+    const texto = cantidadContada.trim();
+    if (texto === "") {
+      e.cantidad = "Ingresa la cantidad contada.";
+    } else if (!/^\d+(\.\d+)?$/.test(texto) || Number(texto) < 0) {
+      e.cantidad = "Ingresa una cantidad válida (cero o mayor).";
+    }
+    return e;
+  }, [skuLinea, cantidadContada]);
+
+  function errorLineaVisible(campo: string): string | undefined {
+    if (!tocadoLinea[campo] && !intentoLinea) return undefined;
+    return erroresLinea[campo];
+  }
+
+  function marcarTocadoLinea(campo: string): void {
+    setTocadoLinea((previo) => ({ ...previo, [campo]: true }));
+  }
 
   async function refrescarConteo(id: number): Promise<void> {
     try {
@@ -101,11 +127,8 @@ export default function PaginaConteos(): React.JSX.Element {
     evento.preventDefault();
     setAvisoLinea(null);
     if (!conteo) return;
-    if (!skuLinea || !cantidadContada) {
-      setAvisoLinea({
-        texto: "Selecciona un SKU e ingresa la cantidad contada.",
-        tono: "error",
-      });
+    setIntentoLinea(true);
+    if (Object.keys(erroresLinea).length > 0 || !skuLinea) {
       return;
     }
     setGuardandoLinea(true);
@@ -127,6 +150,8 @@ export default function PaginaConteos(): React.JSX.Element {
       });
       setSkuLinea(null);
       setCantidadContada("");
+      setTocadoLinea({});
+      setIntentoLinea(false);
       await refrescarConteo(conteo.id);
     } catch (error) {
       setAvisoLinea({
@@ -238,7 +263,16 @@ export default function PaginaConteos(): React.JSX.Element {
                 >
                   <div>
                     <label className="etiqueta-campo">SKU</label>
-                    <SelectorSku valor={skuLinea} onSeleccionar={setSkuLinea} />
+                    <SelectorSku
+                      valor={skuLinea}
+                      onSeleccionar={(s) => {
+                        setSkuLinea(s);
+                        marcarTocadoLinea("sku");
+                      }}
+                    />
+                    {errorLineaVisible("sku") && (
+                      <p className="mt-1.5 text-xs text-peligro">{errorLineaVisible("sku")}</p>
+                    )}
                   </div>
                   <div>
                     <label htmlFor="linea-cantidad" className="etiqueta-campo">
@@ -248,9 +282,16 @@ export default function PaginaConteos(): React.JSX.Element {
                       id="linea-cantidad"
                       value={cantidadContada}
                       onChange={(e) => setCantidadContada(e.target.value)}
+                      onBlur={() => marcarTocadoLinea("cantidad")}
                       inputMode="decimal"
+                      aria-invalid={errorLineaVisible("cantidad") ? "true" : undefined}
                       className="campo w-36 font-mono"
                     />
+                    {errorLineaVisible("cantidad") && (
+                      <p className="mt-1.5 text-xs text-peligro">
+                        {errorLineaVisible("cantidad")}
+                      </p>
+                    )}
                   </div>
                   <button
                     type="submit"

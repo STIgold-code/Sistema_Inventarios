@@ -142,6 +142,17 @@ export default function PaginaVentas(): React.JSX.Element {
     }
   }
 
+  // ── Visibilidad del feedback inline ──────────────────────────────────────────
+  // Los errores existen siempre (derivados del estado); la visibilidad depende de
+  // si el usuario tocó el campo (onBlur / onCambio) o intentó enviar el formulario.
+  const [tocado, setTocado] = useState<Record<string, boolean>>({});
+  const [intentoOrden, setIntentoOrden] = useState<boolean>(false);
+  const [intentoDespacho, setIntentoDespacho] = useState<boolean>(false);
+
+  function marcarTocado(campo: string): void {
+    setTocado((previo) => ({ ...previo, [campo]: true }));
+  }
+
   const subtotalBorrador = useMemo(() => {
     return lineas.reduce((acumulado, linea) => {
       const cantidad = Number(linea.cantidad);
@@ -163,6 +174,76 @@ export default function PaginaVentas(): React.JSX.Element {
     () => ordenes.find((o) => String(o.id) === ordenDespacho) ?? null,
     [ordenes, ordenDespacho],
   );
+
+  // ── Errores derivados (fuente única de verdad; el submit los reutiliza) ──────
+
+  const erroresOrden = useMemo(() => {
+    const e: {
+      numeroOrden?: string;
+      clienteId?: string;
+      tipoCambio?: string;
+      lineas: { cantidad?: string; precioUnitario?: string; sku?: string }[];
+      general?: string;
+    } = { lineas: [] };
+    if (!numeroOrden.trim()) e.numeroOrden = "Ingresa el número de la orden.";
+    if (!clienteId) e.clienteId = "Selecciona un cliente.";
+    if (moneda === "USD" && (!tipoCambio.trim() || Number(tipoCambio) <= 0)) {
+      e.tipoCambio = "Ingresa un tipo de cambio mayor a 0.";
+    }
+    lineas.forEach((linea) => {
+      const eLinea: { cantidad?: string; precioUnitario?: string; sku?: string } = {};
+      const cant = linea.cantidad.trim();
+      if (cant && !(Number(linea.cantidad) > 0)) {
+        eLinea.cantidad = "Ingresa una cantidad mayor a 0.";
+      }
+      // El precio es opcional (se sugiere segun el cliente); solo se valida la
+      // positividad si el usuario escribió algo.
+      if (linea.precioUnitario.trim() && !(Number(linea.precioUnitario) > 0)) {
+        eLinea.precioUnitario = "Ingresa un precio mayor a 0.";
+      }
+      if (cant && Number(linea.cantidad) > 0 && !linea.sku) {
+        eLinea.sku = "Selecciona un producto.";
+      }
+      e.lineas.push(eLinea);
+    });
+    const validas = lineas.filter((l) => l.sku !== null && l.cantidad.trim() !== "");
+    if (validas.length === 0) {
+      e.general = "Selecciona un producto en cada línea y agrega su cantidad.";
+    }
+    return e;
+  }, [numeroOrden, clienteId, moneda, tipoCambio, lineas]);
+
+  const erroresDespacho = useMemo(() => {
+    const e: {
+      tipoDocumento?: string;
+      serie?: string;
+      numeroComprobante?: string;
+      fechaEmision?: string;
+      subtotalDoc?: string;
+      igvDoc?: string;
+      totalDoc?: string;
+    } = {};
+    if (!tipoDocumento) e.tipoDocumento = "Selecciona el tipo de comprobante.";
+    if (!serie.trim()) e.serie = "Ingresa la serie.";
+    if (!numeroComprobante.trim()) e.numeroComprobante = "Ingresa el número.";
+    if (!fechaEmision) e.fechaEmision = "Indica la fecha de emisión.";
+    if (!subtotalDoc.trim()) {
+      e.subtotalDoc = "Ingresa el subtotal.";
+    } else if (!(Number(subtotalDoc) >= 0)) {
+      e.subtotalDoc = "Ingresa un subtotal válido.";
+    }
+    if (!igvDoc.trim()) {
+      e.igvDoc = "Ingresa el IGV.";
+    } else if (!(Number(igvDoc) >= 0)) {
+      e.igvDoc = "Ingresa un IGV válido.";
+    }
+    if (!totalDoc.trim()) {
+      e.totalDoc = "Ingresa el total.";
+    } else if (!(Number(totalDoc) > 0)) {
+      e.totalDoc = "Ingresa un total mayor a 0.";
+    }
+    return e;
+  }, [tipoDocumento, serie, numeroComprobante, fechaEmision, subtotalDoc, igvDoc, totalDoc]);
 
   // ── Órdenes de venta ────────────────────────────────────────────────────────
 
@@ -253,24 +334,17 @@ export default function PaginaVentas(): React.JSX.Element {
   async function manejarOrden(evento: FormEvent<HTMLFormElement>): Promise<void> {
     evento.preventDefault();
     setAvisoOrden(null);
-    if (!clienteId) {
-      setAvisoOrden({ texto: "Selecciona un cliente.", tono: "error" });
-      return;
-    }
-    if (moneda === "USD" && (!tipoCambio.trim() || Number(tipoCambio) <= 0)) {
-      setAvisoOrden({ texto: "Ingresa un tipo de cambio válido para dólares.", tono: "error" });
-      return;
-    }
+    setIntentoOrden(true);
+    const hayErrores =
+      Boolean(erroresOrden.numeroOrden) ||
+      Boolean(erroresOrden.clienteId) ||
+      Boolean(erroresOrden.tipoCambio) ||
+      Boolean(erroresOrden.general) ||
+      erroresOrden.lineas.some((l) => l.cantidad || l.precioUnitario || l.sku);
+    if (hayErrores) return;
     const lineasValidas = lineas.filter(
       (l): l is LineaBorrador & { sku: Sku } => l.sku !== null && l.cantidad !== "",
     );
-    if (lineasValidas.length === 0) {
-      setAvisoOrden({
-        texto: "Selecciona un producto en cada línea y agrega su cantidad.",
-        tono: "error",
-      });
-      return;
-    }
     setGuardandoOrden(true);
     try {
       const respuesta = await crearOrdenVenta({
@@ -297,6 +371,7 @@ export default function PaginaVentas(): React.JSX.Element {
       setTipoCambio("");
       setObservaciones("");
       setLineas([lineaVacia()]);
+      setIntentoOrden(false);
       await refrescarOrdenes();
     } catch (error) {
       setAvisoOrden({
@@ -354,33 +429,18 @@ export default function PaginaVentas(): React.JSX.Element {
     setTotalDoc("");
     setDespachados({});
     setSeriesDespacho({});
+    setIntentoDespacho(false);
   }
 
   async function manejarDespacho(evento: FormEvent<HTMLFormElement>): Promise<void> {
     evento.preventDefault();
     setAvisoDespacho(null);
+    setIntentoDespacho(true);
     if (!ordenSeleccionada) {
       setAvisoDespacho({ texto: "Selecciona una orden de venta.", tono: "error" });
       return;
     }
-    if (!tipoDocumento) {
-      setAvisoDespacho({ texto: "Selecciona el tipo de comprobante.", tono: "error" });
-      return;
-    }
-    if (!serie.trim() || !numeroComprobante.trim() || !fechaEmision) {
-      setAvisoDespacho({
-        texto: "Completa serie, número y fecha de emisión del comprobante.",
-        tono: "error",
-      });
-      return;
-    }
-    if (!subtotalDoc.trim() || !igvDoc.trim() || !totalDoc.trim()) {
-      setAvisoDespacho({
-        texto: "Completa subtotal, IGV y total del comprobante.",
-        tono: "error",
-      });
-      return;
-    }
+    if (Object.keys(erroresDespacho).length > 0) return;
     const lineasConCantidad = ordenSeleccionada.lineas
       .map((linea) => ({
         linea,
@@ -518,9 +578,18 @@ export default function PaginaVentas(): React.JSX.Element {
                     id="numero-orden"
                     value={numeroOrden}
                     onChange={(e) => setNumeroOrden(e.target.value)}
+                    onBlur={() => marcarTocado("numeroOrden")}
                     required
+                    aria-invalid={
+                      (tocado.numeroOrden || intentoOrden) && erroresOrden.numeroOrden
+                        ? "true"
+                        : undefined
+                    }
                     className="campo font-mono"
                   />
+                  {(tocado.numeroOrden || intentoOrden) && erroresOrden.numeroOrden && (
+                    <p className="mt-1.5 text-xs text-peligro">{erroresOrden.numeroOrden}</p>
+                  )}
                 </div>
                 <div>
                   <label htmlFor="cliente" className="etiqueta-campo">
@@ -529,7 +598,10 @@ export default function PaginaVentas(): React.JSX.Element {
                   <SelectorBusqueda
                     id="cliente"
                     valor={clienteId}
-                    onCambio={(v) => cambiarCliente(v)}
+                    onCambio={(v) => {
+                      cambiarCliente(v);
+                      marcarTocado("clienteId");
+                    }}
                     disabled={cargandoBase}
                     requerido
                     placeholder={cargandoBase ? "Cargando…" : "Selecciona…"}
@@ -538,6 +610,9 @@ export default function PaginaVentas(): React.JSX.Element {
                       etiqueta: `${c.numeroDoc} — ${c.razonSocial}`,
                     }))}
                   />
+                  {(tocado.clienteId || intentoOrden) && erroresOrden.clienteId && (
+                    <p className="mt-1.5 text-xs text-peligro">{erroresOrden.clienteId}</p>
+                  )}
                   {!cargandoBase && clientes.length === 0 && (
                     <p className="mt-1.5 text-xs text-texto-ter">
                       No hay clientes registrados. Crea uno en el módulo Clientes.
@@ -571,9 +646,20 @@ export default function PaginaVentas(): React.JSX.Element {
                         id="tipo-cambio"
                         value={tipoCambio}
                         onChange={(e) => setTipoCambio(e.target.value)}
+                        onBlur={() => marcarTocado("tipoCambio")}
                         inputMode="decimal"
+                        aria-invalid={
+                          (tocado.tipoCambio || intentoOrden) && erroresOrden.tipoCambio
+                            ? "true"
+                            : undefined
+                        }
                         className="campo font-mono"
                       />
+                      {(tocado.tipoCambio || intentoOrden) && erroresOrden.tipoCambio && (
+                        <p className="mt-1.5 text-xs text-peligro">
+                          {erroresOrden.tipoCambio}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -597,6 +683,9 @@ export default function PaginaVentas(): React.JSX.Element {
                     Agregar línea
                   </button>
                 </div>
+                {intentoOrden && erroresOrden.general && (
+                  <p className="text-xs text-peligro">{erroresOrden.general}</p>
+                )}
 
                 {lineas.map((linea, indice) => (
                   <div
@@ -607,8 +696,17 @@ export default function PaginaVentas(): React.JSX.Element {
                       <label className="etiqueta-campo">SKU</label>
                       <SelectorSku
                         valor={linea.sku}
-                        onSeleccionar={(sku) => cambiarSkuLinea(indice, sku)}
+                        onSeleccionar={(sku) => {
+                          cambiarSkuLinea(indice, sku);
+                          marcarTocado(`ov-sku-${indice}`);
+                        }}
                       />
+                      {(tocado[`ov-sku-${indice}`] || intentoOrden) &&
+                        erroresOrden.lineas[indice]?.sku && (
+                          <p className="mt-1.5 text-xs text-peligro">
+                            {erroresOrden.lineas[indice]?.sku}
+                          </p>
+                        )}
                     </div>
                     <div>
                       <label htmlFor={`linea-cantidad-${indice}`} className="etiqueta-campo">
@@ -618,9 +716,22 @@ export default function PaginaVentas(): React.JSX.Element {
                         id={`linea-cantidad-${indice}`}
                         value={linea.cantidad}
                         onChange={(e) => actualizarLinea(indice, { cantidad: e.target.value })}
+                        onBlur={() => marcarTocado(`ov-cantidad-${indice}`)}
                         inputMode="decimal"
+                        aria-invalid={
+                          (tocado[`ov-cantidad-${indice}`] || intentoOrden) &&
+                          erroresOrden.lineas[indice]?.cantidad
+                            ? "true"
+                            : undefined
+                        }
                         className="campo w-28 font-mono"
                       />
+                      {(tocado[`ov-cantidad-${indice}`] || intentoOrden) &&
+                        erroresOrden.lineas[indice]?.cantidad && (
+                          <p className="mt-1.5 text-xs text-peligro">
+                            {erroresOrden.lineas[indice]?.cantidad}
+                          </p>
+                        )}
                     </div>
                     <SelectorUnidadLinea
                       sku={linea.sku}
@@ -644,9 +755,22 @@ export default function PaginaVentas(): React.JSX.Element {
                             precioTocado: true,
                           })
                         }
+                        onBlur={() => marcarTocado(`ov-precio-${indice}`)}
                         inputMode="decimal"
+                        aria-invalid={
+                          (tocado[`ov-precio-${indice}`] || intentoOrden) &&
+                          erroresOrden.lineas[indice]?.precioUnitario
+                            ? "true"
+                            : undefined
+                        }
                         className="campo w-32 font-mono"
                       />
+                      {(tocado[`ov-precio-${indice}`] || intentoOrden) &&
+                        erroresOrden.lineas[indice]?.precioUnitario && (
+                          <p className="mt-1.5 text-xs text-peligro">
+                            {erroresOrden.lineas[indice]?.precioUnitario}
+                          </p>
+                        )}
                     </div>
                     <div className="flex items-end">
                       <button
@@ -921,7 +1045,10 @@ export default function PaginaVentas(): React.JSX.Element {
                       <SelectorBusqueda
                         id="tipo-documento"
                         valor={tipoDocumento}
-                        onCambio={(v) => setTipoDocumento(v)}
+                        onCambio={(v) => {
+                          setTipoDocumento(v);
+                          marcarTocado("dp-tipoDocumento");
+                        }}
                         requerido
                         placeholder="Selecciona…"
                         opciones={COMPROBANTES_VENTA.map((opcion) => ({
@@ -929,6 +1056,12 @@ export default function PaginaVentas(): React.JSX.Element {
                           etiqueta: `${opcion.codigo} — ${opcion.etiqueta}`,
                         }))}
                       />
+                      {(tocado["dp-tipoDocumento"] || intentoDespacho) &&
+                        erroresDespacho.tipoDocumento && (
+                          <p className="mt-1.5 text-xs text-peligro">
+                            {erroresDespacho.tipoDocumento}
+                          </p>
+                        )}
                     </div>
                     <div>
                       <label htmlFor="serie" className="etiqueta-campo">
@@ -938,10 +1071,19 @@ export default function PaginaVentas(): React.JSX.Element {
                         id="serie"
                         value={serie}
                         onChange={(e) => setSerie(e.target.value)}
+                        onBlur={() => marcarTocado("dp-serie")}
                         required
                         placeholder="Ej. F001"
+                        aria-invalid={
+                          (tocado["dp-serie"] || intentoDespacho) && erroresDespacho.serie
+                            ? "true"
+                            : undefined
+                        }
                         className="campo font-mono"
                       />
+                      {(tocado["dp-serie"] || intentoDespacho) && erroresDespacho.serie && (
+                        <p className="mt-1.5 text-xs text-peligro">{erroresDespacho.serie}</p>
+                      )}
                     </div>
                     <div>
                       <label htmlFor="numero-comprobante" className="etiqueta-campo">
@@ -951,10 +1093,23 @@ export default function PaginaVentas(): React.JSX.Element {
                         id="numero-comprobante"
                         value={numeroComprobante}
                         onChange={(e) => setNumeroComprobante(e.target.value)}
+                        onBlur={() => marcarTocado("dp-numero")}
                         required
                         placeholder="Ej. 0001234"
+                        aria-invalid={
+                          (tocado["dp-numero"] || intentoDespacho) &&
+                          erroresDespacho.numeroComprobante
+                            ? "true"
+                            : undefined
+                        }
                         className="campo font-mono"
                       />
+                      {(tocado["dp-numero"] || intentoDespacho) &&
+                        erroresDespacho.numeroComprobante && (
+                          <p className="mt-1.5 text-xs text-peligro">
+                            {erroresDespacho.numeroComprobante}
+                          </p>
+                        )}
                     </div>
                   </div>
                   <div>
@@ -966,9 +1121,21 @@ export default function PaginaVentas(): React.JSX.Element {
                       type="date"
                       value={fechaEmision}
                       onChange={(e) => setFechaEmision(e.target.value)}
+                      onBlur={() => marcarTocado("dp-fecha")}
                       required
+                      aria-invalid={
+                        (tocado["dp-fecha"] || intentoDespacho) && erroresDespacho.fechaEmision
+                          ? "true"
+                          : undefined
+                      }
                       className="campo sm:max-w-xs"
                     />
+                    {(tocado["dp-fecha"] || intentoDespacho) &&
+                      erroresDespacho.fechaEmision && (
+                        <p className="mt-1.5 text-xs text-peligro">
+                          {erroresDespacho.fechaEmision}
+                        </p>
+                      )}
                   </div>
                   <div className="grid gap-4 sm:grid-cols-3">
                     <div>
@@ -979,10 +1146,23 @@ export default function PaginaVentas(): React.JSX.Element {
                         id="subtotal-doc"
                         value={subtotalDoc}
                         onChange={(e) => setSubtotalDoc(e.target.value)}
+                        onBlur={() => marcarTocado("dp-subtotal")}
                         inputMode="decimal"
                         required
+                        aria-invalid={
+                          (tocado["dp-subtotal"] || intentoDespacho) &&
+                          erroresDespacho.subtotalDoc
+                            ? "true"
+                            : undefined
+                        }
                         className="campo font-mono"
                       />
+                      {(tocado["dp-subtotal"] || intentoDespacho) &&
+                        erroresDespacho.subtotalDoc && (
+                          <p className="mt-1.5 text-xs text-peligro">
+                            {erroresDespacho.subtotalDoc}
+                          </p>
+                        )}
                     </div>
                     <div>
                       <label htmlFor="igv-doc" className="etiqueta-campo">
@@ -992,10 +1172,19 @@ export default function PaginaVentas(): React.JSX.Element {
                         id="igv-doc"
                         value={igvDoc}
                         onChange={(e) => setIgvDoc(e.target.value)}
+                        onBlur={() => marcarTocado("dp-igv")}
                         inputMode="decimal"
                         required
+                        aria-invalid={
+                          (tocado["dp-igv"] || intentoDespacho) && erroresDespacho.igvDoc
+                            ? "true"
+                            : undefined
+                        }
                         className="campo font-mono"
                       />
+                      {(tocado["dp-igv"] || intentoDespacho) && erroresDespacho.igvDoc && (
+                        <p className="mt-1.5 text-xs text-peligro">{erroresDespacho.igvDoc}</p>
+                      )}
                     </div>
                     <div>
                       <label htmlFor="total-doc" className="etiqueta-campo">
@@ -1005,10 +1194,19 @@ export default function PaginaVentas(): React.JSX.Element {
                         id="total-doc"
                         value={totalDoc}
                         onChange={(e) => setTotalDoc(e.target.value)}
+                        onBlur={() => marcarTocado("dp-total")}
                         inputMode="decimal"
                         required
+                        aria-invalid={
+                          (tocado["dp-total"] || intentoDespacho) && erroresDespacho.totalDoc
+                            ? "true"
+                            : undefined
+                        }
                         className="campo font-mono"
                       />
+                      {(tocado["dp-total"] || intentoDespacho) && erroresDespacho.totalDoc && (
+                        <p className="mt-1.5 text-xs text-peligro">{erroresDespacho.totalDoc}</p>
+                      )}
                     </div>
                   </div>
                   <p className="text-xs text-texto-ter">
