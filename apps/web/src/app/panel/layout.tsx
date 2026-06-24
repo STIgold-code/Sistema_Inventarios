@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { borrarSesion, haySesion, leerUsuario } from "@/lib/sesion";
-import { INICIO, MODULOS, colorDeRuta, esActivo, moduloDeRuta } from "@/lib/modulos";
+import { INICIO, MODULOS, esActivo, moduloDeRuta } from "@/lib/modulos";
 import type { UsuarioAutenticado } from "@bm/contratos";
 
 export default function LayoutPanel({
@@ -116,16 +116,17 @@ export default function LayoutPanel({
               activos con su color de wayfinding (heredado vía data-modulo). */}
           {MODULOS.map((modulo) => {
             const abierto = expandidos.includes(modulo.titulo);
-            const tieneActivo = modulo.enlaces.some((e) => esActivo(e.href, pathname));
             return (
-              <div key={modulo.titulo} className="mb-1.5" data-modulo={modulo.color}>
+              <div
+                key={modulo.titulo}
+                data-modulo={modulo.color}
+                className="mb-1.5 rounded-lg bg-[var(--m-tenue)] p-1"
+              >
                 <button
                   type="button"
                   onClick={() => alternarModulo(modulo.titulo)}
                   aria-expanded={abierto}
-                  className={`modulo-titulo flex w-full items-center justify-between rounded-md px-3 py-2 text-[0.7rem] font-semibold uppercase tracking-wide transition-colors ${
-                    tieneActivo ? "bg-[var(--m-tenue)]" : "opacity-80 hover:opacity-100"
-                  }`}
+                  className="modulo-titulo flex w-full items-center justify-between rounded-md px-2 py-2 text-[0.7rem] font-semibold uppercase tracking-wide"
                 >
                   <span>{modulo.titulo}</span>
                   <IconoChevron abierto={abierto} />
@@ -194,10 +195,7 @@ export default function LayoutPanel({
           </div>
         </header>
 
-        <main
-          data-modulo={colorDeRuta(pathname)}
-          className="fondo-modulo flex-1 px-4 py-5 sm:px-6 lg:px-8 lg:py-7"
-        >
+        <main className="flex-1 px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
           <div className="mx-auto w-full max-w-[1600px]">{children}</div>
         </main>
       </div>
