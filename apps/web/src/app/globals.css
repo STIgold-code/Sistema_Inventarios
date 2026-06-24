@@ -58,7 +58,59 @@
   /* Anchos del panel lateral (slide-over) por densidad de contenido */
   --drawer-formulario: 32rem;   /* formularios de alta/edición */
   --drawer-detalle: 44rem;      /* fichas de detalle con tablas densas */
+
+  /* =======================================================================
+     WAYFINDING POR COLOR DE MÓDULO
+     Tonos APAGADOS/desaturados que conviven con el grafito + dorado de marca.
+     El color es REFUERZO de orientación, nunca el único dato (siempre hay
+     texto/ícono). El dorado de marca queda para la ACCIÓN (botones), por eso
+     "Movimientos" usa un dorado más sobrio/cálido, no el oro de los botones.
+     Cada módulo define: --m-acento (texto/filo), --m-tenue (fondo del activo),
+     --m-borde (borde del activo). Defaults = marca (neutro).
+     ======================================================================= */
+  --m-acento: var(--texto-sec);
+  --m-tenue: var(--panel-alt);
+  --m-borde: var(--borde-fuerte);
+
+  /* Inicio / marca — neutro grafito */
+  --modulo-marca-acento: var(--tinta);
+  --modulo-marca-tenue: var(--panel-alt);
+  --modulo-marca-borde: var(--borde-fuerte);
+
+  /* Datos base — azul acero */
+  --modulo-datos-acento: #3a6c9c;
+  --modulo-datos-tenue: #eef3f8;
+  --modulo-datos-borde: #c2d4e6;
+
+  /* Movimientos — ámbar/dorado de marca (sobrio, no el oro de acción) */
+  --modulo-movimientos-acento: #9a6a12;
+  --modulo-movimientos-tenue: #fbf2dd;
+  --modulo-movimientos-borde: #ead9a6;
+
+  /* Consultas y reportes — índigo/violeta apagado */
+  --modulo-consultas-acento: #5d549c;
+  --modulo-consultas-tenue: #f0eef8;
+  --modulo-consultas-borde: #cfc9e6;
+
+  /* Proceso mensual — verde */
+  --modulo-proceso-acento: #3a7d54;
+  --modulo-proceso-tenue: #e9f4ed;
+  --modulo-proceso-borde: #b6dac4;
+
+  /* Utilitarios — gris pizarra */
+  --modulo-utilitarios-acento: #5b6470;
+  --modulo-utilitarios-tenue: #eef0f2;
+  --modulo-utilitarios-borde: #cdd2d8;
 }
+
+/* Resuelve el trío de vars activas según el módulo del contexto. Cualquier
+   subárbol marcado con data-modulo hereda su color sin concatenar clases. */
+[data-modulo="marca"]        { --m-acento: var(--modulo-marca-acento);        --m-tenue: var(--modulo-marca-tenue);        --m-borde: var(--modulo-marca-borde); }
+[data-modulo="datos"]        { --m-acento: var(--modulo-datos-acento);        --m-tenue: var(--modulo-datos-tenue);        --m-borde: var(--modulo-datos-borde); }
+[data-modulo="movimientos"]  { --m-acento: var(--modulo-movimientos-acento);  --m-tenue: var(--modulo-movimientos-tenue);  --m-borde: var(--modulo-movimientos-borde); }
+[data-modulo="consultas"]    { --m-acento: var(--modulo-consultas-acento);    --m-tenue: var(--modulo-consultas-tenue);    --m-borde: var(--modulo-consultas-borde); }
+[data-modulo="proceso"]      { --m-acento: var(--modulo-proceso-acento);      --m-tenue: var(--modulo-proceso-tenue);      --m-borde: var(--modulo-proceso-borde); }
+[data-modulo="utilitarios"]  { --m-acento: var(--modulo-utilitarios-acento);  --m-tenue: var(--modulo-utilitarios-tenue);  --m-borde: var(--modulo-utilitarios-borde); }
 
 * { border-color: var(--borde); }
 
@@ -230,6 +282,29 @@ h1, h2, h3, h4 {
   .aviso-peligro { background: var(--peligro-tenue); border-color: #f0b3b8; color: #8a1c25; }
   .aviso-exito   { background: var(--exito-tenue); border-color: #abd5b8; color: #145523; }
   .aviso-aviso   { background: var(--aviso-tenue); border-color: #e6cf8c; color: #7a5b00; }
+
+  /* =======================================================================
+     WAYFINDING — clases que consumen el color del módulo del contexto
+     (heredado vía data-modulo). El color refuerza, el texto/ícono manda.
+     ======================================================================= */
+
+  /* Título del grupo en el sidebar, teñido con el acento del módulo. */
+  .modulo-titulo { color: var(--m-acento); }
+
+  /* Ítem de navegación activo: filo lateral + fondo tenue del color del grupo. */
+  .item-activo {
+    background: var(--m-tenue);
+    color: var(--tinta);
+    box-shadow: inset 3px 0 0 0 var(--m-acento);
+  }
+
+  /* Filo de acento del módulo en la cabecera de la página. */
+  .cabecera-acento {
+    width: 2.25rem;
+    height: 3px;
+    border-radius: 999px;
+    background: var(--m-acento);
+  }
 
   /* =======================================================================
      PRESENTACIÓN DE DETALLE — fichas, métricas y datos clave

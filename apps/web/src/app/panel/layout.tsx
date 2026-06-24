@@ -5,94 +5,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { borrarSesion, haySesion, leerUsuario } from "@/lib/sesion";
+import { INICIO, MODULOS, esActivo, moduloDeRuta } from "@/lib/modulos";
 import type { UsuarioAutenticado } from "@bm/contratos";
-
-interface Enlace {
-  href: string;
-  etiqueta: string;
-}
-
-interface ModuloNav {
-  titulo: string;
-  enlaces: ReadonlyArray<Enlace>;
-}
-
-/** Acceso directo, fuera de los módulos. */
-const INICIO: Enlace = { href: "/panel", etiqueta: "Inicio" };
-
-/**
- * Módulos padre, espejo del modelo de SISALM (Bases de Datos, Movimientos,
- * Consultas-Reportes, Proceso Mensual, Utilitarios). "Movimientos" es el padre
- * que agrupa todo lo transaccional (compras, salidas, traslados, ajustes…).
- */
-const MODULOS: readonly ModuloNav[] = [
-  {
-    titulo: "Datos base",
-    enlaces: [
-      { href: "/panel/productos", etiqueta: "Productos" },
-      { href: "/panel/familias", etiqueta: "Familias" },
-      { href: "/panel/series", etiqueta: "Series" },
-      { href: "/panel/proveedores", etiqueta: "Proveedores" },
-      { href: "/panel/clientes", etiqueta: "Clientes" },
-      { href: "/panel/almacenes", etiqueta: "Almacenes y zonas" },
-      { href: "/panel/tipo-cambio", etiqueta: "Tipo de cambio" },
-    ],
-  },
-  {
-    titulo: "Movimientos",
-    enlaces: [
-      { href: "/panel/requerimientos", etiqueta: "Requerimientos" },
-      { href: "/panel/compras", etiqueta: "Compras (entradas)" },
-      { href: "/panel/vales", etiqueta: "Vales de salida" },
-      { href: "/panel/ventas", etiqueta: "Ventas" },
-      { href: "/panel/traslados", etiqueta: "Traslados" },
-      { href: "/panel/devoluciones", etiqueta: "Devoluciones" },
-      { href: "/panel/ordenes-trabajo", etiqueta: "Órdenes de trabajo" },
-      { href: "/panel/condicion", etiqueta: "Condición de existencias" },
-      { href: "/panel/conteos", etiqueta: "Conteos" },
-      { href: "/panel/guias", etiqueta: "Guías de remisión" },
-      { href: "/panel/movimientos", etiqueta: "Ajustes y consulta" },
-    ],
-  },
-  {
-    titulo: "Consultas y reportes",
-    enlaces: [
-      { href: "/panel/existencias", etiqueta: "Existencias" },
-      { href: "/panel/kardex", etiqueta: "Kardex" },
-      { href: "/panel/reposicion", etiqueta: "Reposición y ABC" },
-      { href: "/panel/rentabilidad", etiqueta: "Rentabilidad" },
-      { href: "/panel/reportes", etiqueta: "Reportes" },
-    ],
-  },
-  {
-    titulo: "Proceso mensual",
-    enlaces: [
-      { href: "/panel/cierres", etiqueta: "Cierre mensual" },
-      { href: "/panel/contabilidad", etiqueta: "Asientos contables" },
-    ],
-  },
-  {
-    titulo: "Utilitarios",
-    enlaces: [
-      { href: "/panel/importador", etiqueta: "Importador" },
-      { href: "/panel/activos", etiqueta: "Activos fijos" },
-      { href: "/panel/auditoria", etiqueta: "Auditoría" },
-    ],
-  },
-];
-
-/** Indica si un enlace está activo según la ruta actual. */
-function esActivo(href: string, pathname: string): boolean {
-  return href === "/panel" ? pathname === "/panel" : pathname.startsWith(href);
-}
-
-/** Título del módulo que contiene la ruta actual (o null). */
-function moduloDeRuta(pathname: string): string | null {
-  for (const modulo of MODULOS) {
-    if (modulo.enlaces.some((e) => esActivo(e.href, pathname))) return modulo.titulo;
-  }
-  return null;
-}
 
 export default function LayoutPanel({
   children,
@@ -183,31 +97,36 @@ export default function LayoutPanel({
 
         {/* Navegacion */}
         <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Navegación principal">
-          {/* Inicio (acceso directo) */}
-          <Link
-            href={INICIO.href}
-            aria-current={esActivo(INICIO.href, pathname) ? "page" : undefined}
-            className={`mb-3 flex items-center rounded-md px-3 py-2 text-sm transition-colors ${
-              esActivo(INICIO.href, pathname)
-                ? "bg-panel-alt font-semibold text-tinta shadow-[inset_3px_0_0_0_var(--oro)]"
-                : "font-medium text-texto-sec hover:bg-panel-alt hover:text-tinta"
-            }`}
-          >
-            {INICIO.etiqueta}
-          </Link>
+          {/* Inicio (acceso directo) — color neutro de marca */}
+          <div data-modulo="marca">
+            <Link
+              href={INICIO.href}
+              aria-current={esActivo(INICIO.href, pathname) ? "page" : undefined}
+              className={`mb-3 flex items-center rounded-md px-3 py-2 text-sm transition-colors ${
+                esActivo(INICIO.href, pathname)
+                  ? "item-activo font-semibold"
+                  : "font-medium text-texto-sec hover:bg-panel-alt hover:text-tinta"
+              }`}
+            >
+              {INICIO.etiqueta}
+            </Link>
+          </div>
 
-          {/* Módulos padre (acordeón) */}
+          {/* Módulos padre (acordeón). Cada grupo tiñe su título e ítems
+              activos con su color de wayfinding (heredado vía data-modulo). */}
           {MODULOS.map((modulo) => {
             const abierto = expandidos.includes(modulo.titulo);
             const tieneActivo = modulo.enlaces.some((e) => esActivo(e.href, pathname));
             return (
-              <div key={modulo.titulo} className="mb-1.5">
+              <div key={modulo.titulo} className="mb-1.5" data-modulo={modulo.color}>
                 <button
                   type="button"
                   onClick={() => alternarModulo(modulo.titulo)}
                   aria-expanded={abierto}
                   className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-[0.7rem] font-semibold uppercase tracking-wide transition-colors ${
-                    tieneActivo ? "text-tinta" : "text-texto-ter hover:text-texto-sec"
+                    tieneActivo
+                      ? "modulo-titulo"
+                      : "text-texto-ter hover:text-texto-sec"
                   }`}
                 >
                   <span>{modulo.titulo}</span>
@@ -224,7 +143,7 @@ export default function LayoutPanel({
                           aria-current={activo ? "page" : undefined}
                           className={`flex items-center rounded-md py-2 pl-5 pr-3 text-sm transition-colors ${
                             activo
-                              ? "bg-panel-alt font-semibold text-tinta shadow-[inset_3px_0_0_0_var(--oro)]"
+                              ? "item-activo font-semibold"
                               : "font-medium text-texto-sec hover:bg-panel-alt hover:text-tinta"
                           }`}
                         >
