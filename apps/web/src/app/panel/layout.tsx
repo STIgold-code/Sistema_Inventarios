@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { borrarSesion, haySesion, leerUsuario } from "@/lib/sesion";
-import { INICIO, MODULOS, esActivo, moduloDeRuta } from "@/lib/modulos";
+import { INICIO, MODULOS, colorDeRuta, esActivo, moduloDeRuta } from "@/lib/modulos";
 import type { UsuarioAutenticado } from "@bm/contratos";
 
 export default function LayoutPanel({
@@ -196,7 +196,10 @@ export default function LayoutPanel({
           </div>
         </header>
 
-        <main className="flex-1 px-4 py-5 sm:px-6 lg:px-8 lg:py-7">
+        <main
+          data-modulo={colorDeRuta(pathname)}
+          className="fondo-modulo flex-1 px-4 py-5 sm:px-6 lg:px-8 lg:py-7"
+        >
           <div className="mx-auto w-full max-w-[1600px]">{children}</div>
         </main>
       </div>

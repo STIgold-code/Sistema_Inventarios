@@ -306,6 +306,11 @@ h1, h2, h3, h4 {
     background: var(--m-acento);
   }
 
+  /* Fondo del área de contenido teñido (suave) con el color del módulo activo.
+     Las tarjetas/tablas siguen en blanco y flotan sobre este tinte. En Inicio y
+     rutas sin módulo cae en el neutro (--panel-alt), sin cambio visible. */
+  .fondo-modulo { background-color: var(--m-tenue); }
+
   /* =======================================================================
      PRESENTACIÓN DE DETALLE — fichas, métricas y datos clave
      Reemplazan las "dl divide-y" apretadas dentro del panel lateral.
