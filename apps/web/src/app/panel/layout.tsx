@@ -123,10 +123,8 @@ export default function LayoutPanel({
                   type="button"
                   onClick={() => alternarModulo(modulo.titulo)}
                   aria-expanded={abierto}
-                  className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-[0.7rem] font-semibold uppercase tracking-wide transition-colors ${
-                    tieneActivo
-                      ? "modulo-titulo"
-                      : "text-texto-ter hover:text-texto-sec"
+                  className={`modulo-titulo flex w-full items-center justify-between rounded-md px-3 py-2 text-[0.7rem] font-semibold uppercase tracking-wide transition-colors ${
+                    tieneActivo ? "bg-[var(--m-tenue)]" : "opacity-80 hover:opacity-100"
                   }`}
                 >
                   <span>{modulo.titulo}</span>
