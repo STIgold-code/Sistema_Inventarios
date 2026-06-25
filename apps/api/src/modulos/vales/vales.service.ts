@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
@@ -250,6 +251,12 @@ export class ValesService {
     if (vale.estado !== "BORRADOR") {
       throw new BadRequestException(`El vale esta ${vale.estado}`);
     }
+    // Segregacion de funciones: quien solicita no puede autorizar su propio vale.
+    if (vale.solicitanteId === usuario.id) {
+      throw new ForbiddenException(
+        "No puedes autorizar un vale que tu mismo solicitaste (segregacion de funciones).",
+      );
+    }
     // CAS sobre el estado: solo autoriza si SIGUE en BORRADOR. Si otra peticion ya
     // lo autorizo/anulo entre el read y este update, afecta 0 filas -> conflicto.
     const actualizados = await this.prisma.valeSalida.updateMany({
@@ -284,6 +291,12 @@ export class ValesService {
     if (vale.estado !== "AUTORIZADO") {
       throw new BadRequestException(
         `El vale debe estar AUTORIZADO para despachar (esta ${vale.estado})`,
+      );
+    }
+    // Segregacion de funciones: quien solicita no puede despachar su propio vale.
+    if (vale.solicitanteId === usuario.id) {
+      throw new ForbiddenException(
+        "No puedes despachar un vale que tu mismo solicitaste (segregacion de funciones).",
       );
     }
 

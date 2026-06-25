@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import { AuditoriaService } from "../auditoria/auditoria.service.js";
 import { CorrelativoService } from "../comun/correlativo/correlativo.service.js";
@@ -162,10 +167,15 @@ export class RequerimientosService {
   async aprobar(usuario: UsuarioRequest, id: bigint) {
     const req = await this.cargarBorrador(usuario.empresaId, id);
     await this.prisma.$transaction(async (tx) => {
-      await tx.requerimientoCompra.update({
-        where: { id: req.id },
+      // CAS sobre el estado: solo aprueba si SIGUE en BORRADOR. Si otra peticion
+      // ya lo aprobo/rechazo entre el read y este update, afecta 0 filas -> conflicto.
+      const actualizados = await tx.requerimientoCompra.updateMany({
+        where: { id: req.id, empresaId: usuario.empresaId, estado: "BORRADOR" },
         data: { estado: "APROBADO", aprobadoPorId: usuario.id },
       });
+      if (actualizados.count === 0) {
+        throw new ConflictException("El requerimiento ya no esta en BORRADOR");
+      }
       await this.auditoria.registrar(
         {
           empresaId: usuario.empresaId,
@@ -181,14 +191,21 @@ export class RequerimientosService {
     return { id: id.toString(), estado: "APROBADO" };
   }
 
-  /** BORRADOR -> RECHAZADO. */
+  /**
+   * BORRADOR -> RECHAZADO. NO escribe aprobadoPorId: un rechazo no es una
+   * aprobacion. La identidad de quien rechaza queda en el log de auditoria.
+   */
   async rechazar(usuario: UsuarioRequest, id: bigint) {
     const req = await this.cargarBorrador(usuario.empresaId, id);
     await this.prisma.$transaction(async (tx) => {
-      await tx.requerimientoCompra.update({
-        where: { id: req.id },
-        data: { estado: "RECHAZADO", aprobadoPorId: usuario.id },
+      // CAS sobre el estado: solo rechaza si SIGUE en BORRADOR (anti doble-transicion).
+      const actualizados = await tx.requerimientoCompra.updateMany({
+        where: { id: req.id, empresaId: usuario.empresaId, estado: "BORRADOR" },
+        data: { estado: "RECHAZADO" },
       });
+      if (actualizados.count === 0) {
+        throw new ConflictException("El requerimiento ya no esta en BORRADOR");
+      }
       await this.auditoria.registrar(
         {
           empresaId: usuario.empresaId,
