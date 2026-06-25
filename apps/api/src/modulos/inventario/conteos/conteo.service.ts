@@ -76,38 +76,51 @@ export class ConteoService {
    * ledger que lleva el stock a la cantidad contada. Cierra el conteo.
    */
   async aplicar(usuario: UsuarioRequest, conteoId: bigint) {
-    const conteo = await this.prisma.conteoFisico.findFirst({
-      where: { id: conteoId, empresaId: usuario.empresaId },
-      include: { lineas: true },
-    });
-    if (!conteo) throw new NotFoundException("Conteo no encontrado");
-    if (conteo.estado !== "ABIERTO") {
-      throw new BadRequestException("El conteo ya fue procesado");
-    }
-
-    let ajustes = 0;
-    for (const linea of conteo.lineas) {
-      if (new D(linea.diferencia).isZero()) continue;
-      const resultado = await this.movimientos.ajustar(usuario, {
-        skuId: linea.skuId,
-        almacenId: conteo.almacenId,
-        cantidadObjetivo: linea.cantidadContada.toString(),
-        observaciones: `Cuadre conteo #${conteo.id}`,
+    // TODO el cuadre (los N ajustes + las marcas de linea + el cierre) corre en
+    // UNA sola transaccion: si una linea falla, nada se aplica (no quedan ajustes
+    // parciales con el conteo aun ABIERTO). La puerta CAS (updateMany sobre
+    // estado=ABIERTO) cierra el estado al inicio dentro de la misma tx: si otra
+    // request ya lo proceso, count===0 y se aborta (anti doble-aplicacion).
+    return this.prisma.$transaction(async (tx) => {
+      const puerta = await tx.conteoFisico.updateMany({
+        where: { id: conteoId, empresaId: usuario.empresaId, estado: "ABIERTO" },
+        data: { estado: "APLICADO" },
       });
-      if (resultado.movimientoId) {
-        await this.prisma.conteoLinea.update({
-          where: { id: linea.id },
-          data: { movimientoAjusteId: BigInt(resultado.movimientoId) },
+      if (puerta.count === 0) {
+        const existe = await tx.conteoFisico.findFirst({
+          where: { id: conteoId, empresaId: usuario.empresaId },
+          select: { id: true },
         });
-        ajustes += 1;
+        if (!existe) throw new NotFoundException("Conteo no encontrado");
+        throw new BadRequestException("El conteo ya fue procesado");
       }
-    }
 
-    await this.prisma.conteoFisico.update({
-      where: { id: conteo.id },
-      data: { estado: "APLICADO" },
+      const conteo = await tx.conteoFisico.findUniqueOrThrow({
+        where: { id: conteoId },
+        include: { lineas: true },
+      });
+
+      let ajustes = 0;
+      for (const linea of conteo.lineas) {
+        if (new D(linea.diferencia).isZero()) continue;
+        const resultado = await this.movimientos.ajustarEnTx(tx, usuario, {
+          skuId: linea.skuId,
+          almacenId: conteo.almacenId,
+          cantidadObjetivo: linea.cantidadContada.toString(),
+          documentoId: conteo.id,
+          observaciones: `Cuadre conteo #${conteo.id}`,
+        });
+        if (resultado.movimientoId) {
+          await tx.conteoLinea.update({
+            where: { id: linea.id },
+            data: { movimientoAjusteId: resultado.movimientoId },
+          });
+          ajustes += 1;
+        }
+      }
+
+      return { ajustes };
     });
-    return { ajustes };
   }
 
   async detalle(empresaId: bigint, conteoId: bigint) {

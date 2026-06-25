@@ -499,101 +499,122 @@ export class MovimientoService {
       almacenId: bigint;
       cantidadObjetivo: string;
       ubicacionId?: bigint;
+      documentoId?: bigint;
       observaciones?: string;
     },
   ): Promise<{ diferencia: string; movimientoId: string | null }> {
-    const objetivo = new D(dto.cantidadObjetivo);
-
-    const resultado = await this.prisma.$transaction(async (tx) => {
-      await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
-      const item = await this.obtenerOcrearItem(
-        tx,
-        usuario.empresaId,
-        dto.skuId,
-        dto.almacenId,
-        dto.ubicacionId,
-      );
-      const disponible = new D(item.cantidadDisponible);
-      const comprometida = new D(item.cantidadComprometida);
-      const promedio = new D(item.costoPromedio);
-      const diferencia = objetivo.sub(disponible);
-
-      if (diferencia.isZero()) {
-        return { diferencia: "0", movimientoId: null as bigint | null };
-      }
-
-      const esEntrada = diferencia.greaterThan(0);
-      const magnitud = diferencia.abs();
-      const nuevaDisponible = objetivo;
-      const saldoFisico = nuevaDisponible.add(comprometida);
-      const costoUnit = promedio;
-      const costoTotal = magnitud.mul(costoUnit);
-
-      const mov = await this.crearMovimiento(tx, {
-        usuario,
-        item,
-        tipo: esEntrada ? TIPO_MOVIMIENTO.ENTRADA_AJUSTE : TIPO_MOVIMIENTO.SALIDA_AJUSTE,
-        signo: esEntrada ? SIGNO_MOVIMIENTO.ENTRADA : SIGNO_MOVIMIENTO.SALIDA,
-        cantidad: magnitud,
-        costoUnitario: costoUnit,
-        costoTotal,
-        saldoCantidad: saldoFisico,
-        saldoCostoUnitario: promedio,
-        saldoCostoTotal: saldoFisico.mul(promedio),
-        documentoTipo: "AJUSTE",
-        tipoOperacionSunat: TIPO_OPERACION.OTROS,
-        tipoDocumentoSunat: TIPO_DOCUMENTO.OTROS,
-        observaciones: dto.observaciones ?? "Ajuste por conteo fisico",
-      });
-
-      if (esEntrada) {
-        // El sobrante encontrado entra como una capa al costo promedio vigente.
-        await tx.capaCosto.create({
-          data: {
-            empresaId: usuario.empresaId,
-            skuId: dto.skuId,
-            almacenId: dto.almacenId,
-            movimientoEntradaId: mov.id,
-            cantidadInicial: magnitud,
-            cantidadRestante: magnitud,
-            costoUnitario: costoUnit,
-            costoUnitarioUsd: mov.costoUnitarioUsd,
-          },
-        });
-      } else {
-        // El faltante consume capas FIFO.
-        const { consumos } = await this.consumirCapasFifo(
-          tx,
-          usuario.empresaId,
-          dto.skuId,
-          dto.almacenId,
-          magnitud,
-        );
-        for (const c of consumos) {
-          await tx.consumoCapa.create({
-            data: {
-              empresaId: usuario.empresaId,
-              movimientoSalidaId: mov.id,
-              capaCostoId: c.capaCostoId,
-              cantidad: c.cantidad,
-              costoUnitario: c.costoUnitario,
-            },
-          });
-        }
-      }
-
-      await tx.itemStock.update({
-        where: { id: item.id },
-        data: { cantidadDisponible: nuevaDisponible, version: { increment: 1 } },
-      });
-
-      return { diferencia: diferencia.toString(), movimientoId: mov.id };
-    });
-
+    const resultado = await this.prisma.$transaction((tx) =>
+      this.ajustarEnTx(tx, usuario, dto),
+    );
     return {
       diferencia: resultado.diferencia,
       movimientoId: resultado.movimientoId ? resultado.movimientoId.toString() : null,
     };
+  }
+
+  /**
+   * Variante componible de {@link ajustar} que corre DENTRO de la transaccion
+   * del caller (p.ej. el aplicar() de un conteo, que ajusta N lineas de forma
+   * atomica). Lleva el disponible a cantidadObjetivo (absoluto) y registra el
+   * movimiento de ajuste en el ledger inmutable.
+   */
+  async ajustarEnTx(
+    tx: Tx,
+    usuario: UsuarioRequest,
+    dto: {
+      skuId: bigint;
+      almacenId: bigint;
+      cantidadObjetivo: string;
+      ubicacionId?: bigint;
+      documentoId?: bigint;
+      observaciones?: string;
+    },
+  ): Promise<{ diferencia: string; movimientoId: bigint | null }> {
+    const objetivo = new D(dto.cantidadObjetivo);
+    await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const item = await this.obtenerOcrearItem(
+      tx,
+      usuario.empresaId,
+      dto.skuId,
+      dto.almacenId,
+      dto.ubicacionId,
+    );
+    const disponible = new D(item.cantidadDisponible);
+    const comprometida = new D(item.cantidadComprometida);
+    const promedio = new D(item.costoPromedio);
+    const diferencia = objetivo.sub(disponible);
+
+    if (diferencia.isZero()) {
+      return { diferencia: "0", movimientoId: null };
+    }
+
+    const esEntrada = diferencia.greaterThan(0);
+    const magnitud = diferencia.abs();
+    const nuevaDisponible = objetivo;
+    const saldoFisico = nuevaDisponible.add(comprometida);
+    const costoUnit = promedio;
+    const costoTotal = magnitud.mul(costoUnit);
+
+    const mov = await this.crearMovimiento(tx, {
+      usuario,
+      item,
+      tipo: esEntrada ? TIPO_MOVIMIENTO.ENTRADA_AJUSTE : TIPO_MOVIMIENTO.SALIDA_AJUSTE,
+      signo: esEntrada ? SIGNO_MOVIMIENTO.ENTRADA : SIGNO_MOVIMIENTO.SALIDA,
+      cantidad: magnitud,
+      costoUnitario: costoUnit,
+      costoTotal,
+      saldoCantidad: saldoFisico,
+      saldoCostoUnitario: promedio,
+      saldoCostoTotal: saldoFisico.mul(promedio),
+      documentoTipo: "AJUSTE",
+      documentoId: dto.documentoId,
+      tipoOperacionSunat: TIPO_OPERACION.OTROS,
+      tipoDocumentoSunat: TIPO_DOCUMENTO.OTROS,
+      observaciones: dto.observaciones ?? "Ajuste por conteo fisico",
+    });
+
+    if (esEntrada) {
+      // El sobrante encontrado entra como una capa al costo promedio vigente.
+      await tx.capaCosto.create({
+        data: {
+          empresaId: usuario.empresaId,
+          skuId: dto.skuId,
+          almacenId: dto.almacenId,
+          movimientoEntradaId: mov.id,
+          cantidadInicial: magnitud,
+          cantidadRestante: magnitud,
+          costoUnitario: costoUnit,
+          costoUnitarioUsd: mov.costoUnitarioUsd,
+        },
+      });
+    } else {
+      // El faltante consume capas FIFO.
+      const { consumos } = await this.consumirCapasFifo(
+        tx,
+        usuario.empresaId,
+        dto.skuId,
+        dto.almacenId,
+        magnitud,
+      );
+      for (const c of consumos) {
+        await tx.consumoCapa.create({
+          data: {
+            empresaId: usuario.empresaId,
+            movimientoSalidaId: mov.id,
+            capaCostoId: c.capaCostoId,
+            cantidad: c.cantidad,
+            costoUnitario: c.costoUnitario,
+          },
+        });
+      }
+    }
+
+    await tx.itemStock.update({
+      where: { id: item.id },
+      data: { cantidadDisponible: nuevaDisponible, version: { increment: 1 } },
+    });
+
+    return { diferencia: diferencia.toString(), movimientoId: mov.id };
   }
 
   /**
