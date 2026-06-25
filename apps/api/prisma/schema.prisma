@@ -991,6 +991,14 @@ model DevolucionVenta {
   estado             EstadoDevolucionVenta @default(REGISTRADA)
   fecha              DateTime              @default(now())
   motivo             String?
+  // Referencia de la Nota de Credito (Tabla 10 SUNAT, por defecto 07) que
+  // sustenta la devolucion. Se propaga al ledger para que el kardex muestre
+  // serie/numero/fecha REALES en vez del "0" dummy. Nullable por compatibilidad
+  // con devoluciones historicas sin comprobante capturado.
+  tipoComprobante    String?               @map("tipo_comprobante")
+  serieComprobante   String?               @map("serie_comprobante")
+  numeroComprobante  String?               @map("numero_comprobante")
+  fechaComprobante   DateTime?             @map("fecha_comprobante")
   usuarioId          BigInt                @map("usuario_id")
   creadoEn           DateTime              @default(now()) @map("creado_en")
 

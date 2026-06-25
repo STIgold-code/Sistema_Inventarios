@@ -36,3 +36,15 @@ export const COMPROBANTES_VENTA: readonly OpcionComprobante[] = [
   { codigo: TIPO_DOCUMENTO.NOTA_CREDITO, etiqueta: "Nota de crédito" },
   { codigo: TIPO_DOCUMENTO.NOTA_DEBITO, etiqueta: "Nota de débito" },
 ] as const;
+
+/**
+ * Comprobante que sustenta una devolucion de venta: por norma es la Nota de
+ * Credito (Tabla 10 SUNAT, codigo 07). Se deja como lista para mantener el
+ * patron de selector y por si el negocio necesita otro documento de respaldo.
+ */
+export const COMPROBANTES_DEVOLUCION: readonly OpcionComprobante[] = [
+  { codigo: TIPO_DOCUMENTO.NOTA_CREDITO, etiqueta: "Nota de crédito" },
+] as const;
+
+/** Tipo de comprobante por defecto al sustentar una devolución (Nota de crédito). */
+export const TIPO_COMPROBANTE_DEVOLUCION_DEFECTO: string = TIPO_DOCUMENTO.NOTA_CREDITO;

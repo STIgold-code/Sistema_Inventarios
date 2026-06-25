@@ -22,6 +22,12 @@ interface NuevaDevolucion {
   guiaRemisionId?: bigint;
   motivo?: string;
   fecha?: Date;
+  // Referencia de la Nota de Credito que sustenta la devolucion (Tabla 10 SUNAT,
+  // por defecto 07). Se persiste y se propaga al ledger (serie/numero/fecha reales).
+  tipoComprobante?: string;
+  serieComprobante?: string;
+  numeroComprobante?: string;
+  fechaComprobante?: Date;
   lineas: Array<{
     ordenVentaLineaId?: bigint;
     skuId: bigint;
@@ -138,6 +144,9 @@ export class DevolucionesService {
     }
 
     const fecha = dto.fecha ?? new Date();
+    // El periodo SUNAT del reingreso se rige por la fecha de emision de la Nota
+    // de Credito cuando se capturo; si no, por la fecha de la devolucion.
+    const fechaDocumento = dto.fechaComprobante ?? fecha;
 
     return this.prisma.$transaction(async (tx) => {
       // Lockear las posiciones (sku+almacen) afectadas ANTES de leer el tope neto:
@@ -202,6 +211,10 @@ export class DevolucionesService {
           numero,
           fecha,
           motivo: dto.motivo ?? null,
+          tipoComprobante: dto.tipoComprobante ?? null,
+          serieComprobante: dto.serieComprobante ?? null,
+          numeroComprobante: dto.numeroComprobante ?? null,
+          fechaComprobante: dto.fechaComprobante ?? null,
           usuarioId: usuario.id,
         },
       });
@@ -220,7 +233,10 @@ export class DevolucionesService {
           cantidad: linea.cantidad,
           documentoId: devolucion.id,
           costoUnitario: costoBasis ?? undefined,
-          fechaEmisionDocumento: fecha,
+          tipoDocumentoSunat: dto.tipoComprobante,
+          serieComprobante: dto.serieComprobante,
+          numeroComprobante: dto.numeroComprobante,
+          fechaEmisionDocumento: fechaDocumento,
           observaciones: `Devolucion ${numero} (OV ${orden.numero})`,
           numerosSerie: linea.numerosSerie,
         });
@@ -406,6 +422,10 @@ export class DevolucionesService {
       ordenVentaNumero: d.ordenVenta.numero,
       comprobanteVentaId: d.comprobanteVentaId ? d.comprobanteVentaId.toString() : null,
       guiaRemisionId: d.guiaRemisionId ? d.guiaRemisionId.toString() : null,
+      tipoComprobante: d.tipoComprobante,
+      serieComprobante: d.serieComprobante,
+      numeroComprobante: d.numeroComprobante,
+      fechaComprobante: d.fechaComprobante ? d.fechaComprobante.toISOString() : null,
       lineas: d.lineas.map((l) => {
         const sku = skuPorId.get(l.skuId.toString());
         return {

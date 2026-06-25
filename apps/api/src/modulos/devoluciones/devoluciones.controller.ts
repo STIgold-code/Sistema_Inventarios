@@ -33,6 +33,10 @@ export class DevolucionesController {
         dto.guiaRemisionId !== undefined ? BigInt(dto.guiaRemisionId) : undefined,
       motivo: dto.motivo,
       fecha: dto.fecha ? new Date(dto.fecha) : undefined,
+      tipoComprobante: dto.tipoComprobante,
+      serieComprobante: dto.serieComprobante,
+      numeroComprobante: dto.numeroComprobante,
+      fechaComprobante: dto.fechaComprobante ? new Date(dto.fechaComprobante) : undefined,
       lineas: dto.lineas.map((l) => ({
         ordenVentaLineaId:
           l.ordenVentaLineaId !== undefined ? BigInt(l.ordenVentaLineaId) : undefined,

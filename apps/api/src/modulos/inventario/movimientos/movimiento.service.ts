@@ -854,6 +854,9 @@ export class MovimientoService {
       cantidad: string;
       documentoId: bigint;
       costoUnitario?: string;
+      tipoDocumentoSunat?: string;
+      serieComprobante?: string;
+      numeroComprobante?: string;
       fechaEmisionDocumento?: Date;
       observaciones?: string;
       numerosSerie?: string[];
@@ -871,6 +874,9 @@ export class MovimientoService {
       documentoTipo: "DEVOLUCION_VENTA",
       documentoId: dto.documentoId,
       tipoOperacionSunat: TIPO_OPERACION.DEVOLUCION_RECIBIDA,
+      tipoDocumentoSunat: dto.tipoDocumentoSunat,
+      serieComprobante: dto.serieComprobante,
+      numeroComprobante: dto.numeroComprobante,
       fechaEmisionDocumento: dto.fechaEmisionDocumento,
       observaciones: dto.observaciones ?? "Devolucion de venta",
     });
@@ -1378,6 +1384,9 @@ export class MovimientoService {
       documentoTipo: string;
       documentoId?: bigint;
       tipoOperacionSunat: string;
+      tipoDocumentoSunat?: string;
+      serieComprobante?: string;
+      numeroComprobante?: string;
       fechaEmisionDocumento?: Date;
       observaciones?: string;
     },
@@ -1404,7 +1413,9 @@ export class MovimientoService {
       documentoTipo: datos.documentoTipo,
       documentoId: datos.documentoId,
       tipoOperacionSunat: datos.tipoOperacionSunat,
-      tipoDocumentoSunat: TIPO_DOCUMENTO.OTROS,
+      tipoDocumentoSunat: datos.tipoDocumentoSunat ?? TIPO_DOCUMENTO.OTROS,
+      serieComprobante: datos.serieComprobante,
+      numeroComprobante: datos.numeroComprobante,
       fechaEmisionDocumento: datos.fechaEmisionDocumento,
       observaciones: datos.observaciones,
     });

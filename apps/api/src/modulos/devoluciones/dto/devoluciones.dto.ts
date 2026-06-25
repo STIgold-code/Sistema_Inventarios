@@ -55,6 +55,24 @@ export class RegistrarDevolucionDto {
   @IsISO8601({}, { message: "fecha debe ser una fecha valida ISO 8601" })
   fecha?: string;
 
+  // Referencia de la Nota de Credito que sustenta la devolucion. Opcional, pero
+  // si se captura se propaga al kardex como serie/numero/fecha reales.
+  @IsOptional()
+  @IsString()
+  tipoComprobante?: string;
+
+  @IsOptional()
+  @IsString()
+  serieComprobante?: string;
+
+  @IsOptional()
+  @IsString()
+  numeroComprobante?: string;
+
+  @IsOptional()
+  @IsISO8601({}, { message: "fechaComprobante debe ser una fecha valida ISO 8601" })
+  fechaComprobante?: string;
+
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })

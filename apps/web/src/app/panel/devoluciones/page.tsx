@@ -6,6 +6,10 @@ import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
 import { SelectorBusqueda } from "@/componentes/selector-busqueda";
 import {
+  COMPROBANTES_DEVOLUCION,
+  TIPO_COMPROBANTE_DEVOLUCION_DEFECTO,
+} from "@/lib/comprobantes";
+import {
   ErrorApi,
   anularDevolucion,
   crearDevolucion,
@@ -60,6 +64,13 @@ export default function PaginaDevoluciones(): React.JSX.Element {
   const [ordenId, setOrdenId] = useState<string>("");
   const [motivo, setMotivo] = useState<string>("");
   const [fecha, setFecha] = useState<string>("");
+  // Referencia de la Nota de Crédito que sustenta la devolución (default: 07).
+  const [tipoComprobante, setTipoComprobante] = useState<string>(
+    TIPO_COMPROBANTE_DEVOLUCION_DEFECTO,
+  );
+  const [serieComprobante, setSerieComprobante] = useState<string>("");
+  const [numeroComprobante, setNumeroComprobante] = useState<string>("");
+  const [fechaComprobante, setFechaComprobante] = useState<string>("");
   const [borrador, setBorrador] = useState<BorradorDevolucion>({});
   const [guardando, setGuardando] = useState<boolean>(false);
   const [avisoForm, setAvisoForm] = useState<Aviso | null>(null);
@@ -245,6 +256,17 @@ export default function PaginaDevoluciones(): React.JSX.Element {
       setAvisoForm({ texto: "Selecciona una orden de venta.", tono: "error" });
       return;
     }
+    // La serie y el número de la Nota de Crédito van juntos: si se llena uno,
+    // el otro es obligatorio (evita referencias a medias en el kardex).
+    const serie = serieComprobante.trim();
+    const numero = numeroComprobante.trim();
+    if ((serie === "") !== (numero === "")) {
+      setAvisoForm({
+        texto: "Completa la serie y el número de la Nota de Crédito, o deja ambos vacíos.",
+        tono: "error",
+      });
+      return;
+    }
     if (lineasParaEnviar() === null) return;
     setConfirmarAbierto(true);
   }
@@ -258,10 +280,20 @@ export default function PaginaDevoluciones(): React.JSX.Element {
     }
     setGuardando(true);
     try {
+      const serie = serieComprobante.trim();
+      const numero = numeroComprobante.trim();
+      const tieneComprobante = serie !== "" && numero !== "";
       const respuesta = await crearDevolucion({
         ordenVentaId: ordenSeleccionada.id,
         motivo: motivo.trim() || undefined,
         fecha: fecha ? new Date(fecha).toISOString() : undefined,
+        tipoComprobante: tieneComprobante ? tipoComprobante : undefined,
+        serieComprobante: tieneComprobante ? serie : undefined,
+        numeroComprobante: tieneComprobante ? numero : undefined,
+        fechaComprobante:
+          tieneComprobante && fechaComprobante
+            ? new Date(fechaComprobante).toISOString()
+            : undefined,
         lineas,
       });
       setAvisoLista({
@@ -271,6 +303,10 @@ export default function PaginaDevoluciones(): React.JSX.Element {
       setOrdenId("");
       setMotivo("");
       setFecha("");
+      setSerieComprobante("");
+      setNumeroComprobante("");
+      setFechaComprobante("");
+      setTipoComprobante(TIPO_COMPROBANTE_DEVOLUCION_DEFECTO);
       setBorrador({});
       setAvisoForm(null);
       await refrescarDevoluciones();
@@ -368,6 +404,71 @@ export default function PaginaDevoluciones(): React.JSX.Element {
                 placeholder="Ej. Producto fallado"
                 className="campo"
               />
+            </div>
+
+            <div className="rounded-md border border-borde bg-panel-alt p-4">
+              <p className="text-sm font-medium text-texto">
+                Nota de Crédito <span className="text-texto-ter">(sustento, opcional)</span>
+              </p>
+              <p className="mt-1 text-xs text-texto-ter">
+                Si registras la serie y el número, el kardex mostrará el documento real en
+                lugar del valor genérico.
+              </p>
+              <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <label htmlFor="nc-tipo" className="etiqueta-campo">
+                    Tipo
+                  </label>
+                  <select
+                    id="nc-tipo"
+                    value={tipoComprobante}
+                    onChange={(e) => setTipoComprobante(e.target.value)}
+                    className="campo"
+                  >
+                    {COMPROBANTES_DEVOLUCION.map((opcion) => (
+                      <option key={opcion.codigo} value={opcion.codigo}>
+                        {opcion.etiqueta}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="nc-serie" className="etiqueta-campo">
+                    Serie
+                  </label>
+                  <input
+                    id="nc-serie"
+                    value={serieComprobante}
+                    onChange={(e) => setSerieComprobante(e.target.value)}
+                    placeholder="Ej. FC01"
+                    className="campo font-mono"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="nc-numero" className="etiqueta-campo">
+                    Número
+                  </label>
+                  <input
+                    id="nc-numero"
+                    value={numeroComprobante}
+                    onChange={(e) => setNumeroComprobante(e.target.value)}
+                    placeholder="Ej. 0001234"
+                    className="campo font-mono"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="nc-fecha" className="etiqueta-campo">
+                    Fecha de emisión
+                  </label>
+                  <input
+                    id="nc-fecha"
+                    type="date"
+                    value={fechaComprobante}
+                    onChange={(e) => setFechaComprobante(e.target.value)}
+                    className="campo"
+                  />
+                </div>
+              </div>
             </div>
 
             {ordenSeleccionada && (
@@ -516,6 +617,14 @@ export default function PaginaDevoluciones(): React.JSX.Element {
                         {new Date(dev.fecha).toLocaleDateString("es-PE")}
                         {dev.motivo ? ` · ${dev.motivo}` : ""}
                       </p>
+                      {dev.serieComprobante && dev.numeroComprobante && (
+                        <p className="text-xs text-texto-ter">
+                          N. Crédito {dev.serieComprobante}-{dev.numeroComprobante}
+                          {dev.fechaComprobante
+                            ? ` · ${new Date(dev.fechaComprobante).toLocaleDateString("es-PE")}`
+                            : ""}
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-3">
                       <span className={INSIGNIA_ESTADO[dev.estado]}>{dev.estado}</span>

@@ -1809,6 +1809,11 @@ export interface DevolucionVenta {
   ordenVentaNumero: string;
   comprobanteVentaId: string | null;
   guiaRemisionId: string | null;
+  /** Referencia de la Nota de Credito que sustenta la devolucion. */
+  tipoComprobante: string | null;
+  serieComprobante: string | null;
+  numeroComprobante: string | null;
+  fechaComprobante: string | null;
   lineas: LineaDevolucionVenta[];
 }
 
@@ -1830,6 +1835,12 @@ export interface CrearDevolucionInput {
   motivo?: string;
   /** Fecha de la devolucion en formato ISO 8601 (opcional; default ahora). */
   fecha?: string;
+  /** Referencia de la Nota de Credito (Tabla 10 SUNAT, por defecto 07). */
+  tipoComprobante?: string;
+  serieComprobante?: string;
+  numeroComprobante?: string;
+  /** Fecha de emision de la Nota de Credito en ISO 8601. */
+  fechaComprobante?: string;
   lineas: CrearDevolucionLineaInput[];
 }
 
