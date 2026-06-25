@@ -6,15 +6,17 @@ import { PrismaService } from "../../comun/prisma/prisma.service.js";
 export class AlmacenesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listarSucursales(empresaId: bigint) {
+  /** Lista sucursales. Por defecto solo activas; incluye inactivas si se pide. */
+  async listarSucursales(empresaId: bigint, incluirInactivos = false) {
     const sucursales = await this.prisma.sucursal.findMany({
-      where: { empresaId },
+      where: { empresaId, ...(incluirInactivos ? {} : { activo: true }) },
       orderBy: { codigo: "asc" },
     });
     return sucursales.map((s) => ({
       id: s.id.toString(),
       codigo: s.codigo,
       nombre: s.nombre,
+      activo: s.activo,
     }));
   }
 
@@ -56,9 +58,36 @@ export class AlmacenesService {
     }
   }
 
-  async listarAlmacenes(empresaId: bigint) {
+  /** Baja logica de la sucursal. Valida pertenencia a la empresa (anti-IDOR). */
+  async darBajaSucursal(empresaId: bigint, sucursalId: bigint) {
+    const sucursal = await this.prisma.sucursal.findFirst({
+      where: { id: sucursalId, empresaId },
+    });
+    if (!sucursal) throw new NotFoundException("Sucursal no encontrada.");
+    await this.prisma.sucursal.update({
+      where: { id: sucursalId },
+      data: { activo: false },
+    });
+    return { id: sucursalId.toString(), activo: false };
+  }
+
+  /** Reactiva una sucursal dada de baja. Valida pertenencia a la empresa. */
+  async reactivarSucursal(empresaId: bigint, sucursalId: bigint) {
+    const sucursal = await this.prisma.sucursal.findFirst({
+      where: { id: sucursalId, empresaId },
+    });
+    if (!sucursal) throw new NotFoundException("Sucursal no encontrada.");
+    await this.prisma.sucursal.update({
+      where: { id: sucursalId },
+      data: { activo: true },
+    });
+    return { id: sucursalId.toString(), activo: true };
+  }
+
+  /** Lista almacenes. Por defecto solo activos; incluye inactivos si se pide. */
+  async listarAlmacenes(empresaId: bigint, incluirInactivos = false) {
     const almacenes = await this.prisma.almacen.findMany({
-      where: { empresaId },
+      where: { empresaId, ...(incluirInactivos ? {} : { activo: true }) },
       include: { sucursal: true },
       orderBy: { codigo: "asc" },
     });
@@ -68,7 +97,28 @@ export class AlmacenesService {
       nombre: a.nombre,
       sucursal: a.sucursal.nombre,
       sucursalId: a.sucursalId.toString(),
+      activo: a.activo,
     }));
+  }
+
+  /** Baja logica del almacen. Valida pertenencia a la empresa (anti-IDOR). */
+  async darBajaAlmacen(empresaId: bigint, almacenId: bigint) {
+    await this.obtenerAlmacen(empresaId, almacenId);
+    await this.prisma.almacen.update({
+      where: { id: almacenId },
+      data: { activo: false },
+    });
+    return { id: almacenId.toString(), activo: false };
+  }
+
+  /** Reactiva un almacen dado de baja. Valida pertenencia a la empresa. */
+  async reactivarAlmacen(empresaId: bigint, almacenId: bigint) {
+    await this.obtenerAlmacen(empresaId, almacenId);
+    await this.prisma.almacen.update({
+      where: { id: almacenId },
+      data: { activo: true },
+    });
+    return { id: almacenId.toString(), activo: true };
   }
 
   async crearAlmacen(

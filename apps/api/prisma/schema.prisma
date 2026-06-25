@@ -126,10 +126,11 @@ model Empresa {
 }
 
 model Sucursal {
-  id        BigInt @id @default(autoincrement())
-  empresaId BigInt @map("empresa_id")
+  id        BigInt  @id @default(autoincrement())
+  empresaId BigInt  @map("empresa_id")
   codigo    String
   nombre    String
+  activo    Boolean @default(true)
 
   empresa   Empresa      @relation(fields: [empresaId], references: [id])
   almacenes Almacen[]
@@ -141,11 +142,12 @@ model Sucursal {
 }
 
 model Almacen {
-  id         BigInt @id @default(autoincrement())
-  empresaId  BigInt @map("empresa_id")
-  sucursalId BigInt @map("sucursal_id")
+  id         BigInt  @id @default(autoincrement())
+  empresaId  BigInt  @map("empresa_id")
+  sucursalId BigInt  @map("sucursal_id")
   codigo     String
   nombre     String
+  activo     Boolean @default(true)
 
   sucursal     Sucursal     @relation(fields: [sucursalId], references: [id])
   ubicaciones  Ubicacion[]

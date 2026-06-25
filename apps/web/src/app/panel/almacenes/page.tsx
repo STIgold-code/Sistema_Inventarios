@@ -15,8 +15,12 @@ import {
   crearAlmacen,
   crearSucursal,
   crearZona,
+  darBajaAlmacen,
+  darBajaSucursal,
   darBajaZona,
   ErrorApi,
+  reactivarAlmacen,
+  reactivarSucursal,
   obtenerAlmacenesDetalle,
   obtenerSucursales,
   obtenerZonas,
@@ -51,6 +55,13 @@ export default function PaginaAlmacenes(): React.JSX.Element {
   const [cargando, setCargando] = useState<boolean>(true);
   const [busqueda, setBusqueda] = useState<string>("");
   const [avisoLista, setAvisoLista] = useState<Aviso | null>(null);
+  const [verInactivos, setVerInactivos] = useState<boolean>(false);
+
+  // Baja logica de sucursal / almacen (confirmacion).
+  const [sucursalBaja, setSucursalBaja] = useState<Sucursal | null>(null);
+  const [almacenBaja, setAlmacenBaja] = useState<AlmacenDetalle | null>(null);
+  const [procesandoBajaEntidad, setProcesandoBajaEntidad] =
+    useState<boolean>(false);
 
   // Panel de almacén (alta o edición según editandoAlmId).
   const [panelAlmAbierto, setPanelAlmAbierto] = useState<boolean>(false);
@@ -87,12 +98,12 @@ export default function PaginaAlmacenes(): React.JSX.Element {
 
   const recargar = useCallback(async (): Promise<void> => {
     const [suc, alm] = await Promise.all([
-      obtenerSucursales(),
-      obtenerAlmacenesDetalle(),
+      obtenerSucursales(verInactivos),
+      obtenerAlmacenesDetalle(verInactivos),
     ]);
     setSucursales(suc);
     setAlmacenes(alm);
-  }, []);
+  }, [verInactivos]);
 
   useEffect(() => {
     void (async () => {
@@ -232,6 +243,68 @@ export default function PaginaAlmacenes(): React.JSX.Element {
       });
     } finally {
       setGuardandoSuc(false);
+    }
+  }
+
+  async function confirmarBajaSucursal(): Promise<void> {
+    if (!sucursalBaja) return;
+    setProcesandoBajaEntidad(true);
+    try {
+      await darBajaSucursal(Number(sucursalBaja.id));
+      setAvisoLista({ texto: "Sucursal dada de baja.", tono: "exito" });
+      setSucursalBaja(null);
+      await recargar();
+    } catch (error) {
+      setAvisoLista({
+        texto: mensajeError(error, "No se pudo dar de baja la sucursal."),
+        tono: "error",
+      });
+    } finally {
+      setProcesandoBajaEntidad(false);
+    }
+  }
+
+  async function reactivarSucursalLista(sucursal: Sucursal): Promise<void> {
+    try {
+      await reactivarSucursal(Number(sucursal.id));
+      setAvisoLista({ texto: "Sucursal reactivada.", tono: "exito" });
+      await recargar();
+    } catch (error) {
+      setAvisoLista({
+        texto: mensajeError(error, "No se pudo reactivar la sucursal."),
+        tono: "error",
+      });
+    }
+  }
+
+  async function confirmarBajaAlmacen(): Promise<void> {
+    if (!almacenBaja) return;
+    setProcesandoBajaEntidad(true);
+    try {
+      await darBajaAlmacen(Number(almacenBaja.id));
+      setAvisoLista({ texto: "Almacén dado de baja.", tono: "exito" });
+      setAlmacenBaja(null);
+      await recargar();
+    } catch (error) {
+      setAvisoLista({
+        texto: mensajeError(error, "No se pudo dar de baja el almacén."),
+        tono: "error",
+      });
+    } finally {
+      setProcesandoBajaEntidad(false);
+    }
+  }
+
+  async function reactivarAlmacenLista(almacen: AlmacenDetalle): Promise<void> {
+    try {
+      await reactivarAlmacen(Number(almacen.id));
+      setAvisoLista({ texto: "Almacén reactivado.", tono: "exito" });
+      await recargar();
+    } catch (error) {
+      setAvisoLista({
+        texto: mensajeError(error, "No se pudo reactivar el almacén."),
+        tono: "error",
+      });
     }
   }
 
@@ -390,13 +463,23 @@ export default function PaginaAlmacenes(): React.JSX.Element {
               ({sucursales.length})
             </span>
           </span>
-          <button
-            type="button"
-            onClick={abrirNuevaSucursal}
-            className="btn btn-contorno whitespace-nowrap"
-          >
-            Nueva sucursal
-          </button>
+          <div className="flex items-center gap-3">
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-texto-sec">
+              <input
+                type="checkbox"
+                checked={verInactivos}
+                onChange={(e) => setVerInactivos(e.target.checked)}
+              />
+              Ver inactivos
+            </label>
+            <button
+              type="button"
+              onClick={abrirNuevaSucursal}
+              className="btn btn-contorno whitespace-nowrap"
+            >
+              Nueva sucursal
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="tabla-datos">
@@ -404,19 +487,20 @@ export default function PaginaAlmacenes(): React.JSX.Element {
               <tr>
                 <th>Código</th>
                 <th>Nombre</th>
+                <th>Estado</th>
                 <th className="text-right">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {cargando ? (
                 <tr>
-                  <td colSpan={3} className="text-texto-ter">
+                  <td colSpan={4} className="text-texto-ter">
                     Cargando…
                   </td>
                 </tr>
               ) : sucursales.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="text-texto-ter">
+                  <td colSpan={4} className="text-texto-ter">
                     Aún no hay sucursales.
                   </td>
                 </tr>
@@ -426,6 +510,13 @@ export default function PaginaAlmacenes(): React.JSX.Element {
                     <td className="num">{sucursal.codigo}</td>
                     <td className="text-tinta">{sucursal.nombre}</td>
                     <td>
+                      <span
+                        className={`insignia ${sucursal.activo ? "insignia-exito" : "insignia-neutra"}`}
+                      >
+                        {sucursal.activo ? "Activa" : "De baja"}
+                      </span>
+                    </td>
+                    <td>
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
@@ -434,6 +525,23 @@ export default function PaginaAlmacenes(): React.JSX.Element {
                         >
                           Editar
                         </button>
+                        {sucursal.activo ? (
+                          <button
+                            type="button"
+                            onClick={() => setSucursalBaja(sucursal)}
+                            className="btn btn-peligro h-8"
+                          >
+                            Dar de baja
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void reactivarSucursalLista(sucursal)}
+                            className="btn btn-contorno h-8"
+                          >
+                            Reactivar
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -479,19 +587,20 @@ export default function PaginaAlmacenes(): React.JSX.Element {
                 <th>Código</th>
                 <th>Nombre</th>
                 <th>Sucursal</th>
+                <th>Estado</th>
                 <th className="text-right">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {cargando ? (
                 <tr>
-                  <td colSpan={4} className="text-texto-ter">
+                  <td colSpan={5} className="text-texto-ter">
                     Cargando…
                   </td>
                 </tr>
               ) : visibles.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="text-texto-ter">
+                  <td colSpan={5} className="text-texto-ter">
                     {termino ? "Sin coincidencias." : "Aún no hay almacenes."}
                   </td>
                 </tr>
@@ -501,6 +610,13 @@ export default function PaginaAlmacenes(): React.JSX.Element {
                     <td className="num">{almacen.codigo}</td>
                     <td className="text-tinta">{almacen.nombre}</td>
                     <td className="text-texto-sec">{almacen.sucursal}</td>
+                    <td>
+                      <span
+                        className={`insignia ${almacen.activo ? "insignia-exito" : "insignia-neutra"}`}
+                      >
+                        {almacen.activo ? "Activo" : "De baja"}
+                      </span>
+                    </td>
                     <td>
                       <div className="flex justify-end gap-2">
                         <button
@@ -517,6 +633,23 @@ export default function PaginaAlmacenes(): React.JSX.Element {
                         >
                           Zonas
                         </button>
+                        {almacen.activo ? (
+                          <button
+                            type="button"
+                            onClick={() => setAlmacenBaja(almacen)}
+                            className="btn btn-peligro h-8"
+                          >
+                            Dar de baja
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void reactivarAlmacenLista(almacen)}
+                            className="btn btn-contorno h-8"
+                          >
+                            Reactivar
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -843,6 +976,36 @@ export default function PaginaAlmacenes(): React.JSX.Element {
         procesando={procesandoBaja}
         onConfirmar={confirmarBajaZona}
         onCancelar={() => !procesandoBaja && setZonaBaja(null)}
+      />
+
+      <ModalConfirmacion
+        abierto={sucursalBaja !== null}
+        titulo="Dar de baja sucursal"
+        mensaje={
+          sucursalBaja
+            ? `¿Confirmas dar de baja la sucursal ${sucursalBaja.codigo} — ${sucursalBaja.nombre}? Dejará de estar disponible.`
+            : ""
+        }
+        textoConfirmar="Dar de baja"
+        tono="peligro"
+        procesando={procesandoBajaEntidad}
+        onConfirmar={confirmarBajaSucursal}
+        onCancelar={() => !procesandoBajaEntidad && setSucursalBaja(null)}
+      />
+
+      <ModalConfirmacion
+        abierto={almacenBaja !== null}
+        titulo="Dar de baja almacén"
+        mensaje={
+          almacenBaja
+            ? `¿Confirmas dar de baja el almacén ${almacenBaja.codigo} — ${almacenBaja.nombre}? Dejará de estar disponible.`
+            : ""
+        }
+        textoConfirmar="Dar de baja"
+        tono="peligro"
+        procesando={procesandoBajaEntidad}
+        onConfirmar={confirmarBajaAlmacen}
+        onCancelar={() => !procesandoBajaEntidad && setAlmacenBaja(null)}
       />
     </div>
   );

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
 import { JwtGuard } from "../../auth/jwt.guard.js";
 import { PermisosGuard } from "../../auth/permisos.guard.js";
@@ -49,14 +49,38 @@ export class AlmacenesController {
 
   @Get("sucursales")
   @Permisos("inventario.ver")
-  listarSucursales(@UsuarioActual() usuario: UsuarioRequest) {
-    return this.almacenes.listarSucursales(usuario.empresaId);
+  listarSucursales(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Query("incluirInactivos") incluirInactivos?: string,
+  ) {
+    return this.almacenes.listarSucursales(
+      usuario.empresaId,
+      incluirInactivos === "true",
+    );
   }
 
   @Post("sucursales")
   @Permisos("almacen.administrar")
   crearSucursal(@UsuarioActual() usuario: UsuarioRequest, @Body() dto: CrearSucursalDto) {
     return this.almacenes.crearSucursal(usuario.empresaId, dto);
+  }
+
+  @Post("sucursales/:id/baja")
+  @Permisos("almacen.administrar")
+  darBajaSucursal(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id", ParseBigIntPipe) id: bigint,
+  ) {
+    return this.almacenes.darBajaSucursal(usuario.empresaId, id);
+  }
+
+  @Post("sucursales/:id/reactivar")
+  @Permisos("almacen.administrar")
+  reactivarSucursal(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id", ParseBigIntPipe) id: bigint,
+  ) {
+    return this.almacenes.reactivarSucursal(usuario.empresaId, id);
   }
 
   @Patch("sucursales/:id")
@@ -71,8 +95,14 @@ export class AlmacenesController {
 
   @Get()
   @Permisos("inventario.ver")
-  listar(@UsuarioActual() usuario: UsuarioRequest) {
-    return this.almacenes.listarAlmacenes(usuario.empresaId);
+  listar(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Query("incluirInactivos") incluirInactivos?: string,
+  ) {
+    return this.almacenes.listarAlmacenes(
+      usuario.empresaId,
+      incluirInactivos === "true",
+    );
   }
 
   @Post()
@@ -83,6 +113,24 @@ export class AlmacenesController {
       codigo: dto.codigo,
       nombre: dto.nombre,
     });
+  }
+
+  @Post(":id/baja")
+  @Permisos("almacen.administrar")
+  darBajaAlmacen(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id", ParseBigIntPipe) id: bigint,
+  ) {
+    return this.almacenes.darBajaAlmacen(usuario.empresaId, id);
+  }
+
+  @Post(":id/reactivar")
+  @Permisos("almacen.administrar")
+  reactivarAlmacen(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id", ParseBigIntPipe) id: bigint,
+  ) {
+    return this.almacenes.reactivarAlmacen(usuario.empresaId, id);
   }
 
   @Patch(":id")

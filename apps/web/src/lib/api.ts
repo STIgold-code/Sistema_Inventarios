@@ -796,6 +796,7 @@ export interface Sucursal {
   id: string;
   codigo: string;
   nombre: string;
+  activo: boolean;
 }
 
 export interface AlmacenDetalle {
@@ -804,10 +805,32 @@ export interface AlmacenDetalle {
   nombre: string;
   sucursal: string;
   sucursalId: string;
+  activo: boolean;
 }
 
-export function obtenerSucursales(): Promise<Sucursal[]> {
-  return apiFetch<Sucursal[]>("/almacenes/sucursales");
+export function obtenerSucursales(
+  incluirInactivos = false,
+): Promise<Sucursal[]> {
+  const cadena = incluirInactivos ? "?incluirInactivos=true" : "";
+  return apiFetch<Sucursal[]>(`/almacenes/sucursales${cadena}`);
+}
+
+export function darBajaSucursal(
+  sucursalId: number,
+): Promise<{ id: string; activo: false }> {
+  return apiFetch<{ id: string; activo: false }>(
+    `/almacenes/sucursales/${sucursalId}/baja`,
+    { method: "POST" },
+  );
+}
+
+export function reactivarSucursal(
+  sucursalId: number,
+): Promise<{ id: string; activo: true }> {
+  return apiFetch<{ id: string; activo: true }>(
+    `/almacenes/sucursales/${sucursalId}/reactivar`,
+    { method: "POST" },
+  );
 }
 
 export function crearSucursal(datos: { codigo: string; nombre: string }): Promise<{ id: string }> {
@@ -827,8 +850,29 @@ export function actualizarSucursal(
   });
 }
 
-export function obtenerAlmacenesDetalle(): Promise<AlmacenDetalle[]> {
-  return apiFetch<AlmacenDetalle[]>("/almacenes");
+export function obtenerAlmacenesDetalle(
+  incluirInactivos = false,
+): Promise<AlmacenDetalle[]> {
+  const cadena = incluirInactivos ? "?incluirInactivos=true" : "";
+  return apiFetch<AlmacenDetalle[]>(`/almacenes${cadena}`);
+}
+
+export function darBajaAlmacen(
+  almacenId: number,
+): Promise<{ id: string; activo: false }> {
+  return apiFetch<{ id: string; activo: false }>(
+    `/almacenes/${almacenId}/baja`,
+    { method: "POST" },
+  );
+}
+
+export function reactivarAlmacen(
+  almacenId: number,
+): Promise<{ id: string; activo: true }> {
+  return apiFetch<{ id: string; activo: true }>(
+    `/almacenes/${almacenId}/reactivar`,
+    { method: "POST" },
+  );
 }
 
 export function crearAlmacen(datos: {
