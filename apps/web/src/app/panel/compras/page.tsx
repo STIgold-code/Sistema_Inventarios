@@ -25,12 +25,14 @@ import {
   crearCotizacion,
   crearOrdenCompra,
   crearRecepcion,
+  obtenerAlmacenes,
   obtenerCotizacionesPorSku,
   obtenerDetalleRecepcion,
   obtenerOrdenesCompra,
   obtenerProveedores,
   obtenerRecepciones,
   obtenerRequerimientos,
+  type Almacen,
   type CotizacionProveedorArticulo,
   type DetalleRecepcion,
   type EstadoOrdenCompra,
@@ -43,7 +45,6 @@ import {
 import { COMPROBANTES_COMPRA } from "@/lib/comprobantes";
 import { formatearDolares, formatearFecha, formatearSoles } from "@/lib/formato";
 
-const ALMACEN_PRINCIPAL = 1;
 const IGV_TASA = 0.18;
 
 type Pestania = "ordenes" | "recepcion" | "cotizaciones";
@@ -102,10 +103,12 @@ export default function PaginaCompras(): React.JSX.Element {
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [ordenes, setOrdenes] = useState<OrdenCompra[]>([]);
   const [requerimientos, setRequerimientos] = useState<Requerimiento[]>([]);
+  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [cargandoBase, setCargandoBase] = useState<boolean>(true);
 
   // Órdenes de compra
   const [proveedorOrden, setProveedorOrden] = useState<string>("");
+  const [almacenOrden, setAlmacenOrden] = useState<string>("");
   const [requerimientoOrigen, setRequerimientoOrigen] = useState<string>("");
   const [moneda, setMoneda] = useState<Moneda>("PEN");
   const [tipoCambio, setTipoCambio] = useState<string>("");
@@ -159,14 +162,19 @@ export default function PaginaCompras(): React.JSX.Element {
   useEffect(() => {
     void (async (): Promise<void> => {
       try {
-        const [respProveedores, respOrdenes, respReqs] = await Promise.all([
-          obtenerProveedores(),
-          obtenerOrdenesCompra(),
-          obtenerRequerimientos(),
-        ]);
+        const [respProveedores, respOrdenes, respReqs, respAlmacenes] =
+          await Promise.all([
+            obtenerProveedores(),
+            obtenerOrdenesCompra(),
+            obtenerRequerimientos(),
+            obtenerAlmacenes(),
+          ]);
         setProveedores(respProveedores);
         setOrdenes(respOrdenes);
         setRequerimientos(respReqs);
+        setAlmacenes(respAlmacenes);
+        const primero = respAlmacenes[0];
+        if (primero) setAlmacenOrden(primero.id);
       } catch (error) {
         setAvisoOrden({
           texto: mensajeError(error, "No se pudieron cargar los datos de compras."),
@@ -270,11 +278,13 @@ export default function PaginaCompras(): React.JSX.Element {
   const erroresOrden = useMemo(() => {
     const e: {
       proveedorOrden?: string;
+      almacenOrden?: string;
       tipoCambio?: string;
       lineas: { cantidad?: string; costoUnitario?: string; sku?: string }[];
       general?: string;
     } = { lineas: [] };
     if (!proveedorOrden) e.proveedorOrden = "Selecciona un proveedor.";
+    if (!almacenOrden) e.almacenOrden = "Selecciona un almacén.";
     if (moneda === "USD" && (!tipoCambio.trim() || Number(tipoCambio) <= 0)) {
       e.tipoCambio = "Ingresa un tipo de cambio mayor a 0.";
     }
@@ -298,7 +308,7 @@ export default function PaginaCompras(): React.JSX.Element {
       e.general = "Agrega al menos una línea con SKU, cantidad y costo.";
     }
     return e;
-  }, [proveedorOrden, moneda, tipoCambio, lineas]);
+  }, [proveedorOrden, almacenOrden, moneda, tipoCambio, lineas]);
 
   const erroresRecepcion = useMemo(() => {
     const e: {
@@ -377,6 +387,7 @@ export default function PaginaCompras(): React.JSX.Element {
     const lineasConDatos = lineas.filter((l) => l.cantidad && l.costoUnitario);
     const hayErrores =
       Boolean(erroresOrden.proveedorOrden) ||
+      Boolean(erroresOrden.almacenOrden) ||
       Boolean(erroresOrden.tipoCambio) ||
       Boolean(erroresOrden.general) ||
       erroresOrden.lineas.some((l) => l.cantidad || l.costoUnitario || l.sku);
@@ -388,7 +399,7 @@ export default function PaginaCompras(): React.JSX.Element {
     try {
       const respuesta = await crearOrdenCompra({
         proveedorId: Number(proveedorOrden),
-        almacenId: ALMACEN_PRINCIPAL,
+        almacenId: Number(almacenOrden),
         requerimientoId: requerimientoOrigen ? Number(requerimientoOrigen) : undefined,
         moneda,
         tipoCambio: moneda === "USD" ? tipoCambio : undefined,
@@ -747,6 +758,33 @@ export default function PaginaCompras(): React.JSX.Element {
                   {(tocado.proveedorOrden || intentoOrden) && erroresOrden.proveedorOrden && (
                     <p className="mt-1.5 text-xs text-peligro">
                       {erroresOrden.proveedorOrden}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label htmlFor="almacen-orden" className="etiqueta-campo">
+                    Almacén de destino
+                  </label>
+                  <select
+                    id="almacen-orden"
+                    value={almacenOrden}
+                    onChange={(e) => {
+                      setAlmacenOrden(e.target.value);
+                      marcarTocado("almacenOrden");
+                    }}
+                    disabled={cargandoBase}
+                    className="campo"
+                  >
+                    {almacenes.length === 0 && <option value="">Cargando…</option>}
+                    {almacenes.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.codigo} — {a.nombre}
+                      </option>
+                    ))}
+                  </select>
+                  {(tocado.almacenOrden || intentoOrden) && erroresOrden.almacenOrden && (
+                    <p className="mt-1.5 text-xs text-peligro">
+                      {erroresOrden.almacenOrden}
                     </p>
                   )}
                 </div>

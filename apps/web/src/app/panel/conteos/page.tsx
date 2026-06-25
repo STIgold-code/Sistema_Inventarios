@@ -1,19 +1,19 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { SelectorSku } from "@/componentes/selector-sku";
 import {
   ErrorApi,
   abrirConteo,
   aplicarConteo,
+  obtenerAlmacenes,
   obtenerConteo,
   registrarLineaConteo,
+  type Almacen,
   type Conteo,
   type Sku,
 } from "@/lib/api";
-
-const ALMACEN_PRINCIPAL = 1;
 
 interface Aviso {
   texto: string;
@@ -47,6 +47,22 @@ export default function PaginaConteos(): React.JSX.Element {
   const [observaciones, setObservaciones] = useState<string>("");
   const [abriendo, setAbriendo] = useState<boolean>(false);
   const [avisoConteo, setAvisoConteo] = useState<Aviso | null>(null);
+
+  // Almacén donde se realiza el conteo. Se carga desde la API (multi-empresa).
+  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
+  const [almacenId, setAlmacenId] = useState<string>("");
+
+  useEffect(() => {
+    obtenerAlmacenes()
+      .then((lista) => {
+        setAlmacenes(lista);
+        const primero = lista[0];
+        if (primero) setAlmacenId(primero.id);
+      })
+      .catch(() => {
+        // Si falla la carga, el selector queda vacío y se bloquea la apertura.
+      });
+  }, []);
 
   // Línea en borrador
   const [skuLinea, setSkuLinea] = useState<Sku | null>(null);
@@ -99,10 +115,14 @@ export default function PaginaConteos(): React.JSX.Element {
 
   async function manejarAbrir(): Promise<void> {
     setAvisoConteo(null);
+    if (almacenId === "") {
+      setAvisoConteo({ texto: "Selecciona un almacén.", tono: "error" });
+      return;
+    }
     setAbriendo(true);
     try {
       const respuesta = await abrirConteo({
-        almacenId: ALMACEN_PRINCIPAL,
+        almacenId: Number(almacenId),
         observaciones: observaciones || undefined,
       });
       await refrescarConteo(respuesta.id);
@@ -211,6 +231,24 @@ export default function PaginaConteos(): React.JSX.Element {
             {avisoConteo && <AvisoBloque aviso={avisoConteo} />}
             <div className="mt-4 space-y-4">
               <div>
+                <label htmlFor="almacen" className="etiqueta-campo">
+                  Almacén
+                </label>
+                <select
+                  id="almacen"
+                  value={almacenId}
+                  onChange={(e) => setAlmacenId(e.target.value)}
+                  className="campo"
+                >
+                  {almacenes.length === 0 && <option value="">Cargando…</option>}
+                  {almacenes.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.codigo} — {a.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label htmlFor="observaciones" className="etiqueta-campo">
                   Observaciones <span className="text-texto-ter">(opcional)</span>
                 </label>
@@ -238,7 +276,10 @@ export default function PaginaConteos(): React.JSX.Element {
             <div className="panel-cabecera">
               <div>
                 <span className="panel-titulo">Conteo #{conteo.id}</span>
-                <p className="text-xs text-texto-sec">Almacén {conteo.almacenId}</p>
+                <p className="text-xs text-texto-sec">
+                  {almacenes.find((a) => a.id === String(conteo.almacenId))?.nombre ??
+                    `Almacén ${conteo.almacenId}`}
+                </p>
               </div>
               <span
                 className={
