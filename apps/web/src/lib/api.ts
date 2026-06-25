@@ -1131,6 +1131,7 @@ export interface Cliente {
   email?: string | null;
   /** Nivel de precio de venta aplicado al cliente (1=publico, 2=distribuidor, 3, 4). */
   tipoPrecio?: number | null;
+  activo: boolean;
 }
 
 export interface CrearClienteInput {
@@ -1153,8 +1154,11 @@ export interface CrearClienteRespuesta {
 
 // ── Clientes: funciones de dominio ──────────────────────────────────────────
 
-export function obtenerClientes(): Promise<Cliente[]> {
-  return apiFetch<Cliente[]>("/clientes");
+export function obtenerClientes(
+  incluirInactivos = false,
+): Promise<Cliente[]> {
+  const cadena = incluirInactivos ? "?incluirInactivos=true" : "";
+  return apiFetch<Cliente[]>(`/clientes${cadena}`);
 }
 
 export function crearCliente(
@@ -1181,6 +1185,15 @@ export function desactivarCliente(
 ): Promise<{ id: number; activo: false }> {
   return apiFetch<{ id: number; activo: false }>(
     `/clientes/${id}/desactivar`,
+    { method: "POST" },
+  );
+}
+
+export function reactivarCliente(
+  id: number,
+): Promise<{ id: number; activo: true }> {
+  return apiFetch<{ id: number; activo: true }>(
+    `/clientes/${id}/reactivar`,
     { method: "POST" },
   );
 }

@@ -9,6 +9,7 @@ import {
   actualizarCliente,
   crearCliente,
   desactivarCliente,
+  reactivarCliente,
   obtenerClientes,
   type Cliente,
 } from "@/lib/api";
@@ -119,6 +120,7 @@ function AvisoLinea({ aviso }: { aviso: Aviso }): React.JSX.Element {
 export default function PaginaClientes(): React.JSX.Element {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
+  const [incluirInactivos, setIncluirInactivos] = useState<boolean>(false);
   const [busqueda, setBusqueda] = useState<string>("");
 
   const [panelAbierto, setPanelAbierto] = useState<boolean>(false);
@@ -151,8 +153,9 @@ export default function PaginaClientes(): React.JSX.Element {
 
   useEffect(() => {
     void (async (): Promise<void> => {
+      setCargando(true);
       try {
-        setClientes(await obtenerClientes());
+        setClientes(await obtenerClientes(incluirInactivos));
       } catch (error) {
         setAvisoLista({
           texto: mensajeError(error, "No se pudieron cargar los clientes."),
@@ -162,13 +165,30 @@ export default function PaginaClientes(): React.JSX.Element {
         setCargando(false);
       }
     })();
-  }, []);
+    // Recarga cada vez que cambia el filtro de inactivos.
+  }, [incluirInactivos]);
 
   async function refrescar(): Promise<void> {
     try {
-      setClientes(await obtenerClientes());
+      setClientes(await obtenerClientes(incluirInactivos));
     } catch {
       // El aviso de la operación principal ya informó al usuario.
+    }
+  }
+
+  async function reactivar(cliente: Cliente): Promise<void> {
+    try {
+      await reactivarCliente(cliente.id);
+      setAvisoLista({
+        texto: `Cliente ${cliente.razonSocial} reactivado.`,
+        tono: "exito",
+      });
+      await refrescar();
+    } catch (error) {
+      setAvisoLista({
+        texto: mensajeError(error, "No se pudo reactivar el cliente."),
+        tono: "error",
+      });
     }
   }
 
@@ -295,6 +315,14 @@ export default function PaginaClientes(): React.JSX.Element {
             </span>
           </span>
           <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2 text-sm text-texto-sec">
+              <input
+                type="checkbox"
+                checked={incluirInactivos}
+                onChange={(e) => setIncluirInactivos(e.target.checked)}
+              />
+              Ver inactivos
+            </label>
             <label htmlFor="buscar-cliente" className="sr-only">
               Buscar cliente
             </label>
@@ -318,19 +346,20 @@ export default function PaginaClientes(): React.JSX.Element {
                 <th>Razón social</th>
                 <th>Contacto</th>
                 <th>Nivel de precio</th>
+                <th>Estado</th>
                 <th className="text-right">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {cargando ? (
                 <tr>
-                  <td colSpan={5} className="text-texto-ter">
+                  <td colSpan={6} className="text-texto-ter">
                     Cargando…
                   </td>
                 </tr>
               ) : visibles.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="text-texto-ter">
+                  <td colSpan={6} className="text-texto-ter">
                     {termino ? "Sin coincidencias." : "Sin clientes registrados."}
                   </td>
                 </tr>
@@ -349,6 +378,15 @@ export default function PaginaClientes(): React.JSX.Element {
                     </td>
                     <td className="text-texto-sec">{etiquetaPrecio(cliente.tipoPrecio)}</td>
                     <td>
+                      <span
+                        className={`insignia ${
+                          cliente.activo ? "insignia-exito" : "insignia-neutra"
+                        }`}
+                      >
+                        {cliente.activo ? "Activo" : "Inactivo"}
+                      </span>
+                    </td>
+                    <td>
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
@@ -357,13 +395,23 @@ export default function PaginaClientes(): React.JSX.Element {
                         >
                           Editar
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => setClienteADesactivar(cliente)}
-                          className="btn btn-peligro h-8"
-                        >
-                          Desactivar
-                        </button>
+                        {cliente.activo ? (
+                          <button
+                            type="button"
+                            onClick={() => setClienteADesactivar(cliente)}
+                            className="btn btn-peligro h-8"
+                          >
+                            Desactivar
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void reactivar(cliente)}
+                            className="btn btn-contorno h-8"
+                          >
+                            Reactivar
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

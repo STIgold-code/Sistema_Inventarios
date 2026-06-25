@@ -48,9 +48,18 @@ export class ClientesService {
     return { id: id.toString(), activo: false };
   }
 
-  async listar(empresaId: bigint) {
+  /** Reactiva un cliente dado de baja. Valida pertenencia a la empresa. */
+  async reactivar(empresaId: bigint, id: bigint) {
+    const cliente = await this.prisma.cliente.findFirst({ where: { id, empresaId } });
+    if (!cliente) throw new NotFoundException("Cliente no encontrado");
+    await this.prisma.cliente.update({ where: { id }, data: { activo: true } });
+    return { id: id.toString(), activo: true };
+  }
+
+  /** Lista clientes. Por defecto solo activos; incluye inactivos si se pide. */
+  async listar(empresaId: bigint, incluirInactivos = false) {
     const filas = await this.prisma.cliente.findMany({
-      where: { empresaId, activo: true },
+      where: { empresaId, ...(incluirInactivos ? {} : { activo: true }) },
       orderBy: { razonSocial: "asc" },
     });
     return filas.map((c) => ({
@@ -62,6 +71,7 @@ export class ClientesService {
       telefono: c.telefono,
       email: c.email,
       tipoPrecio: c.tipoPrecio,
+      activo: c.activo,
     }));
   }
 }

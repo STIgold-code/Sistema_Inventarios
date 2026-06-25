@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { JwtGuard } from "../../auth/jwt.guard.js";
 import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
@@ -14,8 +14,11 @@ export class ClientesController {
 
   @Get()
   @Permisos("venta.gestionar")
-  listar(@UsuarioActual() usuario: UsuarioRequest) {
-    return this.clientes.listar(usuario.empresaId);
+  listar(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Query("incluirInactivos") incluirInactivos?: string,
+  ) {
+    return this.clientes.listar(usuario.empresaId, incluirInactivos === "true");
   }
 
   @Post()
@@ -38,5 +41,11 @@ export class ClientesController {
   @Permisos("venta.gestionar")
   desactivar(@UsuarioActual() usuario: UsuarioRequest, @Param("id") id: string) {
     return this.clientes.desactivar(usuario.empresaId, BigInt(id));
+  }
+
+  @Post(":id/reactivar")
+  @Permisos("venta.gestionar")
+  reactivar(@UsuarioActual() usuario: UsuarioRequest, @Param("id") id: string) {
+    return this.clientes.reactivar(usuario.empresaId, BigInt(id));
   }
 }
