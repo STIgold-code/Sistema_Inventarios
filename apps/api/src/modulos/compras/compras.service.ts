@@ -441,6 +441,21 @@ export class ComprasService {
     // la OC) ocurre en UNA transaccion: si cualquier linea falla a mitad, nada se
     // commitea (sin movimientos huerfanos ni contadores inconsistentes).
     const recepcionId = await this.prisma.$transaction(async (tx) => {
+      // Cierra el TOCTOU del tope: lockea la OC (FOR UPDATE) y re-lee sus lineas
+      // DENTRO de la transaccion, de modo que dos recepciones concurrentes de la
+      // misma OC se serialicen y el "pendiente" se calcule con cantidadRecibida
+      // fresca (no con el snapshot pre-transaccional). Tambien re-valida el estado.
+      await tx.$queryRaw`SELECT 1 FROM orden_compra WHERE id = ${orden.id} FOR UPDATE`;
+      const ordenFresca = await tx.ordenCompra.findUniqueOrThrow({
+        where: { id: orden.id },
+        include: { lineas: true },
+      });
+      if (ordenFresca.estado !== "EMITIDA" && ordenFresca.estado !== "PARCIAL") {
+        throw new BadRequestException(
+          `Solo se puede recibir sobre una OC EMITIDA (estado actual: ${ordenFresca.estado})`,
+        );
+      }
+
       const recepcion = await tx.recepcion.create({
         data: {
           empresaId: usuario.empresaId,
@@ -460,7 +475,7 @@ export class ComprasService {
       });
 
       for (const linea of dto.lineas) {
-        const ocLinea = orden.lineas.find((l) => l.id === linea.ordenCompraLineaId)!;
+        const ocLinea = ordenFresca.lineas.find((l) => l.id === linea.ordenCompraLineaId)!;
         const pendiente = new D(ocLinea.cantidad).sub(new D(ocLinea.cantidadRecibida));
         const recibir = new D(linea.cantidad);
         if (recibir.greaterThan(pendiente)) {
