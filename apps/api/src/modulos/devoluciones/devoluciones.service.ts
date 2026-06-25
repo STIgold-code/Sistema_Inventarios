@@ -135,10 +135,26 @@ export class DevolucionesService {
     const fecha = dto.fecha ?? new Date();
 
     return this.prisma.$transaction(async (tx) => {
+      // Lockear las posiciones (sku+almacen) afectadas ANTES de leer el tope neto:
+      // de lo contrario dos devoluciones concurrentes leen el mismo "ya devuelto"
+      // y ambas pasan, excediendo juntas lo despachado (TOCTOU). El advisory lock
+      // es re-entrante (entradaPorDevolucion vuelve a tomarlo). Se ordena por skuId
+      // para evitar deadlock entre devoluciones con SKUs solapados.
+      const skusAfectados = [...pedidoPorSku.keys()]
+        .map((s) => BigInt(s))
+        .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+      for (const skuId of skusAfectados) {
+        await this.movimientos.bloquearPosicion(
+          tx,
+          usuario.empresaId,
+          skuId,
+          orden.almacenId,
+        );
+      }
+
       // Tope NETO por SKU: despachado menos lo ya devuelto en devoluciones previas
-      // de ESTA orden. Se consulta dentro de la transaccion para que dos
-      // devoluciones concurrentes no excedan juntas el despacho. Si (previo +
-      // nuevo) > despachado, se rechaza y la transaccion revierte.
+      // de ESTA orden. Ahora se lee BAJO el lock, asi dos devoluciones concurrentes
+      // no exceden juntas el despacho. Si (previo + nuevo) > despachado, revierte.
       const previas = await tx.devolucionVentaLinea.groupBy({
         by: ["skuId"],
         where: {

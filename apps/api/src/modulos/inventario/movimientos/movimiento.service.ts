@@ -1425,6 +1425,22 @@ export class MovimientoService {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${clave}, 0))`;
   }
 
+  /**
+   * Toma, desde un caller externo, el mismo lock de serializacion por posicion
+   * (empresa:sku:almacen) que usan los movimientos internos. Util para cerrar
+   * un TOCTOU cuando hay que leer un tope que depende del stock/movimientos
+   * ANTES de generar el asiento (el advisory lock es re-entrante dentro de la
+   * misma transaccion). Tomar las posiciones ordenadas para evitar deadlock.
+   */
+  async bloquearPosicion(
+    tx: Tx,
+    empresaId: bigint,
+    skuId: bigint,
+    almacenId: bigint,
+  ): Promise<void> {
+    await this.bloquear(tx, empresaId, skuId, almacenId);
+  }
+
   private async obtenerItem(
     tx: Tx,
     empresaId: bigint,
