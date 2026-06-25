@@ -568,7 +568,7 @@ export class VentasService {
         const ovLinea = orden.lineas.find((l) => l.id === linea.ordenVentaLineaId)!;
         const despachar = new D(linea.cantidad);
 
-        await this.movimientos.registrarSalidaVentaEnTx(usuario, tx, {
+        const resultado = await this.movimientos.registrarSalidaVentaEnTx(usuario, tx, {
           skuId: ovLinea.skuId,
           almacenId: orden.almacenId,
           cantidad: linea.cantidad,
@@ -582,9 +582,24 @@ export class VentasService {
           numerosSerie: linea.numerosSerie,
         });
 
+        // Promedio ponderado acumulado del costo de despacho de la linea: soporta
+        // despachos parciales a distinto costo. Se usa como costo basis al devolver,
+        // de modo que el reingreso no corrompa el costo promedio movil del item.
+        const prevQty = new D(ovLinea.cantidadDespachada);
+        const prevCost = ovLinea.costoDespachoUnitario
+          ? new D(ovLinea.costoDespachoUnitario)
+          : new D(0);
+        const nuevaQty = prevQty.add(despachar);
+        const nuevoCosto = nuevaQty.isZero()
+          ? new D(0)
+          : prevQty.mul(prevCost).add(despachar.mul(resultado.costoSalida)).div(nuevaQty);
+
         await tx.ordenVentaLinea.update({
           where: { id: ovLinea.id },
-          data: { cantidadDespachada: { increment: despachar } },
+          data: {
+            cantidadDespachada: { increment: despachar },
+            costoDespachoUnitario: nuevoCosto,
+          },
         });
       }
 

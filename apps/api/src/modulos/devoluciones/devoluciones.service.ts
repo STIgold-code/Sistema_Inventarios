@@ -186,11 +186,19 @@ export class DevolucionesService {
       });
 
       for (const linea of dto.lineas) {
+        // Costo basis: reingresar al costo con que el stock SALIO en el despacho,
+        // no al costo promedio actual del item. Si la linea referencia una linea de
+        // orden, se usa el costo de despacho de ESA linea; si no, el promedio
+        // ponderado del costo de despacho sobre las lineas del mismo SKU. Si no hay
+        // costo poblado (datos viejos), se omite y entradaPorDevolucion cae al costo
+        // promedio vigente.
+        const costoBasis = this.calcularCostoBasis(orden.lineas, linea);
         const entrada = await this.movimientos.entradaPorDevolucion(usuario, tx, {
           skuId: linea.skuId,
           almacenId: orden.almacenId,
           cantidad: linea.cantidad,
           documentoId: devolucion.id,
+          costoUnitario: costoBasis ?? undefined,
           fechaEmisionDocumento: fecha,
           observaciones: `Devolucion ${numero} (OV ${orden.numero})`,
           numerosSerie: linea.numerosSerie,
@@ -227,6 +235,42 @@ export class DevolucionesService {
         numero: devolucion.numero,
       };
     });
+  }
+
+  /**
+   * Determina el costo basis (costo de despacho) para reingresar una linea de
+   * devolucion. Si la linea referencia una linea de orden, usa el costo de
+   * despacho de ESA linea. Si no, calcula el promedio ponderado del costo de
+   * despacho sobre las lineas del mismo SKU con cantidad despachada > 0,
+   * ponderado por la cantidad despachada. Devuelve null cuando no hay costo
+   * poblado (datos viejos sin la columna) para que el llamador caiga al costo
+   * promedio vigente del item.
+   */
+  private calcularCostoBasis(
+    lineasOrden: Prisma.OrdenVentaLineaGetPayload<Record<string, never>>[],
+    linea: NuevaDevolucion["lineas"][number],
+  ): string | null {
+    if (linea.ordenVentaLineaId !== undefined) {
+      const ovLinea = lineasOrden.find((l) => l.id === linea.ordenVentaLineaId);
+      const costo = ovLinea?.costoDespachoUnitario;
+      if (!costo) return null;
+      const costoD = new D(costo);
+      return costoD.isZero() ? null : costoD.toString();
+    }
+
+    let cantidadTotal = new D(0);
+    let costoPonderado = new D(0);
+    for (const l of lineasOrden) {
+      if (l.skuId !== linea.skuId) continue;
+      if (l.costoDespachoUnitario === null) continue;
+      const cantidad = new D(l.cantidadDespachada);
+      if (cantidad.lessThanOrEqualTo(0)) continue;
+      cantidadTotal = cantidadTotal.add(cantidad);
+      costoPonderado = costoPonderado.add(cantidad.mul(new D(l.costoDespachoUnitario)));
+    }
+    if (cantidadTotal.isZero()) return null;
+    const promedio = costoPonderado.div(cantidadTotal);
+    return promedio.isZero() ? null : promedio.toString();
   }
 
   async listar(empresaId: bigint) {

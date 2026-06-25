@@ -799,11 +799,15 @@ export class MovimientoService {
 
   /**
    * Entrada por devolucion de venta (reverso de despacho): reingresa stock al
-   * almacen al costo vigente del sistema (costo promedio del item). El ledger es
-   * inmutable: esto es un movimiento NUEVO, nunca un borrado del original. Crea
-   * una capa de costo nueva (FIFO). Opera DENTRO de la transaccion de la
-   * devolucion: si cualquier linea falla, toda la operacion revierte.
-   * Operacion SUNAT 05 (devolucion recibida). Devuelve el costo unitario usado.
+   * almacen. El costo basis es, preferentemente, el costo con que el stock SALIO
+   * en el despacho original (dto.costoUnitario); asi el reingreso no corrompe el
+   * costo promedio movil del item si el costo cambio entre venta y devolucion. Si
+   * no se provee (datos viejos sin costo de despacho registrado), cae al costo
+   * promedio vigente del item. El ledger es inmutable: esto es un movimiento
+   * NUEVO, nunca un borrado del original. Crea una capa de costo nueva (FIFO).
+   * Opera DENTRO de la transaccion de la devolucion: si cualquier linea falla,
+   * toda la operacion revierte. Operacion SUNAT 05 (devolucion recibida).
+   * Devuelve el costo unitario usado.
    */
   async entradaPorDevolucion(
     usuario: UsuarioRequest,
@@ -813,6 +817,7 @@ export class MovimientoService {
       almacenId: bigint;
       cantidad: string;
       documentoId: bigint;
+      costoUnitario?: string;
       fechaEmisionDocumento?: Date;
       observaciones?: string;
       numerosSerie?: string[];
@@ -821,7 +826,8 @@ export class MovimientoService {
     const cantidad = new D(dto.cantidad);
     await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
     const item = await this.obtenerOcrearItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
-    const costoUnitario = new D(item.costoPromedio);
+    const costoUnitario =
+      dto.costoUnitario !== undefined ? new D(dto.costoUnitario) : new D(item.costoPromedio);
     const mov = await this.aplicarEntrada(tx, usuario, item, {
       cantidad,
       costoUnitario,

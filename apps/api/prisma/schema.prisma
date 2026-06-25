@@ -937,6 +937,8 @@ model OrdenVentaLinea {
   cantidad     Decimal @db.Decimal(20, 8)
   precioUnitario Decimal @default(0) @map("precio_unitario") @db.Decimal(20, 8)
   cantidadDespachada Decimal @default(0) @map("cantidad_despachada") @db.Decimal(20, 8)
+  /// costo promedio ponderado con que se despacho esta linea, usado como costo basis al devolver
+  costoDespachoUnitario Decimal? @map("costo_despacho_unitario") @db.Decimal(20, 8)
 
   ordenVenta OrdenVenta @relation(fields: [ordenVentaId], references: [id])
 
