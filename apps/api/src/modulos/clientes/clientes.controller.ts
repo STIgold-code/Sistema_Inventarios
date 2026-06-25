@@ -4,6 +4,7 @@ import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
 import { UsuarioActual } from "../../comun/decoradores/usuario-actual.decorator.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
+import { ParseBigIntPipe } from "../../comun/pipes/parse-bigint.pipe.js";
 import { ClientesService } from "./clientes.service.js";
 import { ActualizarClienteDto, CrearClienteDto } from "./dto/clientes.dto.js";
 
@@ -31,21 +32,27 @@ export class ClientesController {
   @Permisos("venta.gestionar")
   actualizar(
     @UsuarioActual() usuario: UsuarioRequest,
-    @Param("id") id: string,
+    @Param("id", ParseBigIntPipe) id: bigint,
     @Body() dto: ActualizarClienteDto,
   ) {
-    return this.clientes.actualizar(usuario.empresaId, BigInt(id), dto);
+    return this.clientes.actualizar(usuario.empresaId, id, dto);
   }
 
   @Post(":id/desactivar")
   @Permisos("venta.gestionar")
-  desactivar(@UsuarioActual() usuario: UsuarioRequest, @Param("id") id: string) {
-    return this.clientes.desactivar(usuario.empresaId, BigInt(id));
+  desactivar(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id", ParseBigIntPipe) id: bigint,
+  ) {
+    return this.clientes.desactivar(usuario.empresaId, id);
   }
 
   @Post(":id/reactivar")
   @Permisos("venta.gestionar")
-  reactivar(@UsuarioActual() usuario: UsuarioRequest, @Param("id") id: string) {
-    return this.clientes.reactivar(usuario.empresaId, BigInt(id));
+  reactivar(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id", ParseBigIntPipe) id: bigint,
+  ) {
+    return this.clientes.reactivar(usuario.empresaId, id);
   }
 }

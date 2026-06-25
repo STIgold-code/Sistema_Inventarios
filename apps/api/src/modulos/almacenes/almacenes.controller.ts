@@ -5,6 +5,7 @@ import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
 import { UsuarioActual } from "../../comun/decoradores/usuario-actual.decorator.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
+import { ParseBigIntPipe } from "../../comun/pipes/parse-bigint.pipe.js";
 import { AlmacenesService } from "./almacenes.service.js";
 
 class CrearSucursalDto {
@@ -66,38 +67,41 @@ export class AlmacenesController {
 
   @Get(":id/zonas")
   @Permisos("inventario.ver")
-  listarZonas(@UsuarioActual() usuario: UsuarioRequest, @Param("id") id: string) {
-    return this.almacenes.listarZonas(usuario.empresaId, BigInt(id));
+  listarZonas(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id", ParseBigIntPipe) id: bigint,
+  ) {
+    return this.almacenes.listarZonas(usuario.empresaId, id);
   }
 
   @Post(":id/zonas")
   @Permisos("almacen.administrar")
   crearZona(
     @UsuarioActual() usuario: UsuarioRequest,
-    @Param("id") id: string,
+    @Param("id", ParseBigIntPipe) id: bigint,
     @Body() dto: CrearZonaDto,
   ) {
-    return this.almacenes.crearZona(usuario.empresaId, BigInt(id), dto);
+    return this.almacenes.crearZona(usuario.empresaId, id, dto);
   }
 
   @Patch(":id/zonas/:zonaId")
   @Permisos("almacen.administrar")
   actualizarZona(
     @UsuarioActual() usuario: UsuarioRequest,
-    @Param("id") id: string,
-    @Param("zonaId") zonaId: string,
+    @Param("id", ParseBigIntPipe) id: bigint,
+    @Param("zonaId", ParseBigIntPipe) zonaId: bigint,
     @Body() dto: ActualizarZonaDto,
   ) {
-    return this.almacenes.actualizarZona(usuario.empresaId, BigInt(id), BigInt(zonaId), dto);
+    return this.almacenes.actualizarZona(usuario.empresaId, id, zonaId, dto);
   }
 
   @Patch(":id/zonas/:zonaId/baja")
   @Permisos("almacen.administrar")
   darBajaZona(
     @UsuarioActual() usuario: UsuarioRequest,
-    @Param("id") id: string,
-    @Param("zonaId") zonaId: string,
+    @Param("id", ParseBigIntPipe) id: bigint,
+    @Param("zonaId", ParseBigIntPipe) zonaId: bigint,
   ) {
-    return this.almacenes.darBajaZona(usuario.empresaId, BigInt(id), BigInt(zonaId));
+    return this.almacenes.darBajaZona(usuario.empresaId, id, zonaId);
   }
 }

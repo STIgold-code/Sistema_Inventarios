@@ -13,6 +13,7 @@ import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
 import { UsuarioActual } from "../../comun/decoradores/usuario-actual.decorator.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
+import { ParseBigIntPipe } from "../../comun/pipes/parse-bigint.pipe.js";
 import { ClasificarAbcDto } from "./dto/clasificar-abc.dto.js";
 import {
   ActualizarPreciosSkuDto,
@@ -69,9 +70,9 @@ export class ProductoController {
   @Permisos("producto.ver")
   obtenerDetalleSku(
     @UsuarioActual() usuario: UsuarioRequest,
-    @Param("id") id: string,
+    @Param("id", ParseBigIntPipe) id: bigint,
   ): Promise<DetalleSku> {
-    return this.productos.obtenerDetalleSku(usuario.empresaId, BigInt(id));
+    return this.productos.obtenerDetalleSku(usuario.empresaId, id);
   }
 
   @Post()
@@ -87,10 +88,10 @@ export class ProductoController {
   @Permisos("producto.editar")
   actualizarPrecios(
     @UsuarioActual() usuario: UsuarioRequest,
-    @Param("id") id: string,
+    @Param("id", ParseBigIntPipe) id: bigint,
     @Body() dto: ActualizarPreciosSkuDto,
   ): Promise<{ id: string }> {
-    return this.productos.actualizarPrecios(usuario.empresaId, BigInt(id), dto);
+    return this.productos.actualizarPrecios(usuario.empresaId, id, dto);
   }
 
   @Post("clasificar-abc")

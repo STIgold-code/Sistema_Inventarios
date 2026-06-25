@@ -35,6 +35,7 @@ export class CrearProductoDto {
 
   @IsString()
   @Length(14, 14, { message: "codigoParlante debe tener exactamente 14 caracteres" })
+  @Matches(/^\d{14}$/, { message: "El codigo parlante debe tener 14 digitos" })
   codigoParlante!: string;
 
   @IsInt()

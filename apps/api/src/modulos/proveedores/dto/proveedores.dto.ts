@@ -1,8 +1,8 @@
-import { IsOptional, IsString, Length, MinLength } from "class-validator";
+import { IsEmail, IsOptional, IsString, Matches, MinLength } from "class-validator";
 
 export class CrearProveedorDto {
   @IsString()
-  @Length(11, 11, { message: "El RUC debe tener 11 digitos" })
+  @Matches(/^\d{11}$/, { message: "El RUC debe tener 11 digitos" })
   ruc!: string;
 
   @IsString()
@@ -18,7 +18,7 @@ export class CrearProveedorDto {
   telefono?: string;
 
   @IsOptional()
-  @IsString()
+  @IsEmail({}, { message: "Ingresa un email valido" })
   email?: string;
 
   @IsOptional()
@@ -57,7 +57,7 @@ export class ActualizarProveedorDto {
   telefono?: string;
 
   @IsOptional()
-  @IsString()
+  @IsEmail({}, { message: "Ingresa un email valido" })
   email?: string;
 
   @IsOptional()

@@ -1,4 +1,10 @@
-import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import {
+  BadRequestException,
+  Controller,
+  Get,
+  Query,
+  UseGuards,
+} from "@nestjs/common";
 import { JwtGuard } from "../../auth/jwt.guard.js";
 import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
@@ -19,8 +25,19 @@ export class SeriesController {
     @Query("estado") estado?: string,
   ) {
     return this.series.listar(usuario.empresaId, {
-      skuId: skuId !== undefined && skuId !== "" ? BigInt(skuId) : undefined,
+      skuId: this.parsearSkuId(skuId),
       estado: estado !== undefined && estado !== "" ? estado : undefined,
     });
+  }
+
+  /** `skuId` es un query param opcional: vacio/omitido -> undefined; no numerico -> 400. */
+  private parsearSkuId(skuId?: string): bigint | undefined {
+    if (skuId === undefined || skuId === "") {
+      return undefined;
+    }
+    if (!/^\d+$/.test(skuId)) {
+      throw new BadRequestException("skuId invalido");
+    }
+    return BigInt(skuId);
   }
 }

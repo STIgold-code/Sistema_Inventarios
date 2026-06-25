@@ -4,6 +4,7 @@ import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
 import { UsuarioActual } from "../../comun/decoradores/usuario-actual.decorator.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
+import { ParseBigIntPipe } from "../../comun/pipes/parse-bigint.pipe.js";
 import { ProveedoresService } from "./proveedores.service.js";
 import { ActualizarProveedorDto, CrearProveedorDto } from "./dto/proveedores.dto.js";
 
@@ -37,27 +38,27 @@ export class ProveedoresController {
   @Permisos("compra.gestionar")
   actualizarProveedor(
     @UsuarioActual() usuario: UsuarioRequest,
-    @Param("id") id: string,
+    @Param("id", ParseBigIntPipe) id: bigint,
     @Body() dto: ActualizarProveedorDto,
   ) {
-    return this.proveedores.actualizarProveedor(usuario.empresaId, BigInt(id), dto);
+    return this.proveedores.actualizarProveedor(usuario.empresaId, id, dto);
   }
 
   @Post(":id/desactivar")
   @Permisos("compra.gestionar")
   desactivarProveedor(
     @UsuarioActual() usuario: UsuarioRequest,
-    @Param("id") id: string,
+    @Param("id", ParseBigIntPipe) id: bigint,
   ) {
-    return this.proveedores.desactivarProveedor(usuario.empresaId, BigInt(id));
+    return this.proveedores.desactivarProveedor(usuario.empresaId, id);
   }
 
   @Post(":id/reactivar")
   @Permisos("compra.gestionar")
   reactivarProveedor(
     @UsuarioActual() usuario: UsuarioRequest,
-    @Param("id") id: string,
+    @Param("id", ParseBigIntPipe) id: bigint,
   ) {
-    return this.proveedores.reactivarProveedor(usuario.empresaId, BigInt(id));
+    return this.proveedores.reactivarProveedor(usuario.empresaId, id);
   }
 }

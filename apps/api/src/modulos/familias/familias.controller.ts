@@ -14,6 +14,7 @@ import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
 import { UsuarioActual } from "../../comun/decoradores/usuario-actual.decorator.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
+import { ParseBigIntPipe } from "../../comun/pipes/parse-bigint.pipe.js";
 import { ActualizarFamiliaDto, CrearFamiliaDto } from "./dto/familia.dto.js";
 import { FamiliaListado, FamiliasService } from "./familias.service.js";
 
@@ -46,18 +47,18 @@ export class FamiliasController {
   @Permisos("producto.crear")
   actualizar(
     @UsuarioActual() usuario: UsuarioRequest,
-    @Param("id") id: string,
+    @Param("id", ParseBigIntPipe) id: bigint,
     @Body() dto: ActualizarFamiliaDto,
   ): Promise<FamiliaListado> {
-    return this.familias.actualizar(usuario.empresaId, BigInt(id), dto);
+    return this.familias.actualizar(usuario.empresaId, id, dto);
   }
 
   @Delete(":id")
   @Permisos("producto.crear")
   darDeBaja(
     @UsuarioActual() usuario: UsuarioRequest,
-    @Param("id") id: string,
+    @Param("id", ParseBigIntPipe) id: bigint,
   ): Promise<FamiliaListado> {
-    return this.familias.darDeBaja(usuario.empresaId, BigInt(id));
+    return this.familias.darDeBaja(usuario.empresaId, id);
   }
 }

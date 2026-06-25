@@ -1,8 +1,10 @@
 import {
+  IsEmail,
   IsIn,
   IsInt,
   IsOptional,
   IsString,
+  Matches,
   MinLength,
 } from "class-validator";
 import { TIPO_DOCUMENTO_IDENTIDAD } from "@bm/tipos";
@@ -18,7 +20,7 @@ export class CrearClienteDto {
   tipoDocIdentidad?: string;
 
   @IsString()
-  @MinLength(1)
+  @Matches(/^\d+$/, { message: "El numero de documento debe ser numerico" })
   numeroDoc!: string;
 
   @IsString()
@@ -34,7 +36,7 @@ export class CrearClienteDto {
   telefono?: string;
 
   @IsOptional()
-  @IsString()
+  @IsEmail({}, { message: "Ingresa un email valido" })
   email?: string;
 
   // Nivel de precio de venta del cliente: 1=publico, 2=distribuidor, 3, 4.
@@ -54,7 +56,7 @@ export class ActualizarClienteDto {
 
   @IsOptional()
   @IsString()
-  @MinLength(1)
+  @Matches(/^\d+$/, { message: "El numero de documento debe ser numerico" })
   numeroDoc?: string;
 
   @IsOptional()
@@ -71,7 +73,7 @@ export class ActualizarClienteDto {
   telefono?: string;
 
   @IsOptional()
-  @IsString()
+  @IsEmail({}, { message: "Ingresa un email valido" })
   email?: string;
 
   // Nivel de precio de venta del cliente: 1=publico, 2=distribuidor, 3, 4.
