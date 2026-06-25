@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Post, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
 import { JwtGuard } from "../../auth/jwt.guard.js";
 import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
 import { UsuarioActual } from "../../comun/decoradores/usuario-actual.decorator.js";
+import { ParseBigIntPipe } from "../../comun/pipes/parse-bigint.pipe.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { DevolucionesService } from "./devoluciones.service.js";
 import { RegistrarDevolucionDto } from "./dto/devoluciones.dto.js";
@@ -41,5 +42,14 @@ export class DevolucionesController {
         numerosSerie: l.numerosSerie,
       })),
     });
+  }
+
+  @Patch(":id/anular")
+  @Permisos("venta.gestionar")
+  anular(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id", ParseBigIntPipe) id: bigint,
+  ) {
+    return this.devoluciones.anular(usuario, id);
   }
 }

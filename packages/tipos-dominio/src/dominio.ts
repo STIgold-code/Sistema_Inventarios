@@ -14,6 +14,9 @@ export const TIPO_MOVIMIENTO = {
   SALIDA_TRANSFERENCIA: "SALIDA_TRANSFERENCIA",
   SALIDA_MERMA: "SALIDA_MERMA",
   SALIDA_CONSUMO: "SALIDA_CONSUMO",
+  // Reverso de una devolucion de venta anulada: el stock reingresado por la
+  // devolucion vuelve a salir del sistema (compensacion del ledger inmutable).
+  SALIDA_ANULACION_DEVOLUCION: "SALIDA_ANULACION_DEVOLUCION",
   // Cambio de condicion: la existencia fisica no entra ni sale del sistema,
   // solo pasa de "buen uso" (disponible) a "deteriorado" o viceversa.
   DETERIORO: "DETERIORO",
@@ -67,6 +70,7 @@ export const SIGNO_POR_TIPO: Record<TipoMovimiento, SignoMovimiento> = {
   SALIDA_TRANSFERENCIA: SIGNO_MOVIMIENTO.SALIDA,
   SALIDA_MERMA: SIGNO_MOVIMIENTO.SALIDA,
   SALIDA_CONSUMO: SIGNO_MOVIMIENTO.SALIDA,
+  SALIDA_ANULACION_DEVOLUCION: SIGNO_MOVIMIENTO.SALIDA,
   // DETERIORO retira stock de la condicion "disponible" (signo SALIDA);
   // RECUPERACION lo reintegra a "disponible" (signo ENTRADA). En ambos casos
   // el stock fisico total no cambia: es la misma existencia cambiando de condicion.

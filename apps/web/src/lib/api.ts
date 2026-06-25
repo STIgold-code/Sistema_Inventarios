@@ -1853,6 +1853,15 @@ export function crearDevolucion(
   });
 }
 
+export function anularDevolucion(
+  id: string,
+): Promise<{ id: string; estado: EstadoDevolucionVenta }> {
+  return apiFetch<{ id: string; estado: EstadoDevolucionVenta }>(
+    `/devoluciones/${id}/anular`,
+    { method: "PATCH" },
+  );
+}
+
 // ── Conteos: tipos ────────────────────────────────────────────────────────────
 
 export type EstadoConteo = "ABIERTO" | "APLICADO" | "ANULADO";

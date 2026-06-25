@@ -885,6 +885,50 @@ export class MovimientoService {
   }
 
   /**
+   * Reverso de una devolucion de venta anulada: el stock que la devolucion
+   * reingreso vuelve a SALIR del sistema. Consume capas FIFO al costo vigente
+   * (valida stock: no se puede anular si ese stock ya fue consumido) y, para
+   * SKUs serializados, vuelve a marcar las series como DESPACHADO. El ledger es
+   * inmutable: esto es un movimiento NUEVO de compensacion, nunca un borrado de
+   * la entrada original. Opera DENTRO de la transaccion de la anulacion: si
+   * cualquier linea falla, toda la operacion revierte. Operacion SUNAT 06
+   * (devolucion entregada), reverso de la 05.
+   */
+  async salidaPorAnulacionDevolucionEnTx(
+    usuario: UsuarioRequest,
+    tx: Tx,
+    dto: {
+      skuId: bigint;
+      almacenId: bigint;
+      cantidad: string;
+      documentoId: bigint;
+      observaciones?: string;
+      numerosSerie?: string[];
+    },
+  ): Promise<{ movimientoId: bigint }> {
+    const cantidad = new D(dto.cantidad);
+    await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const item = await this.obtenerItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    if (!item) throw new StockInsuficienteError("0", cantidad.toString());
+    const { mov } = await this.aplicarSalida(tx, usuario, item, {
+      cantidad,
+      tipo: TIPO_MOVIMIENTO.SALIDA_ANULACION_DEVOLUCION,
+      documentoTipo: "DEVOLUCION_VENTA",
+      documentoId: dto.documentoId,
+      tipoOperacionSunat: TIPO_OPERACION.DEVOLUCION_ENTREGADA,
+      observaciones: dto.observaciones ?? "Anulacion de devolucion de venta",
+    });
+    await this.marcarSeriesSalida(tx, usuario.empresaId, {
+      skuId: dto.skuId,
+      almacenId: dto.almacenId,
+      cantidad,
+      movimientoSalidaId: mov.id,
+      numerosSerie: dto.numerosSerie,
+    });
+    return { movimientoId: mov.id };
+  }
+
+  /**
    * Marca stock como DETERIORADO: mueve cantidad de cantidadDisponible ->
    * cantidadDeteriorada. Es la MISMA existencia cambiando de condicion, no una
    * salida fisica: NO consume capas FIFO, NO cambia el costo promedio y el stock

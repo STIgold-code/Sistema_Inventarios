@@ -7,6 +7,7 @@ import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
 import { SelectorBusqueda } from "@/componentes/selector-busqueda";
 import {
   ErrorApi,
+  anularDevolucion,
   crearDevolucion,
   obtenerDevoluciones,
   obtenerOrdenesVenta,
@@ -64,6 +65,8 @@ export default function PaginaDevoluciones(): React.JSX.Element {
   const [avisoForm, setAvisoForm] = useState<Aviso | null>(null);
   const [avisoLista, setAvisoLista] = useState<Aviso | null>(null);
   const [confirmarAbierto, setConfirmarAbierto] = useState<boolean>(false);
+  const [devolucionAnular, setDevolucionAnular] = useState<DevolucionVenta | null>(null);
+  const [anulando, setAnulando] = useState<boolean>(false);
 
   useEffect(() => {
     void (async (): Promise<void> => {
@@ -93,6 +96,27 @@ export default function PaginaDevoluciones(): React.JSX.Element {
       setDevoluciones(await obtenerDevoluciones());
     } catch {
       // El aviso de la operación principal ya informó al usuario.
+    }
+  }
+
+  async function confirmarAnulacion(): Promise<void> {
+    if (!devolucionAnular) return;
+    setAnulando(true);
+    try {
+      await anularDevolucion(devolucionAnular.id);
+      setAvisoLista({
+        texto: `Devolución ${devolucionAnular.numero} anulada. El stock reingresado fue retirado del inventario.`,
+        tono: "exito",
+      });
+      await refrescarDevoluciones();
+    } catch (error) {
+      setAvisoLista({
+        texto: mensajeError(error, "No se pudo anular la devolución."),
+        tono: "error",
+      });
+    } finally {
+      setAnulando(false);
+      setDevolucionAnular(null);
     }
   }
 
@@ -493,7 +517,18 @@ export default function PaginaDevoluciones(): React.JSX.Element {
                         {dev.motivo ? ` · ${dev.motivo}` : ""}
                       </p>
                     </div>
-                    <span className={INSIGNIA_ESTADO[dev.estado]}>{dev.estado}</span>
+                    <div className="flex items-center gap-3">
+                      <span className={INSIGNIA_ESTADO[dev.estado]}>{dev.estado}</span>
+                      {dev.estado === "REGISTRADA" && (
+                        <button
+                          type="button"
+                          onClick={() => setDevolucionAnular(dev)}
+                          className="inline-flex items-center rounded-md border border-borde px-3 py-1.5 text-xs font-medium text-peligro transition-colors hover:bg-panel-alt"
+                        >
+                          Anular
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="mt-3 overflow-x-auto">
                     <table className="tabla-datos">
@@ -538,6 +573,21 @@ export default function PaginaDevoluciones(): React.JSX.Element {
         procesando={guardando}
         onConfirmar={() => void confirmarDevolucion()}
         onCancelar={() => setConfirmarAbierto(false)}
+      />
+
+      <ModalConfirmacion
+        abierto={devolucionAnular !== null}
+        titulo="Anular devolución"
+        mensaje={
+          devolucionAnular
+            ? `Al anular la devolución ${devolucionAnular.numero}, el stock que reingresó al inventario volverá a salir mediante un movimiento de compensación. No se podrá anular si ese stock ya fue consumido o las series ya se re-despacharon.`
+            : ""
+        }
+        textoConfirmar="Anular devolución"
+        textoCancelar="Cancelar"
+        procesando={anulando}
+        onConfirmar={() => void confirmarAnulacion()}
+        onCancelar={() => setDevolucionAnular(null)}
       />
     </div>
   );

@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
@@ -287,6 +292,94 @@ export class DevolucionesService {
     if (cantidadTotal.isZero()) return null;
     const promedio = costoPonderado.div(cantidadTotal);
     return promedio.isZero() ? null : promedio.toString();
+  }
+
+  /**
+   * Anula una devolucion REGISTRADA: por cada linea genera una SALIDA
+   * compensatoria que retira del kardex el stock que la devolucion habia
+   * reingresado (reverso del ledger inmutable, no un borrado). Para SKUs
+   * serializados, las series vuelven a DESPACHADO. Todo en UNA transaccion con
+   * CAS sobre el estado: si la devolucion ya no esta REGISTRADA, revierte. Si el
+   * stock reingresado ya fue consumido (o las series ya se re-despacharon), la
+   * salida falla y la anulacion completa se aborta.
+   */
+  async anular(usuario: UsuarioRequest, devolucionId: bigint) {
+    const devolucion = await this.prisma.devolucionVenta.findFirst({
+      where: { id: devolucionId, empresaId: usuario.empresaId },
+      include: { lineas: true },
+    });
+    if (!devolucion) throw new NotFoundException("Devolucion no encontrada");
+    if (devolucion.estado !== "REGISTRADA") {
+      throw new BadRequestException(`La devolucion esta ${devolucion.estado}`);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // CAS sobre el estado al inicio: marca ANULADA solo si SIGUE REGISTRADA.
+      // Cierra la ventana de carrera contra otra anulacion concurrente.
+      const tomado = await tx.devolucionVenta.updateMany({
+        where: { id: devolucion.id, empresaId: usuario.empresaId, estado: "REGISTRADA" },
+        data: { estado: "ANULADA" },
+      });
+      if (tomado.count === 0) {
+        throw new ConflictException("La devolucion ya no esta REGISTRADA");
+      }
+
+      // Lockear las posiciones afectadas antes de operar, ordenadas por skuId
+      // para evitar deadlock entre anulaciones con SKUs solapados.
+      const skusAfectados = [...new Set(devolucion.lineas.map((l) => l.skuId))].sort(
+        (a, b) => (a < b ? -1 : a > b ? 1 : 0),
+      );
+      for (const skuId of skusAfectados) {
+        await this.movimientos.bloquearPosicion(
+          tx,
+          usuario.empresaId,
+          skuId,
+          devolucion.almacenId,
+        );
+      }
+
+      for (const linea of devolucion.lineas) {
+        // Series que esta devolucion reingreso (enlazadas a su movimiento de
+        // entrada y aun DISPONIBLE). Si alguna ya se re-despacho, no aparece y
+        // la salida fallara por cantidad: no se puede anular en ese caso.
+        const series = linea.movimientoEntradaId
+          ? (
+              await tx.serieArticulo.findMany({
+                where: {
+                  empresaId: usuario.empresaId,
+                  skuId: linea.skuId,
+                  movimientoEntradaId: linea.movimientoEntradaId,
+                  estado: "DISPONIBLE",
+                },
+                select: { numeroSerie: true },
+              })
+            ).map((s) => s.numeroSerie)
+          : [];
+
+        await this.movimientos.salidaPorAnulacionDevolucionEnTx(usuario, tx, {
+          skuId: linea.skuId,
+          almacenId: devolucion.almacenId,
+          cantidad: linea.cantidad.toString(),
+          documentoId: devolucion.id,
+          observaciones: `Anulacion devolucion ${devolucion.numero}`,
+          numerosSerie: series.length > 0 ? series : undefined,
+        });
+      }
+
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "ANULAR",
+          entidad: "DEVOLUCION_VENTA",
+          entidadId: devolucion.id,
+          detalle: `Devolución N° ${devolucion.numero} anulada`,
+        },
+        tx,
+      );
+
+      return { id: devolucion.id.toString(), estado: "ANULADA" };
+    });
   }
 
   async listar(empresaId: bigint) {
