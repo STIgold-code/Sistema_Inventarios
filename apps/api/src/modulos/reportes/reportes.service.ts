@@ -5,6 +5,9 @@ import { PrismaService } from "../../comun/prisma/prisma.service.js";
 
 const D = Prisma.Decimal;
 
+/** Cero a 8 decimales para los campos de cantidad/costo unitario del PLE 13.1. */
+const CERO_8 = "0.00000000";
+
 type MovimientoConSku = Prisma.MovimientoStockGetPayload<{
   include: { sku: { include: { producto: true; unidad: true } } };
 }>;
@@ -299,13 +302,14 @@ export class ReportesService {
         ? comprobantePorId.get(mov.documentoId)
         : undefined;
 
-      // Precio: linea de la orden con el mismo SKU. Si hay varias lineas con el
-      // mismo SKU se toma la primera (el modelo no liga el movimiento a una
-      // linea concreta).
-      const linea = comprobante?.ordenVenta.lineas.find(
-        (l) => l.skuId === mov.skuId,
-      );
-      const precioUnitario = linea ? new D(linea.precioUnitario) : null;
+      // Precio: el modelo no liga el movimiento a una linea concreta de la orden.
+      // Si hay varias lineas con el mismo SKU (descuento parcial, dos lotes), se
+      // usa el precio PROMEDIO PONDERADO por cantidad de esas lineas, no la
+      // primera: tomar la primera aplicaria su precio a toda la cantidad y
+      // distorsionaria el margen cuando los precios difieren.
+      const lineasSku =
+        comprobante?.ordenVenta.lineas.filter((l) => l.skuId === mov.skuId) ?? [];
+      const precioUnitario = this.precioPromedioPonderado(lineasSku);
       if (precioUnitario === null) sinPrecio += 1;
       const venta = precioUnitario
         ? precioUnitario.mul(new D(mov.cantidad))
@@ -458,14 +462,14 @@ export class ReportesService {
         m.sku.unidad.codigo, // 11 unidad
         m.sku.metodoValuacion, // 12 metodo valuacion (Tabla 14)
         m.tipoOperacionSunat, // 13 tipo operacion
-        esEntrada ? this.num(m.cantidad) : "0.00", // 14 entrada cantidad
-        esEntrada ? this.num(m.costoUnitario) : "0.00", // 15 entrada costo unit
+        esEntrada ? this.num8(m.cantidad) : CERO_8, // 14 entrada cantidad
+        esEntrada ? this.num8(m.costoUnitario) : CERO_8, // 15 entrada costo unit
         esEntrada ? this.dinero(m.costoTotal) : "0.00", // 16 entrada costo total
-        esEntrada ? "0.00" : this.num(m.cantidad), // 17 salida cantidad
-        esEntrada ? "0.00" : this.num(m.costoUnitario), // 18 salida costo unit
+        esEntrada ? CERO_8 : this.num8(m.cantidad), // 17 salida cantidad
+        esEntrada ? CERO_8 : this.num8(m.costoUnitario), // 18 salida costo unit
         esEntrada ? "0.00" : this.dinero(m.costoTotal), // 19 salida costo total
-        this.num(m.saldoCantidad), // 20 saldo cantidad
-        this.num(m.saldoCostoUnitario), // 21 saldo costo unit
+        this.num8(m.saldoCantidad), // 20 saldo cantidad
+        this.num8(m.saldoCostoUnitario), // 21 saldo costo unit
         this.dinero(m.saldoCostoTotal), // 22 saldo costo total
         m.indicadorEstado, // 23 indicador estado
       ];
@@ -509,8 +513,48 @@ export class ReportesService {
     return base.slice(0, 80);
   }
 
+  /**
+   * Precio unitario promedio ponderado por cantidad de un conjunto de lineas de
+   * orden del mismo SKU. Devuelve null si no hay lineas. Si la cantidad total es
+   * cero, cae al promedio aritmetico simple para no perder el precio.
+   */
+  private precioPromedioPonderado(
+    lineas: Array<{ precioUnitario: Prisma.Decimal; cantidad: Prisma.Decimal }>,
+  ): Prisma.Decimal | null {
+    if (lineas.length === 0) return null;
+    let cantidadTotal = new D(0);
+    let valorTotal = new D(0);
+    for (const l of lineas) {
+      const cantidad = new D(l.cantidad);
+      cantidadTotal = cantidadTotal.add(cantidad);
+      valorTotal = valorTotal.add(new D(l.precioUnitario).mul(cantidad));
+    }
+    if (cantidadTotal.isZero()) {
+      let suma = new D(0);
+      for (const l of lineas) suma = suma.add(new D(l.precioUnitario));
+      return suma.div(lineas.length);
+    }
+    return valorTotal.div(cantidadTotal);
+  }
+
+  /**
+   * Cantidades del Formato 12.1 (unidades fisicas): 2 decimales segun el Anexo 2
+   * de la R.S. 315-2018/SUNAT.
+   */
   private num(valor: Prisma.Decimal): string {
     return new D(valor).toFixed(2);
+  }
+
+  /**
+   * Cantidades y costos unitarios del Formato 13.1 (valorizado): 8 decimales.
+   * El PLE rechaza el archivo si la conciliacion cantidad x costo_unitario no
+   * cuadra contra el costo total; truncar a 2 decimales rompe esa conciliacion
+   * en articulos con unidades fraccionarias (KG, LTR, MTR). Los importes totales
+   * (costo total) van a 2 decimales via `dinero`, calculados con precision plena
+   * en el ledger (no se recomputan desde operandos redondeados).
+   */
+  private num8(valor: Prisma.Decimal): string {
+    return new D(valor).toFixed(8);
   }
 
   private dinero(valor: Prisma.Decimal): string {
