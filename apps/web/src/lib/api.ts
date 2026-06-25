@@ -1193,6 +1193,7 @@ export interface OrdenTrabajo {
   centroCosto: string | null;
   fechaApertura: string;
   fechaCierre: string | null;
+  consumoValorizado: string;
 }
 
 export interface CrearOrdenTrabajoInput {

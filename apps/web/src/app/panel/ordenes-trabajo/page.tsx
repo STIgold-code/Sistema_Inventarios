@@ -15,6 +15,7 @@ import {
   type EstadoOrdenTrabajo,
   type OrdenTrabajo,
 } from "@/lib/api";
+import { formatearSoles } from "@/lib/formato";
 
 interface Aviso {
   texto: string;
@@ -308,6 +309,7 @@ export default function PaginaOrdenesTrabajo(): React.JSX.Element {
                     <th>Descripción</th>
                     <th>Centro de costo</th>
                     <th>Estado</th>
+                    <th className="text-right">Consumo</th>
                     <th>Apertura</th>
                     <th>Cierre</th>
                     <th className="text-right">Acciones</th>
@@ -316,13 +318,13 @@ export default function PaginaOrdenesTrabajo(): React.JSX.Element {
                 <tbody>
                   {cargandoBase ? (
                     <tr>
-                      <td colSpan={7} className="text-texto-ter">
+                      <td colSpan={8} className="text-texto-ter">
                         Cargando…
                       </td>
                     </tr>
                   ) : ordenes.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="text-texto-ter">
+                      <td colSpan={8} className="text-texto-ter">
                         Sin órdenes de trabajo registradas.
                       </td>
                     </tr>
@@ -336,6 +338,9 @@ export default function PaginaOrdenesTrabajo(): React.JSX.Element {
                           <span className={INSIGNIA_ESTADO[ot.estado]}>
                             {ETIQUETA_ESTADO[ot.estado]}
                           </span>
+                        </td>
+                        <td className="text-right font-mono text-tinta">
+                          {formatearSoles(ot.consumoValorizado)}
                         </td>
                         <td className="text-texto-sec">{formatearFecha(ot.fechaApertura)}</td>
                         <td className="text-texto-sec">{formatearFecha(ot.fechaCierre)}</td>

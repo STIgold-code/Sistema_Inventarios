@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import { CorrelativoService } from "../comun/correlativo/correlativo.service.js";
 
@@ -25,7 +26,13 @@ export class OrdenesTrabajoService {
       include: { centroCosto: true },
       orderBy: { fechaApertura: "desc" },
     });
-    return filas.map((o) => this.serializar(o));
+    // Consumo valorizado por lote: una sola query para los vales DESPACHADO de
+    // TODAS las OTs de la empresa, y una sola query para sus movimientos. Evita
+    // el N+1 que tendria calcular el consumo OT por OT.
+    const consumoPorOrden = await this.consumoValorizadoPorOrden(empresaId);
+    return filas.map((o) =>
+      this.serializar(o, consumoPorOrden.get(o.id.toString()) ?? "0"),
+    );
   }
 
   async obtener(empresaId: bigint, id: bigint) {
@@ -34,7 +41,71 @@ export class OrdenesTrabajoService {
       include: { centroCosto: true },
     });
     if (!orden) throw new NotFoundException("Orden de trabajo no encontrada");
-    return this.serializar(orden);
+    const consumoValorizado = await this.consumoValorizadoDeOrden(empresaId, orden.id);
+    return this.serializar(orden, consumoValorizado);
+  }
+
+  /**
+   * Consumo valorizado de una OT = suma de costoTotal de los MovimientoStock
+   * cuyo documentoTipo=VALE_SALIDA y documentoId esta entre los vales DESPACHADO
+   * imputados a la OT. Devuelve el total en soles como string (Decimal -> string).
+   */
+  private async consumoValorizadoDeOrden(empresaId: bigint, ordenTrabajoId: bigint): Promise<string> {
+    const vales = await this.prisma.valeSalida.findMany({
+      where: { empresaId, ordenTrabajoId, estado: "DESPACHADO" },
+      select: { id: true },
+    });
+    if (vales.length === 0) return "0";
+    const agg = await this.prisma.movimientoStock.aggregate({
+      where: {
+        empresaId,
+        documentoTipo: "VALE_SALIDA",
+        documentoId: { in: vales.map((v) => v.id) },
+      },
+      _sum: { costoTotal: true },
+    });
+    return (agg._sum.costoTotal ?? 0).toString();
+  }
+
+  /**
+   * Version por lote del consumo valorizado para el listado: 2 queries totales
+   * (vales DESPACHADO de la empresa + groupBy de movimientos por documentoId).
+   * Devuelve un mapa ordenTrabajoId(string) -> total en soles (string).
+   */
+  private async consumoValorizadoPorOrden(empresaId: bigint): Promise<Map<string, string>> {
+    const resultado = new Map<string, string>();
+    const vales = await this.prisma.valeSalida.findMany({
+      where: { empresaId, estado: "DESPACHADO", ordenTrabajoId: { not: null } },
+      select: { id: true, ordenTrabajoId: true },
+    });
+    if (vales.length === 0) return resultado;
+
+    const ordenPorVale = new Map<string, string>();
+    for (const vale of vales) {
+      if (vale.ordenTrabajoId !== null) {
+        ordenPorVale.set(vale.id.toString(), vale.ordenTrabajoId.toString());
+      }
+    }
+
+    const movimientos = await this.prisma.movimientoStock.groupBy({
+      by: ["documentoId"],
+      where: {
+        empresaId,
+        documentoTipo: "VALE_SALIDA",
+        documentoId: { in: vales.map((v) => v.id) },
+      },
+      _sum: { costoTotal: true },
+    });
+
+    for (const fila of movimientos) {
+      if (fila.documentoId === null) continue;
+      const ordenId = ordenPorVale.get(fila.documentoId.toString());
+      if (!ordenId) continue;
+      const previo = new Prisma.Decimal(resultado.get(ordenId) ?? 0);
+      const total = previo.plus(fila._sum.costoTotal ?? 0);
+      resultado.set(ordenId, total.toString());
+    }
+    return resultado;
   }
 
   /**
@@ -103,16 +174,19 @@ export class OrdenesTrabajoService {
     return orden;
   }
 
-  private serializar(orden: {
-    id: bigint;
-    numero: string;
-    descripcion: string;
-    estado: string;
-    centroCostoId: bigint;
-    fechaApertura: Date;
-    fechaCierre: Date | null;
-    centroCosto?: { nombre: string };
-  }) {
+  private serializar(
+    orden: {
+      id: bigint;
+      numero: string;
+      descripcion: string;
+      estado: string;
+      centroCostoId: bigint;
+      fechaApertura: Date;
+      fechaCierre: Date | null;
+      centroCosto?: { nombre: string };
+    },
+    consumoValorizado: string,
+  ) {
     return {
       id: orden.id.toString(),
       numero: orden.numero,
@@ -122,6 +196,7 @@ export class OrdenesTrabajoService {
       centroCosto: orden.centroCosto?.nombre ?? null,
       fechaApertura: orden.fechaApertura.toISOString(),
       fechaCierre: orden.fechaCierre ? orden.fechaCierre.toISOString() : null,
+      consumoValorizado,
     };
   }
 }
