@@ -27,6 +27,8 @@ function formatearFecha(iso: string): string {
 export default function PaginaKardex(): React.JSX.Element {
   const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [almacenId, setAlmacenId] = useState<number | null>(null); // null = todos
+  const [desde, setDesde] = useState<string>("");
+  const [hasta, setHasta] = useState<string>("");
   const [sku, setSku] = useState<Sku | null>(null);
   const [filas, setFilas] = useState<FilaKardex[]>([]);
   const [filtroTipo, setFiltroTipo] = useState<string>("");
@@ -61,7 +63,7 @@ export default function PaginaKardex(): React.JSX.Element {
     setEnUsd(false);
     void (async () => {
       try {
-        setFilas(await obtenerKardex(sku.id, almacenId));
+        setFilas(await obtenerKardex(sku.id, almacenId, desde || undefined, hasta || undefined));
       } catch (err) {
         setError(err instanceof ErrorApi ? err.message : "No se pudo cargar el kardex.");
         setFilas([]);
@@ -69,7 +71,7 @@ export default function PaginaKardex(): React.JSX.Element {
         setCargando(false);
       }
     })();
-  }, [sku, almacenId]);
+  }, [sku, almacenId, desde, hasta]);
 
   const tipos = useMemo(
     () => [...new Set(filas.map((f) => f.tipo))].sort(),
@@ -92,6 +94,8 @@ export default function PaginaKardex(): React.JSX.Element {
   function filtrosKardex(): string {
     const query = new URLSearchParams({ skuId: String(sku!.id) });
     if (almacenId !== null) query.set("almacenId", String(almacenId));
+    if (desde) query.set("desde", desde);
+    if (hasta) query.set("hasta", hasta);
     return query.toString();
   }
 
@@ -161,6 +165,32 @@ export default function PaginaKardex(): React.JSX.Element {
             }))}
             valor={almacenId === null ? "" : String(almacenId)}
             onCambio={(v) => setAlmacenId(v === "" ? null : Number(v))}
+          />
+        </div>
+        <div className="w-full sm:w-40">
+          <label htmlFor="kardex-desde" className="etiqueta-campo">
+            Desde
+          </label>
+          <input
+            id="kardex-desde"
+            type="date"
+            value={desde}
+            max={hasta || undefined}
+            onChange={(e) => setDesde(e.target.value)}
+            className="campo"
+          />
+        </div>
+        <div className="w-full sm:w-40">
+          <label htmlFor="kardex-hasta" className="etiqueta-campo">
+            Hasta
+          </label>
+          <input
+            id="kardex-hasta"
+            type="date"
+            value={hasta}
+            min={desde || undefined}
+            onChange={(e) => setHasta(e.target.value)}
+            className="campo"
           />
         </div>
         {consultado && filas.length > 0 && (

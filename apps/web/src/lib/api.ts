@@ -942,9 +942,13 @@ export function darBajaZona(almacenId: number, zonaId: number): Promise<Zona> {
 export function obtenerKardex(
   skuId: number,
   almacenId: number | null,
+  desde?: string,
+  hasta?: string,
 ): Promise<FilaKardex[]> {
   const params = new URLSearchParams({ skuId: String(skuId) });
   if (almacenId !== null) params.set("almacenId", String(almacenId));
+  if (desde) params.set("desde", desde);
+  if (hasta) params.set("hasta", hasta);
   return apiFetch<FilaKardex[]>(`/inventario/kardex?${params.toString()}`);
 }
 

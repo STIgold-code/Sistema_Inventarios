@@ -245,14 +245,25 @@ export class StockService {
     empresaId: bigint,
     skuId: bigint,
     almacenId?: bigint,
+    desde?: Date,
+    hasta?: Date,
   ): Promise<LineaKardex[]> {
-    // Cuando se filtra por un almacen, el orden cronologico da saldos coherentes.
-    // En vista consolidada (sin almacen) se ordena por almacen y luego fecha.
+    // Orden cronologico estricto (fecha, secuencia). El saldo se RECOMPUTA aqui en
+    // vez de usar el saldoCantidad/saldoCostoTotal persistido, porque ese saldo es
+    // POR POSICION (sku+almacen+ubicacion+lote+serie): un SKU con varias posiciones
+    // (lotes/series) produce series de saldo independientes que, intercaladas,
+    // jamas acumulan. Recomputado da el saldo real del conjunto consultado: total
+    // del SKU en consolidado, o total del almacen cuando se filtra. Para el caso
+    // comun de una sola posicion coincide exactamente con el saldo persistido.
+    const posicion = { empresaId, skuId, ...(almacenId ? { almacenId } : {}) };
+    const rangoFecha =
+      desde || hasta
+        ? { fechaMovimiento: { ...(desde ? { gte: desde } : {}), ...(hasta ? { lte: hasta } : {}) } }
+        : {};
+
     const movimientos = await this.prisma.movimientoStock.findMany({
-      where: { empresaId, skuId, ...(almacenId ? { almacenId } : {}) },
-      orderBy: almacenId
-        ? [{ fechaMovimiento: "asc" }, { secuencia: "asc" }]
-        : [{ almacenId: "asc" }, { fechaMovimiento: "asc" }, { secuencia: "asc" }],
+      where: { ...posicion, ...rangoFecha },
+      orderBy: [{ fechaMovimiento: "asc" }, { secuencia: "asc" }],
     });
 
     const almacenes = new Map(
@@ -262,24 +273,61 @@ export class StockService {
       ]),
     );
 
-    return movimientos.map((m) => ({
-      fecha: m.fechaMovimiento.toISOString(),
-      almacen: almacenes.get(m.almacenId.toString()) ?? m.almacenId.toString(),
-      tipo: m.tipo,
-      tipoOperacionSunat: m.tipoOperacionSunat,
-      cantidad: m.cantidad.toString(),
-      cantidadEntrada: m.signo === "ENTRADA" ? m.cantidad.toString() : "0",
-      cantidadSalida: m.signo === "SALIDA" ? m.cantidad.toString() : "0",
-      referencia: this.construirReferenciaKardex(m),
-      costoUnitario: m.costoUnitario.toString(),
-      costoTotal: m.costoTotal.toString(),
-      saldoCantidad: m.saldoCantidad.toString(),
-      saldoCostoUnitario: m.saldoCostoUnitario.toString(),
-      saldoCostoTotal: m.saldoCostoTotal.toString(),
-      costoUnitarioUsd: m.costoUnitarioUsd?.toString() ?? null,
-      costoTotalUsd: m.costoTotalUsd?.toString() ?? null,
-      documento: `${m.tipoDocumentoSunat}-${m.serieComprobante}-${m.numeroComprobante}`,
-    }));
+    // Saldo de APERTURA: cuando hay rango con "desde", el running debe continuar
+    // desde el saldo previo al rango, no desde cero. Se agrega en DB por signo.
+    let saldoCantidad = new Prisma.Decimal(0);
+    let saldoCostoTotal = new Prisma.Decimal(0);
+    if (desde) {
+      const apertura = await this.prisma.movimientoStock.groupBy({
+        by: ["signo"],
+        where: { ...posicion, fechaMovimiento: { lt: desde } },
+        _sum: { cantidad: true, costoTotal: true },
+      });
+      for (const fila of apertura) {
+        const cant = new Prisma.Decimal(fila._sum.cantidad ?? 0);
+        const costo = new Prisma.Decimal(fila._sum.costoTotal ?? 0);
+        if (fila.signo === "ENTRADA") {
+          saldoCantidad = saldoCantidad.add(cant);
+          saldoCostoTotal = saldoCostoTotal.add(costo);
+        } else {
+          saldoCantidad = saldoCantidad.sub(cant);
+          saldoCostoTotal = saldoCostoTotal.sub(costo);
+        }
+      }
+    }
+    return movimientos.map((m) => {
+      const esEntrada = m.signo === "ENTRADA";
+      // Saldo acumulado por valor: las entradas suman su costo total; las salidas
+      // restan el costo total con que salieron (FIFO ya valorizado en el ledger).
+      if (esEntrada) {
+        saldoCantidad = saldoCantidad.add(m.cantidad);
+        saldoCostoTotal = saldoCostoTotal.add(m.costoTotal);
+      } else {
+        saldoCantidad = saldoCantidad.sub(m.cantidad);
+        saldoCostoTotal = saldoCostoTotal.sub(m.costoTotal);
+      }
+      const saldoCostoUnitario = saldoCantidad.isZero()
+        ? new Prisma.Decimal(0)
+        : saldoCostoTotal.div(saldoCantidad);
+      return {
+        fecha: m.fechaMovimiento.toISOString(),
+        almacen: almacenes.get(m.almacenId.toString()) ?? m.almacenId.toString(),
+        tipo: m.tipo,
+        tipoOperacionSunat: m.tipoOperacionSunat,
+        cantidad: m.cantidad.toString(),
+        cantidadEntrada: esEntrada ? m.cantidad.toString() : "0",
+        cantidadSalida: !esEntrada ? m.cantidad.toString() : "0",
+        referencia: this.construirReferenciaKardex(m),
+        costoUnitario: m.costoUnitario.toString(),
+        costoTotal: m.costoTotal.toString(),
+        saldoCantidad: saldoCantidad.toString(),
+        saldoCostoUnitario: saldoCostoUnitario.toString(),
+        saldoCostoTotal: saldoCostoTotal.toString(),
+        costoUnitarioUsd: m.costoUnitarioUsd?.toString() ?? null,
+        costoTotalUsd: m.costoTotalUsd?.toString() ?? null,
+        documento: `${m.tipoDocumentoSunat}-${m.serieComprobante}-${m.numeroComprobante}`,
+      };
+    });
   }
 
   /** Stock actual (proyeccion) de un SKU por almacen. */

@@ -147,10 +147,17 @@ export class InventarioController {
   @Get("kardex")
   @Permisos("inventario.ver")
   kardex(@UsuarioActual() usuario: UsuarioRequest, @Query() dto: ConsultarKardexDto) {
+    let hasta: Date | undefined;
+    if (dto.hasta) {
+      hasta = new Date(dto.hasta);
+      hasta.setHours(23, 59, 59, 999);
+    }
     return this.stock.kardex(
       usuario.empresaId,
       BigInt(dto.skuId),
       dto.almacenId ? BigInt(dto.almacenId) : undefined,
+      dto.desde ? new Date(dto.desde) : undefined,
+      hasta,
     );
   }
 
@@ -276,10 +283,17 @@ export class InventarioController {
     @Query() dto: ConsultarKardexDto,
     @Res() res: Response,
   ): Promise<void> {
+    let hastaExport: Date | undefined;
+    if (dto.hasta) {
+      hastaExport = new Date(dto.hasta);
+      hastaExport.setHours(23, 59, 59, 999);
+    }
     const lineas = await this.stock.kardex(
       usuario.empresaId,
       BigInt(dto.skuId),
       dto.almacenId ? BigInt(dto.almacenId) : undefined,
+      dto.desde ? new Date(dto.desde) : undefined,
+      hastaExport,
     );
 
     const filas = lineas.map((l) => ({

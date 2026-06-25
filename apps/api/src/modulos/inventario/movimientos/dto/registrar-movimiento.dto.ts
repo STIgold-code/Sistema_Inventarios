@@ -1,4 +1,5 @@
 import {
+  IsDateString,
   IsInt,
   IsOptional,
   IsPositive,
@@ -87,4 +88,14 @@ export class ConsultarKardexDto {
   @IsInt()
   @IsPositive()
   almacenId?: number;
+
+  // Rango de fechas (ISO) para acotar el kardex por periodo, como es estandar en
+  // un kardex SUNAT. Sin rango, trae todo el historial del SKU.
+  @IsOptional()
+  @IsDateString()
+  desde?: string;
+
+  @IsOptional()
+  @IsDateString()
+  hasta?: string;
 }
