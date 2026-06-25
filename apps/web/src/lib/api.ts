@@ -202,6 +202,8 @@ export interface Sku {
   controlaSerie: boolean;
   /** Renovabilidad: true = se repone/consume; false = no; null = sin clasificar. */
   esRenovable: boolean | null;
+  /** Baja logica: false = SKU dado de baja (no usable en nuevas operaciones). */
+  activo: boolean;
   /** Precio de venta nivel 1 (publico). Null si no esta configurado. */
   precioPublico: string | null;
   /** Precio de venta nivel 2 (distribuidor). Null si no esta configurado. */
@@ -281,6 +283,7 @@ export interface CrearProductoInput {
   codigoParlante: string;
   unidadId: number;
   codigoUnspsc?: string;
+  codigoBarras?: string;
   nombreSku?: string;
   tipoExistencia?: string;
   metodoValuacion?: string;
@@ -449,6 +452,55 @@ export function crearProducto(
     method: "POST",
     body: JSON.stringify(datos),
   });
+}
+
+/**
+ * Campos editables de un SKU. Todos opcionales: solo se envian los que cambian.
+ * NO incluye unidad, familia ni multi-unidad (son estructurales, no editables).
+ * En codigoBarras/codigoUnspsc, una cadena vacia limpia el campo.
+ */
+export interface ActualizarSkuInput {
+  nombreSku?: string;
+  codigoParlante?: string;
+  codigoBarras?: string;
+  codigoUnspsc?: string;
+  stockMinimo?: string;
+  stockMaximo?: string;
+  puntoReposicion?: string;
+  semanasReposicion?: number;
+  esRenovable?: boolean;
+  precioPublico?: string;
+  precioDistribuidor?: string;
+  precioVenta3?: string;
+  precioVenta4?: string;
+  monedaVenta?: string;
+}
+
+export function actualizarSku(
+  id: number | string,
+  datos: ActualizarSkuInput,
+): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>(`/productos/skus/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function darDeBajaSku(
+  id: number | string,
+): Promise<{ id: string; activo: boolean }> {
+  return apiFetch<{ id: string; activo: boolean }>(`/productos/skus/${id}/baja`, {
+    method: "POST",
+  });
+}
+
+export function reactivarSku(
+  id: number | string,
+): Promise<{ id: string; activo: boolean }> {
+  return apiFetch<{ id: string; activo: boolean }>(
+    `/productos/skus/${id}/reactivar`,
+    { method: "POST" },
+  );
 }
 
 export function registrarAjuste(datos: AjusteInput): Promise<MovimientoRespuesta> {

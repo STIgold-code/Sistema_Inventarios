@@ -154,3 +154,78 @@ export class ActualizarPreciosSkuDto {
   @IsBoolean()
   esRenovable?: boolean;
 }
+
+/**
+ * Edicion de un SKU existente. Todos los campos son opcionales: solo se
+ * actualizan los enviados. Para limpiar un campo de texto/codigo opcional se
+ * acepta cadena vacia (se traduce a null en el servicio).
+ *
+ * NO incluye unidadId, familia ni la configuracion multi-unidad
+ * (unidadReferenciaId/factorConversion): son estructurales y cambiarlos
+ * despues de que existen movimientos corrompe el costo y el stock historico.
+ */
+export class ActualizarSkuDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  nombreSku?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(14, 14, { message: "codigoParlante debe tener exactamente 14 caracteres" })
+  @Matches(/^\d{14}$/, { message: "El codigo parlante debe tener 14 digitos" })
+  codigoParlante?: string;
+
+  // Cadena vacia limpia el codigo de barras (se guarda null).
+  @IsOptional()
+  @IsString()
+  codigoBarras?: string;
+
+  // Cadena vacia limpia el codigo UNSPSC (se guarda null).
+  @IsOptional()
+  @IsString()
+  @MaxLength(16)
+  codigoUnspsc?: string;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "stockMinimo debe ser decimal positivo" })
+  stockMinimo?: string;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "stockMaximo debe ser decimal positivo" })
+  stockMaximo?: string;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "puntoReposicion debe ser decimal positivo" })
+  puntoReposicion?: string;
+
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  semanasReposicion?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  esRenovable?: boolean;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "precioPublico debe ser decimal positivo" })
+  precioPublico?: string;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "precioDistribuidor debe ser decimal positivo" })
+  precioDistribuidor?: string;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "precioVenta3 debe ser decimal positivo" })
+  precioVenta3?: string;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "precioVenta4 debe ser decimal positivo" })
+  precioVenta4?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(3)
+  monedaVenta?: string; // ISO-4217 (PEN, USD)
+}

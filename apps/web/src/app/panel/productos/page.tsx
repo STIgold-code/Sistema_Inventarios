@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
+import { ModalConfirmacion } from "@/componentes/modal-confirmacion";
 import { PanelLateral } from "@/componentes/panel-lateral";
 import { BotonVer } from "@/componentes/boton-ver";
 import {
@@ -19,11 +20,14 @@ import {
 } from "@/componentes/selector-busqueda";
 import {
   ErrorApi,
+  actualizarSku,
   crearProducto,
+  darDeBajaSku,
   obtenerDetalleSku,
   obtenerFamilias,
   obtenerSkus,
   obtenerUnidades,
+  reactivarSku,
   type DetalleSku,
   type Familia,
   type Sku,
@@ -42,6 +46,8 @@ interface EstadoFormulario {
   familiaId: string;
   nombre: string;
   codigoParlante: string;
+  codigoBarras: string;
+  codigoUnspsc: string;
   unidadId: string;
   nombreSku: string;
   stockMinimo: string;
@@ -61,6 +67,8 @@ const FORMULARIO_INICIAL: EstadoFormulario = {
   familiaId: "",
   nombre: "",
   codigoParlante: "",
+  codigoBarras: "",
+  codigoUnspsc: "",
   unidadId: "",
   nombreSku: "",
   stockMinimo: "",
@@ -90,9 +98,15 @@ export default function PaginaProductos(): React.JSX.Element {
 
   const [panelAbierto, setPanelAbierto] = useState<boolean>(false);
   const [form, setForm] = useState<EstadoFormulario>(FORMULARIO_INICIAL);
+  // null = alta (Nuevo producto); con id = edicion del SKU correspondiente.
+  const [editandoId, setEditandoId] = useState<number | null>(null);
+  const [cargandoPrefill, setCargandoPrefill] = useState<boolean>(false);
   const [enviando, setEnviando] = useState<boolean>(false);
   const [errorForm, setErrorForm] = useState<string | null>(null);
   const [exito, setExito] = useState<string | null>(null);
+  // SKU pendiente de dar de baja (abre el modal de confirmacion).
+  const [skuABaja, setSkuABaja] = useState<Sku | null>(null);
+  const [dandoBaja, setDandoBaja] = useState<boolean>(false);
   // Campos que el usuario ya tocó (onBlur) o tras un intento de envío.
   const [tocado, setTocado] = useState<Record<string, boolean>>({});
   const [intentoEnvio, setIntentoEnvio] = useState<boolean>(false);
@@ -274,30 +288,85 @@ export default function PaginaProductos(): React.JSX.Element {
   }
 
   function abrirNuevo(): void {
+    setEditandoId(null);
     setForm(FORMULARIO_INICIAL);
     setTocado({});
     setIntentoEnvio(false);
     setErrorForm(null);
     setExito(null);
+    setCargandoPrefill(false);
     setPanelAbierto(true);
   }
+
+  // Abre el panel en modo edicion y prefilla el formulario con el detalle del
+  // SKU (trae todos los campos: codigos, reposicion, precios y multi-unidad).
+  const abrirEdicion = useCallback(async (id: number): Promise<void> => {
+    setEditandoId(id);
+    setForm(FORMULARIO_INICIAL);
+    setTocado({});
+    setIntentoEnvio(false);
+    setErrorForm(null);
+    setExito(null);
+    setCargandoPrefill(true);
+    setPanelAbierto(true);
+    try {
+      const d = await obtenerDetalleSku(id);
+      setForm({
+        familiaId: d.familia.id,
+        nombre: d.producto.nombre,
+        codigoParlante: d.codigoParlante,
+        codigoBarras: d.codigoBarras ?? "",
+        codigoUnspsc: d.codigoUnspsc ?? "",
+        unidadId: d.unidad.id,
+        nombreSku: d.nombre ?? "",
+        stockMinimo: d.reposicion.stockMinimo ?? "",
+        stockMaximo: d.reposicion.stockMaximo ?? "",
+        puntoReposicion: d.reposicion.puntoReposicion ?? "",
+        semanasReposicion:
+          d.reposicion.semanasReposicion === null
+            ? ""
+            : String(d.reposicion.semanasReposicion),
+        unidadReferenciaId: d.unidadReferencia?.id ?? "",
+        factorConversion: d.factorConversion ?? "",
+        precioPublico: d.precios.publico ?? "",
+        precioDistribuidor: d.precios.distribuidor ?? "",
+        monedaVenta: d.precios.moneda ?? "PEN",
+        esRenovable:
+          d.esRenovable === null ? "" : d.esRenovable ? "true" : "false",
+      });
+    } catch (error) {
+      setErrorForm(
+        error instanceof ErrorApi
+          ? error.message
+          : "No se pudo cargar el SKU para editar.",
+      );
+    } finally {
+      setCargandoPrefill(false);
+    }
+  }, []);
 
   function cerrarPanel(): void {
     if (enviando) return;
     setPanelAbierto(false);
+    setEditandoId(null);
     setForm(FORMULARIO_INICIAL);
     setTocado({});
     setIntentoEnvio(false);
     setErrorForm(null);
   }
 
-  async function manejarCreacion(evento: FormEvent<HTMLFormElement>): Promise<void> {
+  async function manejarEnvio(evento: FormEvent<HTMLFormElement>): Promise<void> {
     evento.preventDefault();
     setErrorForm(null);
     setIntentoEnvio(true);
 
     // El submit respeta los MISMOS errores derivados (no se duplica la lógica).
     if (Object.keys(errores).length > 0) {
+      return;
+    }
+
+    if (editandoId !== null) {
+      await guardarEdicion(editandoId);
       return;
     }
 
@@ -315,6 +384,8 @@ export default function PaginaProductos(): React.JSX.Element {
         familiaId: familia.id,
         nombre: form.nombre.trim(),
         codigoParlante: form.codigoParlante.trim(),
+        codigoBarras: form.codigoBarras.trim() || undefined,
+        codigoUnspsc: form.codigoUnspsc.trim() || undefined,
         unidadId: Number(form.unidadId),
         nombreSku: form.nombreSku.trim() || undefined,
         stockMinimo: form.stockMinimo.trim() || undefined,
@@ -345,6 +416,76 @@ export default function PaginaProductos(): React.JSX.Element {
       );
     } finally {
       setEnviando(false);
+    }
+  }
+
+  // Guarda la edicion: solo campos no estructurales (familia, unidad y
+  // multi-unidad NO se envian; son inmutables tras el alta). Cadena vacia en
+  // codigos opcionales se envia tal cual para limpiar el campo en el backend.
+  async function guardarEdicion(id: number): Promise<void> {
+    setEnviando(true);
+    try {
+      await actualizarSku(id, {
+        nombreSku: form.nombreSku.trim(),
+        codigoParlante: form.codigoParlante.trim(),
+        codigoBarras: form.codigoBarras.trim(),
+        codigoUnspsc: form.codigoUnspsc.trim(),
+        stockMinimo: form.stockMinimo.trim() || undefined,
+        stockMaximo: form.stockMaximo.trim() || undefined,
+        puntoReposicion: form.puntoReposicion.trim() || undefined,
+        semanasReposicion: form.semanasReposicion.trim()
+          ? Number(form.semanasReposicion.trim())
+          : undefined,
+        precioPublico: form.precioPublico.trim() || undefined,
+        precioDistribuidor: form.precioDistribuidor.trim() || undefined,
+        monedaVenta:
+          form.precioPublico.trim() || form.precioDistribuidor.trim()
+            ? form.monedaVenta
+            : undefined,
+        esRenovable: form.esRenovable === "" ? undefined : form.esRenovable === "true",
+      });
+      setExito(`SKU #${id} actualizado correctamente.`);
+      setPanelAbierto(false);
+      setEditandoId(null);
+      setForm(FORMULARIO_INICIAL);
+      setTocado({});
+      setIntentoEnvio(false);
+      await cargarSkus(busqueda.trim(), filtroRenovable, pagina);
+    } catch (error) {
+      setErrorForm(
+        error instanceof ErrorApi ? error.message : "No se pudo actualizar el SKU.",
+      );
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  async function confirmarBaja(): Promise<void> {
+    if (!skuABaja) return;
+    setDandoBaja(true);
+    try {
+      await darDeBajaSku(skuABaja.id);
+      setExito(`SKU ${skuABaja.codigoParlante} dado de baja.`);
+      setSkuABaja(null);
+      await cargarSkus(busqueda.trim(), filtroRenovable, pagina);
+    } catch (error) {
+      setErrorLista(
+        error instanceof ErrorApi ? error.message : "No se pudo dar de baja el SKU.",
+      );
+    } finally {
+      setDandoBaja(false);
+    }
+  }
+
+  async function reactivar(sku: Sku): Promise<void> {
+    try {
+      await reactivarSku(sku.id);
+      setExito(`SKU ${sku.codigoParlante} reactivado.`);
+      await cargarSkus(busqueda.trim(), filtroRenovable, pagina);
+    } catch (error) {
+      setErrorLista(
+        error instanceof ErrorApi ? error.message : "No se pudo reactivar el SKU.",
+      );
     }
   }
 
@@ -430,6 +571,7 @@ export default function PaginaProductos(): React.JSX.Element {
                   <th>Unidad</th>
                   <th>Unidad ref.</th>
                   <th>Renovable</th>
+                  <th>Estado</th>
                   <th className="text-right">Acciones</th>
                 </tr>
               </thead>
@@ -455,11 +597,46 @@ export default function PaginaProductos(): React.JSX.Element {
                         <span className="insignia insignia-neutra">No</span>
                       )}
                     </td>
-                    <td className="text-right">
-                      <BotonVer
-                        onVer={() => void abrirDetalle(sku.id)}
-                        etiqueta={`Ver detalle de ${sku.nombre ?? sku.producto.nombre}`}
-                      />
+                    <td>
+                      <span
+                        className={`insignia ${
+                          sku.activo ? "insignia-exito" : "insignia-neutra"
+                        }`}
+                      >
+                        {sku.activo ? "Activo" : "Inactivo"}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="flex justify-end gap-2">
+                        <BotonVer
+                          onVer={() => void abrirDetalle(sku.id)}
+                          etiqueta={`Ver detalle de ${sku.nombre ?? sku.producto.nombre}`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void abrirEdicion(sku.id)}
+                          className="btn btn-contorno h-8"
+                        >
+                          Editar
+                        </button>
+                        {sku.activo ? (
+                          <button
+                            type="button"
+                            onClick={() => setSkuABaja(sku)}
+                            className="btn btn-peligro h-8"
+                          >
+                            Dar de baja
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void reactivar(sku)}
+                            className="btn btn-contorno h-8"
+                          >
+                            Reactivar
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -502,11 +679,18 @@ export default function PaginaProductos(): React.JSX.Element {
 
       <PanelLateral
         abierto={panelAbierto}
-        titulo="Nuevo producto"
-        descripcion="Registra un SKU nuevo en el catálogo."
+        titulo={editandoId !== null ? "Editar producto" : "Nuevo producto"}
+        descripcion={
+          editandoId !== null
+            ? "Modifica los datos del SKU. La familia, la unidad y la multi-unidad no se pueden cambiar."
+            : "Registra un SKU nuevo en el catálogo."
+        }
         onCerrar={cerrarPanel}
       >
-        <form onSubmit={manejarCreacion} className="space-y-4">
+        <form onSubmit={manejarEnvio} className="space-y-4">
+          {cargandoPrefill && (
+            <p className="text-sm text-texto-ter">Cargando datos del SKU…</p>
+          )}
           {errorForm && (
             <div role="alert" className="aviso aviso-peligro">
               <span>{errorForm}</span>
@@ -529,7 +713,13 @@ export default function PaginaProductos(): React.JSX.Element {
                 placeholder="Selecciona…"
                 requerido
                 ariaLabel="Familia"
+                disabled={editandoId !== null}
               />
+              {editandoId !== null && (
+                <p className="mt-1.5 text-xs text-texto-ter">
+                  La familia no se puede modificar.
+                </p>
+              )}
               {errorVisible("familiaId") && (
                 <p className="mt-1.5 text-xs text-peligro">{errorVisible("familiaId")}</p>
               )}
@@ -549,7 +739,13 @@ export default function PaginaProductos(): React.JSX.Element {
                 placeholder="Selecciona…"
                 requerido
                 ariaLabel="Unidad"
+                disabled={editandoId !== null}
               />
+              {editandoId !== null && (
+                <p className="mt-1.5 text-xs text-texto-ter">
+                  La unidad no se puede modificar.
+                </p>
+              )}
               {errorVisible("unidadId") && (
                 <p className="mt-1.5 text-xs text-peligro">{errorVisible("unidadId")}</p>
               )}
@@ -565,8 +761,15 @@ export default function PaginaProductos(): React.JSX.Element {
               value={form.nombre}
               onChange={(e) => actualizar("nombre", e.target.value)}
               required
-              className="campo"
+              disabled={editandoId !== null}
+              className="campo disabled:opacity-60"
             />
+            {editandoId !== null && (
+              <p className="mt-1.5 text-xs text-texto-ter">
+                El nombre del producto no se edita aquí. Usa el nombre del SKU para
+                diferenciar presentaciones.
+              </p>
+            )}
           </div>
 
           <div>
@@ -618,6 +821,32 @@ export default function PaginaProductos(): React.JSX.Element {
               onChange={(e) => actualizar("nombreSku", e.target.value)}
               className="campo"
             />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label htmlFor="codigoBarras" className="etiqueta-campo">
+                Código de barras (opcional)
+              </label>
+              <input
+                id="codigoBarras"
+                value={form.codigoBarras}
+                onChange={(e) => actualizar("codigoBarras", e.target.value)}
+                className="campo font-mono"
+              />
+            </div>
+            <div>
+              <label htmlFor="codigoUnspsc" className="etiqueta-campo">
+                Código UNSPSC (opcional)
+              </label>
+              <input
+                id="codigoUnspsc"
+                value={form.codigoUnspsc}
+                onChange={(e) => actualizar("codigoUnspsc", e.target.value)}
+                maxLength={16}
+                className="campo font-mono"
+              />
+            </div>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -758,7 +987,10 @@ export default function PaginaProductos(): React.JSX.Element {
 
           <fieldset className="grid gap-4 rounded-md border border-borde bg-panel-alt p-4 sm:grid-cols-2">
             <legend className="px-1 text-sm font-medium text-texto">
-              Multi-unidad <span className="text-texto-ter">(opcional)</span>
+              Multi-unidad{" "}
+              <span className="text-texto-ter">
+                {editandoId !== null ? "(no editable)" : "(opcional)"}
+              </span>
             </legend>
             <div>
               <label htmlFor="unidadReferencia" className="etiqueta-campo">
@@ -775,6 +1007,7 @@ export default function PaginaProductos(): React.JSX.Element {
                 }}
                 placeholder="Sin unidad de referencia"
                 ariaLabel="Unidad de referencia"
+                disabled={editandoId !== null}
               />
               {errorVisible("unidadReferenciaId") && (
                 <p className="mt-1.5 text-xs text-peligro">
@@ -795,9 +1028,10 @@ export default function PaginaProductos(): React.JSX.Element {
                 onBlur={() => marcarTocado("factorConversion")}
                 inputMode="decimal"
                 placeholder="Ej. 12"
+                disabled={editandoId !== null}
                 aria-invalid={errorVisible("factorConversion") ? "true" : undefined}
                 aria-describedby="factorConversion-ayuda"
-                className="campo font-mono"
+                className="campo font-mono disabled:opacity-60"
               />
               {errorVisible("factorConversion") && (
                 <p className="mt-1.5 text-xs text-peligro">
@@ -812,8 +1046,18 @@ export default function PaginaProductos(): React.JSX.Element {
           </fieldset>
 
           <div className="flex gap-3 pt-2">
-            <button type="submit" disabled={enviando} className="btn btn-primario">
-              {enviando ? "Creando…" : "Crear producto"}
+            <button
+              type="submit"
+              disabled={enviando || cargandoPrefill}
+              className="btn btn-primario"
+            >
+              {enviando
+                ? editandoId !== null
+                  ? "Guardando…"
+                  : "Creando…"
+                : editandoId !== null
+                  ? "Guardar cambios"
+                  : "Crear producto"}
             </button>
             <button type="button" onClick={cerrarPanel} className="btn btn-contorno">
               Cancelar
@@ -839,6 +1083,17 @@ export default function PaginaProductos(): React.JSX.Element {
           <DetalleContenido detalle={detalle} />
         ) : null}
       </PanelLateral>
+
+      <ModalConfirmacion
+        abierto={skuABaja !== null}
+        titulo="Dar de baja el SKU"
+        mensaje={`¿Dar de baja el SKU ${skuABaja?.codigoParlante ?? ""}? No podrás usarlo en nuevas operaciones, pero se conserva su historial. Podrás reactivarlo después.`}
+        textoConfirmar="Dar de baja"
+        tono="peligro"
+        procesando={dandoBaja}
+        onConfirmar={() => void confirmarBaja()}
+        onCancelar={() => !dandoBaja && setSkuABaja(null)}
+      />
     </div>
   );
 }

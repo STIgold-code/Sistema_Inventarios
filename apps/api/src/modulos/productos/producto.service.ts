@@ -9,6 +9,7 @@ import { ReportesService } from "../reportes/reportes.service.js";
 import type { ClasificarAbcDto } from "./dto/clasificar-abc.dto.js";
 import type {
   ActualizarPreciosSkuDto,
+  ActualizarSkuDto,
   CrearProductoDto,
 } from "./dto/crear-producto.dto.js";
 
@@ -222,6 +223,96 @@ export class ProductoService {
 
     await this.prisma.sku.update({ where: { id: skuId }, data });
     return { id: skuId.toString() };
+  }
+
+  /**
+   * Edita los campos no estructurales de un SKU. Valida pertenencia a la
+   * empresa (anti-IDOR) y solo escribe los campos presentes en el DTO. Para los
+   * codigos opcionales (codigoBarras, codigoUnspsc), una cadena vacia limpia el
+   * campo (null); el resto de los campos no enviados se conservan intactos.
+   *
+   * NO permite editar unidad, familia ni la configuracion multi-unidad: son
+   * estructurales y modificarlas tras registrar movimientos corromperia el
+   * costo y el stock historico.
+   */
+  async actualizarSku(
+    empresaId: bigint,
+    skuId: bigint,
+    dto: ActualizarSkuDto,
+  ): Promise<{ id: string }> {
+    const sku = await this.prisma.sku.findFirst({
+      where: { id: skuId, empresaId },
+      include: { producto: { include: { familia: true } } },
+    });
+    if (!sku) throw new NotFoundException("SKU no encontrado");
+
+    const data: Prisma.SkuUpdateInput = {};
+
+    if (dto.codigoParlante !== undefined) {
+      // El codigo parlante codifica la familia en sus 3 primeros digitos; la
+      // familia no es editable, asi que el prefijo debe seguir coincidiendo.
+      const prefijo = dto.codigoParlante.slice(0, 3);
+      if (prefijo !== sku.producto.familia.codigo) {
+        throw new BadRequestException(
+          `Los 3 primeros digitos del codigo parlante (${prefijo}) deben coincidir con el codigo de la familia (${sku.producto.familia.codigo})`,
+        );
+      }
+      data.codigoParlante = dto.codigoParlante;
+    }
+
+    if (dto.nombreSku !== undefined) {
+      data.nombre = dto.nombreSku.trim() === "" ? null : dto.nombreSku;
+    }
+    if (dto.codigoBarras !== undefined) {
+      data.codigoBarras = dto.codigoBarras.trim() === "" ? null : dto.codigoBarras;
+    }
+    if (dto.codigoUnspsc !== undefined) {
+      data.codigoUnspsc = dto.codigoUnspsc.trim() === "" ? null : dto.codigoUnspsc;
+    }
+    if (dto.stockMinimo !== undefined) data.stockMinimo = new D(dto.stockMinimo);
+    if (dto.stockMaximo !== undefined) data.stockMaximo = new D(dto.stockMaximo);
+    if (dto.puntoReposicion !== undefined) {
+      data.puntoReposicion = new D(dto.puntoReposicion);
+    }
+    if (dto.semanasReposicion !== undefined) {
+      data.semanasReposicion = dto.semanasReposicion;
+    }
+    if (dto.esRenovable !== undefined) data.esRenovable = dto.esRenovable;
+    if (dto.precioPublico !== undefined) data.precioPublico = new D(dto.precioPublico);
+    if (dto.precioDistribuidor !== undefined) {
+      data.precioDistribuidor = new D(dto.precioDistribuidor);
+    }
+    if (dto.precioVenta3 !== undefined) data.precioVenta3 = new D(dto.precioVenta3);
+    if (dto.precioVenta4 !== undefined) data.precioVenta4 = new D(dto.precioVenta4);
+    if (dto.monedaVenta !== undefined) data.monedaVenta = dto.monedaVenta;
+
+    await this.prisma.sku.update({ where: { id: skuId }, data });
+    return { id: skuId.toString() };
+  }
+
+  /**
+   * Baja LOGICA de un SKU (activo:false). No se elimina la fila para preservar
+   * el historico de movimientos y las claves foraneas. Valida pertenencia.
+   */
+  async darDeBajaSku(
+    empresaId: bigint,
+    skuId: bigint,
+  ): Promise<{ id: string; activo: boolean }> {
+    const sku = await this.prisma.sku.findFirst({ where: { id: skuId, empresaId } });
+    if (!sku) throw new NotFoundException("SKU no encontrado");
+    await this.prisma.sku.update({ where: { id: skuId }, data: { activo: false } });
+    return { id: skuId.toString(), activo: false };
+  }
+
+  /** Reactiva un SKU dado de baja (activo:true). Valida pertenencia. */
+  async reactivarSku(
+    empresaId: bigint,
+    skuId: bigint,
+  ): Promise<{ id: string; activo: boolean }> {
+    const sku = await this.prisma.sku.findFirst({ where: { id: skuId, empresaId } });
+    if (!sku) throw new NotFoundException("SKU no encontrado");
+    await this.prisma.sku.update({ where: { id: skuId }, data: { activo: true } });
+    return { id: skuId.toString(), activo: true };
   }
 
   /** Familias de la empresa, ordenadas por codigo para navegacion estable. */

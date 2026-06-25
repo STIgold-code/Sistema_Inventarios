@@ -17,6 +17,7 @@ import { ParseBigIntPipe } from "../../comun/pipes/parse-bigint.pipe.js";
 import { ClasificarAbcDto } from "./dto/clasificar-abc.dto.js";
 import {
   ActualizarPreciosSkuDto,
+  ActualizarSkuDto,
   CrearProductoDto,
 } from "./dto/crear-producto.dto.js";
 import {
@@ -82,6 +83,34 @@ export class ProductoController {
     @Body() dto: CrearProductoDto,
   ): Promise<{ productoId: string; skuId: string }> {
     return this.productos.crearProductoConSku(usuario.empresaId, dto);
+  }
+
+  @Patch("skus/:id")
+  @Permisos("producto.editar")
+  actualizarSku(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id", ParseBigIntPipe) id: bigint,
+    @Body() dto: ActualizarSkuDto,
+  ): Promise<{ id: string }> {
+    return this.productos.actualizarSku(usuario.empresaId, id, dto);
+  }
+
+  @Post("skus/:id/baja")
+  @Permisos("producto.editar")
+  darDeBajaSku(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id", ParseBigIntPipe) id: bigint,
+  ): Promise<{ id: string; activo: boolean }> {
+    return this.productos.darDeBajaSku(usuario.empresaId, id);
+  }
+
+  @Post("skus/:id/reactivar")
+  @Permisos("producto.editar")
+  reactivarSku(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id", ParseBigIntPipe) id: bigint,
+  ): Promise<{ id: string; activo: boolean }> {
+    return this.productos.reactivarSku(usuario.empresaId, id);
   }
 
   @Patch("skus/:id/precios")
