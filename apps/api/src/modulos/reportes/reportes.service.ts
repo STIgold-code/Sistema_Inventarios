@@ -171,8 +171,13 @@ export class ReportesService {
       valorTotal = valorTotal.add(mov.costoTotal);
     }
 
-    const ordenados = [...porSku.values()].sort((a, b) =>
-      b.valorConsumo.comparedTo(a.valorConsumo),
+    // Desempate determinista por skuId: ante igual valor de consumo, el orden
+    // (y por ende la clase A/B/C en el borde 80%/95%) debe ser reproducible
+    // entre corridas, porque la clasificacion se persiste por SKU.
+    const ordenados = [...porSku.values()].sort(
+      (a, b) =>
+        b.valorConsumo.comparedTo(a.valorConsumo) ||
+        (a.skuId < b.skuId ? -1 : a.skuId > b.skuId ? 1 : 0),
     );
 
     // Resolver nombres de SKU/producto para etiquetar el resultado.

@@ -551,8 +551,11 @@ export class StockService {
       throw new NotFoundException("El movimiento no existe.");
     }
 
-    const almacen = await this.prisma.almacen.findUnique({
-      where: { id: m.almacenId },
+    // Filtra por empresaId aunque m.almacenId ya pertenezca al tenant (m se
+    // obtuvo con empresaId): la regla multi-empresa debe ser invariante en
+    // todo acceso, sin excepciones que dependan del contexto del llamador.
+    const almacen = await this.prisma.almacen.findFirst({
+      where: { id: m.almacenId, empresaId },
       select: { nombre: true },
     });
 
