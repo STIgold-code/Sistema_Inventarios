@@ -101,6 +101,31 @@
   --modulo-utilitarios-acento: #5b6470;
   --modulo-utilitarios-tenue: #eef0f2;
   --modulo-utilitarios-borde: #cdd2d8;
+
+  /* --- Sidebar grafito: superficies y texto sobre oscuro --- */
+  --sidebar-fondo: #11151a;          /* grafito profundo (separa la nav del contenido) */
+  --sidebar-borde: #2a2f36;          /* divisores internos */
+  --sidebar-texto: #aab2bb;          /* texto de ítems */
+  --sidebar-texto-fuerte: #c8cdd3;   /* Inicio / nombre de usuario */
+  --sidebar-texto-tenue: #9aa1a9;    /* email / metadatos */
+  --sidebar-hover-bg: rgba(255, 255, 255, 0.05);
+
+  /* --- Set BRILLANTE de módulo (solo para el sidebar, va sobre grafito) ---
+     NO usar on-light: la cabecera de página conserva los accents AA-sobre-blanco
+     de arriba. El fondo del ítem activo es el accent al 16% de opacidad. */
+  --modulo-marca-claro: #c8cdd3;
+  --modulo-datos-claro: #7fb2e3;
+  --modulo-movimientos-claro: #f1b65a;
+  --modulo-consultas-claro: #a99cf0;
+  --modulo-proceso-claro: #67c98c;
+  --modulo-utilitarios-claro: #9aa4b0;
+
+  --modulo-marca-activo: rgba(200, 205, 211, 0.16);
+  --modulo-datos-activo: rgba(127, 178, 227, 0.16);
+  --modulo-movimientos-activo: rgba(241, 182, 90, 0.16);
+  --modulo-consultas-activo: rgba(169, 156, 240, 0.16);
+  --modulo-proceso-activo: rgba(103, 201, 140, 0.16);
+  --modulo-utilitarios-activo: rgba(154, 164, 176, 0.16);
 }
 
 /* Resuelve el trío de vars activas según el módulo del contexto. Cualquier
@@ -111,6 +136,16 @@
 [data-modulo="consultas"]    { --m-acento: var(--modulo-consultas-acento);    --m-tenue: var(--modulo-consultas-tenue);    --m-borde: var(--modulo-consultas-borde); }
 [data-modulo="proceso"]      { --m-acento: var(--modulo-proceso-acento);      --m-tenue: var(--modulo-proceso-tenue);      --m-borde: var(--modulo-proceso-borde); }
 [data-modulo="utilitarios"]  { --m-acento: var(--modulo-utilitarios-acento);  --m-tenue: var(--modulo-utilitarios-tenue);  --m-borde: var(--modulo-utilitarios-borde); }
+
+/* Dentro del sidebar grafito (data-tema="oscuro"), el color del módulo usa el
+   set BRILLANTE y el fondo del activo es el accent al 16%. La cabecera de
+   página NO lleva data-tema, así que conserva los accents on-light. */
+[data-tema="oscuro"] [data-modulo="marca"]       { --m-acento: var(--modulo-marca-claro);       --m-activo-bg: var(--modulo-marca-activo); }
+[data-tema="oscuro"] [data-modulo="datos"]       { --m-acento: var(--modulo-datos-claro);       --m-activo-bg: var(--modulo-datos-activo); }
+[data-tema="oscuro"] [data-modulo="movimientos"] { --m-acento: var(--modulo-movimientos-claro); --m-activo-bg: var(--modulo-movimientos-activo); }
+[data-tema="oscuro"] [data-modulo="consultas"]   { --m-acento: var(--modulo-consultas-claro);   --m-activo-bg: var(--modulo-consultas-activo); }
+[data-tema="oscuro"] [data-modulo="proceso"]     { --m-acento: var(--modulo-proceso-claro);     --m-activo-bg: var(--modulo-proceso-activo); }
+[data-tema="oscuro"] [data-modulo="utilitarios"] { --m-acento: var(--modulo-utilitarios-claro); --m-activo-bg: var(--modulo-utilitarios-activo); }
 
 * { border-color: var(--borde); }
 
@@ -291,12 +326,20 @@ h1, h2, h3, h4 {
   /* Título del grupo en el sidebar, teñido con el acento del módulo. */
   .modulo-titulo { color: var(--m-acento); }
 
-  /* Ítem de navegación activo: resalta en blanco sobre el bloque de color del
-     grupo, con filo lateral del acento del módulo. */
+  /* Ítem de navegación activo (sobre claro): resalta en blanco con filo del
+     acento del módulo. */
   .item-activo {
     background: var(--panel);
     color: var(--tinta);
     box-shadow: inset 3px 0 0 0 var(--m-acento), 0 1px 2px rgba(16, 21, 26, 0.06);
+  }
+
+  /* Ítem activo dentro del sidebar grafito: fondo del accent al 16% + filo
+     brillante + texto blanco. */
+  [data-tema="oscuro"] .item-activo {
+    background: var(--m-activo-bg);
+    color: #ffffff;
+    box-shadow: inset 3px 0 0 0 var(--m-acento);
   }
 
   /* Filo de acento del módulo en la cabecera de la página. */

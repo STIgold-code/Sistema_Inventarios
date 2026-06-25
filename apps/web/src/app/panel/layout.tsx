@@ -73,23 +73,34 @@ export default function LayoutPanel({
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex h-screen w-64 flex-col border-r border-borde bg-panel transition-transform duration-200 lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 ${
+        data-tema="oscuro"
+        style={{
+          background: "var(--sidebar-fondo)",
+          borderColor: "var(--sidebar-borde)",
+        }}
+        className={`fixed inset-y-0 left-0 z-40 flex h-screen w-64 flex-col border-r transition-transform duration-200 lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 ${
           menuAbierto ? "translate-x-0" : "-translate-x-full"
         }`}
       >
         {/* Marca */}
-        <div className="flex items-center justify-between border-b border-borde px-4 py-4">
+        <div
+          style={{ borderColor: "var(--sidebar-borde)" }}
+          className="flex items-center justify-between border-b px-4 py-4"
+        >
           <div>
-            <div className="inline-flex rounded-md bg-tinta px-2.5 py-2">
+            <div className="inline-flex rounded-md bg-black/30 px-2.5 py-2 ring-1 ring-white/5">
               <Image src="/logo-bm.png" alt="BM Ingenieros S.A.C." width={112} height={39} />
             </div>
-            <p className="mt-2 text-[0.7rem] text-texto-ter">Sistema de Inventarios</p>
+            <p className="mt-2 text-[0.7rem]" style={{ color: "var(--sidebar-texto-tenue)" }}>
+              Sistema de Inventarios
+            </p>
           </div>
           <button
             type="button"
             onClick={() => setMenuAbierto(false)}
             aria-label="Cerrar menú"
-            className="flex h-9 w-9 items-center justify-center rounded-md text-texto-sec hover:bg-panel-alt lg:hidden"
+            style={{ color: "var(--sidebar-texto)" }}
+            className="flex h-9 w-9 items-center justify-center rounded-md hover:bg-white/10 hover:text-white lg:hidden"
           >
             <IconoCerrar />
           </button>
@@ -102,31 +113,29 @@ export default function LayoutPanel({
             <Link
               href={INICIO.href}
               aria-current={esActivo(INICIO.href, pathname) ? "page" : undefined}
+              style={esActivo(INICIO.href, pathname) ? undefined : { color: "var(--sidebar-texto-fuerte)" }}
               className={`mb-3 flex items-center rounded-md px-3 py-2 text-sm transition-colors ${
                 esActivo(INICIO.href, pathname)
                   ? "item-activo font-semibold"
-                  : "font-medium text-texto-sec hover:bg-panel-alt hover:text-tinta"
+                  : "font-medium hover:bg-white/5 hover:text-white"
               }`}
             >
               {INICIO.etiqueta}
             </Link>
           </div>
 
-          {/* Módulos padre (acordeón). Cada grupo tiñe su título e ítems
-              activos con su color de wayfinding (heredado vía data-modulo). */}
+          {/* Módulos padre (acordeón). El título de cada grupo va SIEMPRE en su
+              color de módulo brillante (heredado vía data-modulo + data-tema del
+              sidebar); los ítems activos toman fondo y filo del mismo color. */}
           {MODULOS.map((modulo) => {
             const abierto = expandidos.includes(modulo.titulo);
             return (
-              <div
-                key={modulo.titulo}
-                data-modulo={modulo.color}
-                className="mb-1.5 rounded-lg bg-[var(--m-tenue)] p-1"
-              >
+              <div key={modulo.titulo} data-modulo={modulo.color} className="mb-1">
                 <button
                   type="button"
                   onClick={() => alternarModulo(modulo.titulo)}
                   aria-expanded={abierto}
-                  className="modulo-titulo flex w-full items-center justify-between rounded-md px-2 py-2 text-[0.7rem] font-semibold uppercase tracking-wide"
+                  className="modulo-titulo flex w-full items-center justify-between rounded-md px-3 py-2 text-[0.7rem] font-semibold uppercase tracking-wide"
                 >
                   <span>{modulo.titulo}</span>
                   <IconoChevron abierto={abierto} />
@@ -140,10 +149,11 @@ export default function LayoutPanel({
                           key={enlace.href}
                           href={enlace.href}
                           aria-current={activo ? "page" : undefined}
+                          style={activo ? undefined : { color: "var(--sidebar-texto)" }}
                           className={`flex items-center rounded-md py-2 pl-5 pr-3 text-sm transition-colors ${
                             activo
                               ? "item-activo font-semibold"
-                              : "font-medium text-texto-sec hover:bg-panel-alt hover:text-tinta"
+                              : "font-medium hover:bg-white/5 hover:text-white"
                           }`}
                         >
                           {enlace.etiqueta}
@@ -158,20 +168,25 @@ export default function LayoutPanel({
         </nav>
 
         {/* Usuario */}
-        <div className="border-t border-borde p-3">
+        <div style={{ borderColor: "var(--sidebar-borde)" }} className="border-t p-3">
           <div className="flex items-center gap-2.5 px-2 py-1.5">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-tinta text-xs font-semibold text-white">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white ring-1 ring-white/10">
               {inicial}
             </span>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium text-tinta">{usuario?.nombre ?? "Usuario"}</p>
-              <p className="truncate text-xs text-texto-ter">{usuario?.email}</p>
+              <p className="truncate text-sm font-medium" style={{ color: "var(--sidebar-texto-fuerte)" }}>
+                {usuario?.nombre ?? "Usuario"}
+              </p>
+              <p className="truncate text-xs" style={{ color: "var(--sidebar-texto-tenue)" }}>
+                {usuario?.email}
+              </p>
             </div>
           </div>
           <button
             type="button"
             onClick={cerrarSesion}
-            className="btn btn-contorno mt-2 h-9 w-full text-sm"
+            style={{ borderColor: "var(--sidebar-borde)", color: "var(--sidebar-texto-fuerte)" }}
+            className="mt-2 flex h-9 w-full items-center justify-center rounded-md border text-sm font-medium transition-colors hover:bg-white/10 hover:text-white"
           >
             Cerrar sesión
           </button>
