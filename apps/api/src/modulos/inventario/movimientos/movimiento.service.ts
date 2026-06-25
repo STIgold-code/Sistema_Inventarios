@@ -721,7 +721,13 @@ export class MovimientoService {
   async salidaPorTrasladoEnTx(
     usuario: UsuarioRequest,
     tx: Tx,
-    dto: { skuId: bigint; almacenId: bigint; cantidad: string; observaciones?: string },
+    dto: {
+      skuId: bigint;
+      almacenId: bigint;
+      cantidad: string;
+      documentoId?: bigint;
+      observaciones?: string;
+    },
   ): Promise<{ movimientoId: bigint; costoUnitario: Prisma.Decimal }> {
     const cantidad = new D(dto.cantidad);
     await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
@@ -732,6 +738,7 @@ export class MovimientoService {
       cantidad,
       tipo: TIPO_MOVIMIENTO.SALIDA_TRANSFERENCIA,
       documentoTipo: "TRANSFERENCIA",
+      documentoId: dto.documentoId,
       tipoOperacionSunat: TIPO_OPERACION.TRANSFERENCIA,
       observaciones: dto.observaciones ?? "Despacho de traslado",
     });
@@ -759,7 +766,14 @@ export class MovimientoService {
   async entradaPorTrasladoEnTx(
     usuario: UsuarioRequest,
     tx: Tx,
-    dto: { skuId: bigint; almacenId: bigint; cantidad: string; costoUnitario: string; observaciones?: string },
+    dto: {
+      skuId: bigint;
+      almacenId: bigint;
+      cantidad: string;
+      costoUnitario: string;
+      documentoId?: bigint;
+      observaciones?: string;
+    },
   ): Promise<bigint> {
     const cantidad = new D(dto.cantidad);
     const costoUnitario = new D(dto.costoUnitario);
@@ -770,6 +784,7 @@ export class MovimientoService {
       costoUnitario,
       tipo: TIPO_MOVIMIENTO.ENTRADA_TRANSFERENCIA,
       documentoTipo: "TRANSFERENCIA",
+      documentoId: dto.documentoId,
       tipoOperacionSunat: TIPO_OPERACION.TRANSFERENCIA,
       observaciones: dto.observaciones ?? "Recepción de traslado",
     });

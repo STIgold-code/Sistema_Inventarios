@@ -93,6 +93,7 @@ export class TrasladosService {
           skuId: linea.skuId,
           almacenId: traslado.almacenOrigenId,
           cantidad: linea.cantidad.toString(),
+          documentoId: trasladoId,
           observaciones: `Despacho traslado ${traslado.numero}`,
         });
         await tx.trasladoLinea.update({
@@ -154,6 +155,7 @@ export class TrasladosService {
             almacenId: traslado.almacenDestinoId,
             cantidad: recibida.toString(),
             costoUnitario: linea.costoUnitario.toString(),
+            documentoId: trasladoId,
             observaciones: `Recepcion traslado ${traslado.numero}`,
           });
         }
