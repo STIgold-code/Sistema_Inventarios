@@ -299,6 +299,10 @@ export interface CrearProductoInput {
   precioPublico?: string;
   /** Precio de venta nivel 2 (distribuidor). Decimal positivo en texto. */
   precioDistribuidor?: string;
+  /** Precio de venta nivel 3. Decimal positivo en texto. */
+  precioVenta3?: string;
+  /** Precio de venta nivel 4. Decimal positivo en texto. */
+  precioVenta4?: string;
   /** Moneda de los precios de venta (ISO-4217: PEN, USD). */
   monedaVenta?: string;
   /** Renovabilidad de la existencia (true/false). Omitido = sin clasificar. */
@@ -813,6 +817,16 @@ export function crearSucursal(datos: { codigo: string; nombre: string }): Promis
   });
 }
 
+export function actualizarSucursal(
+  sucursalId: number,
+  datos: { codigo?: string; nombre?: string },
+): Promise<Sucursal> {
+  return apiFetch<Sucursal>(`/almacenes/sucursales/${sucursalId}`, {
+    method: "PATCH",
+    body: JSON.stringify(datos),
+  });
+}
+
 export function obtenerAlmacenesDetalle(): Promise<AlmacenDetalle[]> {
   return apiFetch<AlmacenDetalle[]>("/almacenes");
 }
@@ -824,6 +838,16 @@ export function crearAlmacen(datos: {
 }): Promise<{ id: string }> {
   return apiFetch<{ id: string }>("/almacenes", {
     method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function actualizarAlmacen(
+  almacenId: number,
+  datos: { codigo?: string; nombre?: string },
+): Promise<AlmacenDetalle> {
+  return apiFetch<AlmacenDetalle>(`/almacenes/${almacenId}`, {
+    method: "PATCH",
     body: JSON.stringify(datos),
   });
 }

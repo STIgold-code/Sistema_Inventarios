@@ -9,6 +9,8 @@ import {
   type OpcionSelector,
 } from "@/componentes/selector-busqueda";
 import {
+  actualizarAlmacen,
+  actualizarSucursal,
   actualizarZona,
   crearAlmacen,
   crearSucursal,
@@ -50,16 +52,20 @@ export default function PaginaAlmacenes(): React.JSX.Element {
   const [busqueda, setBusqueda] = useState<string>("");
   const [avisoLista, setAvisoLista] = useState<Aviso | null>(null);
 
-  // Panel "Nuevo almacén" (el backend solo permite crear almacenes).
+  // Panel de almacén (alta o edición según editandoAlmId).
   const [panelAlmAbierto, setPanelAlmAbierto] = useState<boolean>(false);
+  // null = alta (Nuevo almacén); con id = edición del almacén correspondiente.
+  const [editandoAlmId, setEditandoAlmId] = useState<string | null>(null);
   const [sucursalId, setSucursalId] = useState<string>("");
   const [codAlm, setCodAlm] = useState<string>("");
   const [nomAlm, setNomAlm] = useState<string>("");
   const [avisoAlm, setAvisoAlm] = useState<Aviso | null>(null);
   const [guardandoAlm, setGuardandoAlm] = useState<boolean>(false);
 
-  // Panel "Nueva sucursal".
+  // Panel de sucursal (alta o edición según editandoSucId).
   const [panelSucAbierto, setPanelSucAbierto] = useState<boolean>(false);
+  // null = alta (Nueva sucursal); con id = edición de la sucursal correspondiente.
+  const [editandoSucId, setEditandoSucId] = useState<string | null>(null);
   const [codSuc, setCodSuc] = useState<string>("");
   const [nomSuc, setNomSuc] = useState<string>("");
   const [avisoSuc, setAvisoSuc] = useState<Aviso | null>(null);
@@ -75,6 +81,7 @@ export default function PaginaAlmacenes(): React.JSX.Element {
   const [edicionZona, setEdicionZona] = useState<string | null>(null);
   const [codZona, setCodZona] = useState<string>("");
   const [nomZona, setNomZona] = useState<string>("");
+  const [descZona, setDescZona] = useState<string>("");
   const [zonaBaja, setZonaBaja] = useState<Zona | null>(null);
   const [procesandoBaja, setProcesandoBaja] = useState<boolean>(false);
 
@@ -104,9 +111,19 @@ export default function PaginaAlmacenes(): React.JSX.Element {
 
   // --- Almacén ---
   function abrirNuevoAlmacen(): void {
+    setEditandoAlmId(null);
     setSucursalId(sucursales[0]?.id ?? "");
     setCodAlm("");
     setNomAlm("");
+    setAvisoAlm(null);
+    setPanelAlmAbierto(true);
+  }
+
+  function abrirEdicionAlmacen(almacen: AlmacenDetalle): void {
+    setEditandoAlmId(almacen.id);
+    setSucursalId(almacen.sucursalId);
+    setCodAlm(almacen.codigo);
+    setNomAlm(almacen.nombre);
     setAvisoAlm(null);
     setPanelAlmAbierto(true);
   }
@@ -119,7 +136,7 @@ export default function PaginaAlmacenes(): React.JSX.Element {
 
   async function guardarAlmacen(): Promise<void> {
     setAvisoAlm(null);
-    if (!sucursalId) {
+    if (editandoAlmId === null && !sucursalId) {
       setAvisoAlm({ texto: "Selecciona una sucursal.", tono: "error" });
       return;
     }
@@ -129,17 +146,30 @@ export default function PaginaAlmacenes(): React.JSX.Element {
     }
     setGuardandoAlm(true);
     try {
-      await crearAlmacen({
-        sucursalId: Number(sucursalId),
-        codigo: codAlm.trim(),
-        nombre: nomAlm.trim(),
-      });
-      setAvisoLista({ texto: "Almacén creado.", tono: "exito" });
+      if (editandoAlmId !== null) {
+        await actualizarAlmacen(Number(editandoAlmId), {
+          codigo: codAlm.trim(),
+          nombre: nomAlm.trim(),
+        });
+        setAvisoLista({ texto: "Almacén actualizado.", tono: "exito" });
+      } else {
+        await crearAlmacen({
+          sucursalId: Number(sucursalId),
+          codigo: codAlm.trim(),
+          nombre: nomAlm.trim(),
+        });
+        setAvisoLista({ texto: "Almacén creado.", tono: "exito" });
+      }
       setPanelAlmAbierto(false);
       await recargar();
     } catch (error) {
       setAvisoAlm({
-        texto: mensajeError(error, "No se pudo crear el almacén."),
+        texto: mensajeError(
+          error,
+          editandoAlmId !== null
+            ? "No se pudo actualizar el almacén."
+            : "No se pudo crear el almacén.",
+        ),
         tono: "error",
       });
     } finally {
@@ -149,8 +179,17 @@ export default function PaginaAlmacenes(): React.JSX.Element {
 
   // --- Sucursal ---
   function abrirNuevaSucursal(): void {
+    setEditandoSucId(null);
     setCodSuc("");
     setNomSuc("");
+    setAvisoSuc(null);
+    setPanelSucAbierto(true);
+  }
+
+  function abrirEdicionSucursal(sucursal: Sucursal): void {
+    setEditandoSucId(sucursal.id);
+    setCodSuc(sucursal.codigo);
+    setNomSuc(sucursal.nombre);
     setAvisoSuc(null);
     setPanelSucAbierto(true);
   }
@@ -169,13 +208,26 @@ export default function PaginaAlmacenes(): React.JSX.Element {
     }
     setGuardandoSuc(true);
     try {
-      await crearSucursal({ codigo: codSuc.trim(), nombre: nomSuc.trim() });
-      setAvisoLista({ texto: "Sucursal creada.", tono: "exito" });
+      if (editandoSucId !== null) {
+        await actualizarSucursal(Number(editandoSucId), {
+          codigo: codSuc.trim(),
+          nombre: nomSuc.trim(),
+        });
+        setAvisoLista({ texto: "Sucursal actualizada.", tono: "exito" });
+      } else {
+        await crearSucursal({ codigo: codSuc.trim(), nombre: nomSuc.trim() });
+        setAvisoLista({ texto: "Sucursal creada.", tono: "exito" });
+      }
       setPanelSucAbierto(false);
       await recargar();
     } catch (error) {
       setAvisoSuc({
-        texto: mensajeError(error, "No se pudo crear la sucursal."),
+        texto: mensajeError(
+          error,
+          editandoSucId !== null
+            ? "No se pudo actualizar la sucursal."
+            : "No se pudo crear la sucursal.",
+        ),
         tono: "error",
       });
     } finally {
@@ -212,6 +264,7 @@ export default function PaginaAlmacenes(): React.JSX.Element {
     setEdicionZona("nueva");
     setCodZona("");
     setNomZona("");
+    setDescZona("");
     setAvisoZona(null);
   }
 
@@ -219,6 +272,7 @@ export default function PaginaAlmacenes(): React.JSX.Element {
     setEdicionZona(zona.id);
     setCodZona(zona.codigo);
     setNomZona(zona.nombre);
+    setDescZona(zona.descripcion ?? "");
     setAvisoZona(null);
   }
 
@@ -231,16 +285,19 @@ export default function PaginaAlmacenes(): React.JSX.Element {
     }
     setGuardandoZona(true);
     try {
+      const descripcion = descZona.trim();
       if (edicionZona === "nueva") {
         await crearZona(Number(almacenZonas.id), {
           codigo: codZona.trim(),
           nombre: nomZona.trim(),
+          descripcion: descripcion || undefined,
         });
         setAvisoZona({ texto: "Zona creada.", tono: "exito" });
       } else if (edicionZona) {
         await actualizarZona(Number(almacenZonas.id), Number(edicionZona), {
           codigo: codZona.trim(),
           nombre: nomZona.trim(),
+          descripcion,
         });
         setAvisoZona({ texto: "Zona actualizada.", tono: "exito" });
       }
@@ -271,6 +328,25 @@ export default function PaginaAlmacenes(): React.JSX.Element {
       });
     } finally {
       setProcesandoBaja(false);
+    }
+  }
+
+  async function reactivarZona(zona: Zona): Promise<void> {
+    if (!almacenZonas) return;
+    setGuardandoZona(true);
+    try {
+      await actualizarZona(Number(almacenZonas.id), Number(zona.id), {
+        activo: true,
+      });
+      setAvisoZona({ texto: "Zona reactivada.", tono: "exito" });
+      await recargarZonas(almacenZonas.id);
+    } catch (error) {
+      setAvisoZona({
+        texto: mensajeError(error, "No se pudo reactivar la zona."),
+        tono: "error",
+      });
+    } finally {
+      setGuardandoZona(false);
     }
   }
 
@@ -309,6 +385,68 @@ export default function PaginaAlmacenes(): React.JSX.Element {
       <section className="panel mt-6">
         <div className="panel-cabecera flex-wrap gap-3">
           <span className="panel-titulo">
+            Sucursales
+            <span className="ml-2 font-mono text-sm font-normal text-texto-ter">
+              ({sucursales.length})
+            </span>
+          </span>
+          <button
+            type="button"
+            onClick={abrirNuevaSucursal}
+            className="btn btn-contorno whitespace-nowrap"
+          >
+            Nueva sucursal
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="tabla-datos">
+            <thead>
+              <tr>
+                <th>Código</th>
+                <th>Nombre</th>
+                <th className="text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cargando ? (
+                <tr>
+                  <td colSpan={3} className="text-texto-ter">
+                    Cargando…
+                  </td>
+                </tr>
+              ) : sucursales.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="text-texto-ter">
+                    Aún no hay sucursales.
+                  </td>
+                </tr>
+              ) : (
+                sucursales.map((sucursal) => (
+                  <tr key={sucursal.id}>
+                    <td className="num">{sucursal.codigo}</td>
+                    <td className="text-tinta">{sucursal.nombre}</td>
+                    <td>
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => abrirEdicionSucursal(sucursal)}
+                          className="btn btn-contorno h-8"
+                        >
+                          Editar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="panel mt-6">
+        <div className="panel-cabecera flex-wrap gap-3">
+          <span className="panel-titulo">
             Almacenes registrados
             <span className="ml-2 font-mono text-sm font-normal text-texto-ter">
               ({almacenes.length})
@@ -325,13 +463,6 @@ export default function PaginaAlmacenes(): React.JSX.Element {
               placeholder="Buscar por código, nombre o sucursal…"
               className="campo w-72"
             />
-            <button
-              type="button"
-              onClick={abrirNuevaSucursal}
-              className="btn btn-contorno whitespace-nowrap"
-            >
-              Nueva sucursal
-            </button>
             <button
               type="button"
               onClick={abrirNuevoAlmacen}
@@ -374,6 +505,13 @@ export default function PaginaAlmacenes(): React.JSX.Element {
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
+                          onClick={() => abrirEdicionAlmacen(almacen)}
+                          className="btn btn-contorno h-8"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => abrirPanelZonas(almacen)}
                           className="btn btn-contorno h-8"
                         >
@@ -392,29 +530,35 @@ export default function PaginaAlmacenes(): React.JSX.Element {
       {/* Panel: Nuevo almacén */}
       <PanelLateral
         abierto={panelAlmAbierto}
-        titulo="Nuevo almacén"
-        descripcion="Registra un almacén dentro de una sucursal."
+        titulo={editandoAlmId !== null ? "Editar almacén" : "Nuevo almacén"}
+        descripcion={
+          editandoAlmId !== null
+            ? "Actualiza el código y el nombre del almacén."
+            : "Registra un almacén dentro de una sucursal."
+        }
         onCerrar={cerrarPanelAlmacen}
       >
         <div className="space-y-4">
           {avisoAlm && <AvisoLinea aviso={avisoAlm} />}
-          <div>
-            <label htmlFor="suc" className="etiqueta-campo">
-              Sucursal
-            </label>
-            <SelectorBusqueda
-              id="suc"
-              opciones={opcionesSucursal}
-              valor={sucursalId}
-              onCambio={setSucursalId}
-              placeholder={
-                sucursales.length === 0
-                  ? "Crea una sucursal primero"
-                  : "Selecciona una sucursal"
-              }
-              ariaLabel="Sucursal"
-            />
-          </div>
+          {editandoAlmId === null && (
+            <div>
+              <label htmlFor="suc" className="etiqueta-campo">
+                Sucursal
+              </label>
+              <SelectorBusqueda
+                id="suc"
+                opciones={opcionesSucursal}
+                valor={sucursalId}
+                onCambio={setSucursalId}
+                placeholder={
+                  sucursales.length === 0
+                    ? "Crea una sucursal primero"
+                    : "Selecciona una sucursal"
+                }
+                ariaLabel="Sucursal"
+              />
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-[1fr_2fr]">
             <div>
               <label htmlFor="codAlm" className="etiqueta-campo">
@@ -448,7 +592,11 @@ export default function PaginaAlmacenes(): React.JSX.Element {
               disabled={guardandoAlm}
               className="btn btn-primario"
             >
-              {guardandoAlm ? "Guardando…" : "Crear almacén"}
+              {guardandoAlm
+                ? "Guardando…"
+                : editandoAlmId !== null
+                  ? "Guardar cambios"
+                  : "Crear almacén"}
             </button>
             <button
               type="button"
@@ -461,11 +609,15 @@ export default function PaginaAlmacenes(): React.JSX.Element {
         </div>
       </PanelLateral>
 
-      {/* Panel: Nueva sucursal */}
+      {/* Panel: Nueva / Editar sucursal */}
       <PanelLateral
         abierto={panelSucAbierto}
-        titulo="Nueva sucursal"
-        descripcion="Registra una sucursal para agrupar almacenes."
+        titulo={editandoSucId !== null ? "Editar sucursal" : "Nueva sucursal"}
+        descripcion={
+          editandoSucId !== null
+            ? "Actualiza el código y el nombre de la sucursal."
+            : "Registra una sucursal para agrupar almacenes."
+        }
         onCerrar={cerrarPanelSucursal}
       >
         <div className="space-y-4">
@@ -503,7 +655,11 @@ export default function PaginaAlmacenes(): React.JSX.Element {
               disabled={guardandoSuc}
               className="btn btn-primario"
             >
-              {guardandoSuc ? "Guardando…" : "Crear sucursal"}
+              {guardandoSuc
+                ? "Guardando…"
+                : editandoSucId !== null
+                  ? "Guardar cambios"
+                  : "Crear sucursal"}
             </button>
             <button
               type="button"
@@ -573,6 +729,19 @@ export default function PaginaAlmacenes(): React.JSX.Element {
                   />
                 </div>
               </div>
+              <div className="mt-4">
+                <label htmlFor="descZona" className="etiqueta-campo">
+                  Descripción (opcional)
+                </label>
+                <textarea
+                  id="descZona"
+                  className="campo"
+                  rows={2}
+                  value={descZona}
+                  onChange={(e) => setDescZona(e.target.value)}
+                  placeholder="Referencia o detalle de la zona"
+                />
+              </div>
               <div className="mt-4 flex gap-3">
                 <button
                   type="button"
@@ -632,13 +801,22 @@ export default function PaginaAlmacenes(): React.JSX.Element {
                           >
                             Editar
                           </button>
-                          {z.activo && (
+                          {z.activo ? (
                             <button
                               type="button"
                               onClick={() => setZonaBaja(z)}
                               className="btn btn-peligro h-8"
                             >
                               Dar de baja
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => void reactivarZona(z)}
+                              disabled={guardandoZona}
+                              className="btn btn-contorno h-8"
+                            >
+                              Reactivar
                             </button>
                           )}
                         </div>

@@ -29,6 +29,33 @@ export class AlmacenesService {
     }
   }
 
+  async actualizarSucursal(
+    empresaId: bigint,
+    sucursalId: bigint,
+    dto: { codigo?: string; nombre?: string },
+  ) {
+    const sucursal = await this.prisma.sucursal.findFirst({
+      where: { id: sucursalId, empresaId },
+    });
+    if (!sucursal) throw new NotFoundException("Sucursal no encontrada.");
+    try {
+      const actualizada = await this.prisma.sucursal.update({
+        where: { id: sucursalId },
+        data: {
+          ...(dto.codigo !== undefined ? { codigo: dto.codigo } : {}),
+          ...(dto.nombre !== undefined ? { nombre: dto.nombre } : {}),
+        },
+      });
+      return {
+        id: actualizada.id.toString(),
+        codigo: actualizada.codigo,
+        nombre: actualizada.nombre,
+      };
+    } catch (error) {
+      throw this.traducirError(error, "Ya existe una sucursal con ese código.");
+    }
+  }
+
   async listarAlmacenes(empresaId: bigint) {
     const almacenes = await this.prisma.almacen.findMany({
       where: { empresaId },
@@ -62,6 +89,33 @@ export class AlmacenesService {
         },
       });
       return { id: almacen.id.toString() };
+    } catch (error) {
+      throw this.traducirError(error, "Ya existe un almacén con ese código.");
+    }
+  }
+
+  async actualizarAlmacen(
+    empresaId: bigint,
+    almacenId: bigint,
+    dto: { codigo?: string; nombre?: string },
+  ) {
+    await this.obtenerAlmacen(empresaId, almacenId);
+    try {
+      const actualizado = await this.prisma.almacen.update({
+        where: { id: almacenId },
+        data: {
+          ...(dto.codigo !== undefined ? { codigo: dto.codigo } : {}),
+          ...(dto.nombre !== undefined ? { nombre: dto.nombre } : {}),
+        },
+        include: { sucursal: true },
+      });
+      return {
+        id: actualizado.id.toString(),
+        codigo: actualizado.codigo,
+        nombre: actualizado.nombre,
+        sucursal: actualizado.sucursal.nombre,
+        sucursalId: actualizado.sucursalId.toString(),
+      };
     } catch (error) {
       throw this.traducirError(error, "Ya existe un almacén con ese código.");
     }

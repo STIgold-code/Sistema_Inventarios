@@ -33,6 +33,8 @@ interface FormCliente {
 const TIPOS_PRECIO: readonly { valor: string; etiqueta: string }[] = [
   { valor: "1", etiqueta: "Público" },
   { valor: "2", etiqueta: "Distribuidor" },
+  { valor: "3", etiqueta: "Precio nivel 3" },
+  { valor: "4", etiqueta: "Precio nivel 4" },
 ];
 
 /** Tabla 2 SUNAT — tipos de documento de identidad mas usados en clientes. */
@@ -103,7 +105,10 @@ function clienteAForm(c: Cliente): FormCliente {
 
 function etiquetaPrecio(valor: number | null | undefined): string {
   if (valor == null) return "Público";
-  return TIPOS_PRECIO.find((t) => t.valor === String(valor))?.etiqueta ?? "Público";
+  return (
+    TIPOS_PRECIO.find((t) => t.valor === String(valor))?.etiqueta ??
+    `Precio nivel ${valor}`
+  );
 }
 
 function AvisoLinea({ aviso }: { aviso: Aviso }): React.JSX.Element {

@@ -58,6 +58,8 @@ interface EstadoFormulario {
   factorConversion: string;
   precioPublico: string;
   precioDistribuidor: string;
+  precioVenta3: string;
+  precioVenta4: string;
   monedaVenta: string;
   // "" = sin clasificar, "true" = renovable, "false" = no renovable.
   esRenovable: string;
@@ -79,6 +81,8 @@ const FORMULARIO_INICIAL: EstadoFormulario = {
   factorConversion: "",
   precioPublico: "",
   precioDistribuidor: "",
+  precioVenta3: "",
+  precioVenta4: "",
   monedaVenta: "PEN",
   esRenovable: "",
 };
@@ -330,6 +334,8 @@ export default function PaginaProductos(): React.JSX.Element {
         factorConversion: d.factorConversion ?? "",
         precioPublico: d.precios.publico ?? "",
         precioDistribuidor: d.precios.distribuidor ?? "",
+        precioVenta3: d.precios.venta3 ?? "",
+        precioVenta4: d.precios.venta4 ?? "",
         monedaVenta: d.precios.moneda ?? "PEN",
         esRenovable:
           d.esRenovable === null ? "" : d.esRenovable ? "true" : "false",
@@ -377,6 +383,12 @@ export default function PaginaProductos(): React.JSX.Element {
     }
 
     const tieneRef = Boolean(form.unidadReferenciaId);
+    const tienePrecio = Boolean(
+      form.precioPublico.trim() ||
+        form.precioDistribuidor.trim() ||
+        form.precioVenta3.trim() ||
+        form.precioVenta4.trim(),
+    );
 
     setEnviando(true);
     try {
@@ -398,10 +410,11 @@ export default function PaginaProductos(): React.JSX.Element {
         factorConversion: tieneRef ? form.factorConversion.trim() : undefined,
         precioPublico: form.precioPublico.trim() || undefined,
         precioDistribuidor: form.precioDistribuidor.trim() || undefined,
-        monedaVenta:
-          form.precioPublico.trim() || form.precioDistribuidor.trim()
-            ? form.monedaVenta
-            : undefined,
+        precioVenta3: form.precioVenta3.trim() || undefined,
+        precioVenta4: form.precioVenta4.trim() || undefined,
+        monedaVenta: tienePrecio
+          ? form.monedaVenta
+          : undefined,
         esRenovable: form.esRenovable === "" ? undefined : form.esRenovable === "true",
       });
       setExito(`Producto creado correctamente (SKU #${respuesta.skuId}).`);
@@ -438,8 +451,13 @@ export default function PaginaProductos(): React.JSX.Element {
           : undefined,
         precioPublico: form.precioPublico.trim() || undefined,
         precioDistribuidor: form.precioDistribuidor.trim() || undefined,
+        precioVenta3: form.precioVenta3.trim() || undefined,
+        precioVenta4: form.precioVenta4.trim() || undefined,
         monedaVenta:
-          form.precioPublico.trim() || form.precioDistribuidor.trim()
+          form.precioPublico.trim() ||
+          form.precioDistribuidor.trim() ||
+          form.precioVenta3.trim() ||
+          form.precioVenta4.trim()
             ? form.monedaVenta
             : undefined,
         esRenovable: form.esRenovable === "" ? undefined : form.esRenovable === "true",
@@ -962,6 +980,36 @@ export default function PaginaProductos(): React.JSX.Element {
                 }
                 inputMode="decimal"
                 placeholder="Ej. 21.50"
+                className="campo font-mono"
+              />
+            </div>
+            <div>
+              <label htmlFor="precioVenta3" className="etiqueta-campo">
+                Precio nivel 3
+              </label>
+              <input
+                id="precioVenta3"
+                value={form.precioVenta3}
+                onChange={(e) =>
+                  actualizar("precioVenta3", e.target.value.replace(/[^\d.]/g, ""))
+                }
+                inputMode="decimal"
+                placeholder="Ej. 19.90"
+                className="campo font-mono"
+              />
+            </div>
+            <div>
+              <label htmlFor="precioVenta4" className="etiqueta-campo">
+                Precio nivel 4
+              </label>
+              <input
+                id="precioVenta4"
+                value={form.precioVenta4}
+                onChange={(e) =>
+                  actualizar("precioVenta4", e.target.value.replace(/[^\d.]/g, ""))
+                }
+                inputMode="decimal"
+                placeholder="Ej. 18.50"
                 className="campo font-mono"
               />
             </div>

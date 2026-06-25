@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, UseGuards } from "@nestjs/common";
-import { IsBoolean, IsInt, IsOptional, IsString, MinLength } from "class-validator";
+import { IsBoolean, IsInt, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
 import { JwtGuard } from "../../auth/jwt.guard.js";
 import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
@@ -17,6 +17,16 @@ class CrearAlmacenDto {
   @IsInt() sucursalId!: number;
   @IsString() @MinLength(1) codigo!: string;
   @IsString() @MinLength(1) nombre!: string;
+}
+
+class ActualizarSucursalDto {
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(50) codigo?: string;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(120) nombre?: string;
+}
+
+class ActualizarAlmacenDto {
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(50) codigo?: string;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(120) nombre?: string;
 }
 
 class CrearZonaDto {
@@ -49,6 +59,16 @@ export class AlmacenesController {
     return this.almacenes.crearSucursal(usuario.empresaId, dto);
   }
 
+  @Patch("sucursales/:id")
+  @Permisos("almacen.administrar")
+  actualizarSucursal(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id", ParseBigIntPipe) id: bigint,
+    @Body() dto: ActualizarSucursalDto,
+  ) {
+    return this.almacenes.actualizarSucursal(usuario.empresaId, id, dto);
+  }
+
   @Get()
   @Permisos("inventario.ver")
   listar(@UsuarioActual() usuario: UsuarioRequest) {
@@ -63,6 +83,16 @@ export class AlmacenesController {
       codigo: dto.codigo,
       nombre: dto.nombre,
     });
+  }
+
+  @Patch(":id")
+  @Permisos("almacen.administrar")
+  actualizar(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id", ParseBigIntPipe) id: bigint,
+    @Body() dto: ActualizarAlmacenDto,
+  ) {
+    return this.almacenes.actualizarAlmacen(usuario.empresaId, id, dto);
   }
 
   @Get(":id/zonas")
