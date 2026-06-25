@@ -3,6 +3,7 @@ import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { json, urlencoded } from "express";
 import { AppModule } from "./app.module.js";
+import { FiltroExcepcionesPrisma } from "./comun/filtros/prisma-exception.filter.js";
 
 /** Límite del cuerpo de la petición; las cargas masivas se envían por lotes. */
 const LIMITE_CUERPO = "5mb";
@@ -29,6 +30,8 @@ async function bootstrap(): Promise<void> {
       transformOptions: { enableImplicitConversion: true },
     }),
   );
+  // Traduce errores conocidos de Prisma (duplicados, etc.) a HTTP limpio.
+  app.useGlobalFilters(new FiltroExcepcionesPrisma());
 
   // Railway inyecta PORT; en local cae a API_PUERTO o 4021.
   const puerto = Number(process.env.PORT ?? process.env.API_PUERTO ?? 4021);

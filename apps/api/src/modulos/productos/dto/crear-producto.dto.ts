@@ -67,6 +67,19 @@ export class CrearProductoDto {
   @Matches(REGEX_DECIMAL, { message: "stockMinimo debe ser decimal positivo" })
   stockMinimo?: string;
 
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "stockMaximo debe ser decimal positivo" })
+  stockMaximo?: string;
+
+  @IsOptional()
+  @Matches(REGEX_DECIMAL, { message: "puntoReposicion debe ser decimal positivo" })
+  puntoReposicion?: string;
+
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  semanasReposicion?: number;
+
   // --- Multi-unidad (opcional) ---
   // Unidad alternativa en la que se podra capturar cantidades en compras/ventas/vales.
   @IsOptional()
