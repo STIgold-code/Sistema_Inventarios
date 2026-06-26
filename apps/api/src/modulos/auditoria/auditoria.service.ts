@@ -28,9 +28,13 @@ const POR_PAGINA_DEFECTO = 50;
 const POR_PAGINA_MAXIMO = 200;
 
 /**
- * Bitacora append-only de acciones de gobierno. El registro NUNCA debe tumbar
- * la operacion de negocio: si su escritura falla, se loguea y se ignora (no se
- * propaga la excepcion). Por eso `registrar` retorna void y captura sus errores.
+ * Bitacora append-only de acciones de gobierno. La politica de fallo depende de
+ * si la traza es parte de una transaccion:
+ * - SIN `tx` (best-effort): un fallo de auditoria no debe tumbar la operacion
+ *   ya commiteada que la origino; se loguea y se ignora.
+ * - CON `tx` (atomica): la traza es parte de la operacion auditada; si falla,
+ *   la excepcion se propaga para abortar TODO (no se commitea una accion de
+ *   gobierno sin su registro).
  */
 @Injectable()
 export class AuditoriaService {
@@ -39,28 +43,35 @@ export class AuditoriaService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Registra una accion en la bitacora. Si recibe `tx`, escribe dentro de esa
-   * transaccion; si no, usa el cliente Prisma directo. Nunca lanza: un fallo de
-   * auditoria no debe revertir ni tumbar la venta/compra/etc. que la origino.
+   * Registra una accion en la bitacora. Con `tx` la escritura es atomica con la
+   * operacion: si falla, la excepcion se propaga y aborta la transaccion (no se
+   * puede commitear una accion sin su traza). Sin `tx` es best-effort: un fallo
+   * se loguea y se ignora para no tumbar una operacion ya commiteada.
    */
   async registrar(
     datos: DatosAuditoria,
     tx?: Prisma.TransactionClient,
   ): Promise<void> {
-    const cliente = tx ?? this.prisma;
+    const data = {
+      empresaId: datos.empresaId,
+      usuarioId: datos.usuarioId,
+      accion: datos.accion,
+      entidad: datos.entidad,
+      entidadId: datos.entidadId,
+      detalle: datos.detalle,
+    };
+
+    // Dentro de una transaccion: la traza es parte de la operacion. NO se traga
+    // la excepcion; debe abortar todo si la auditoria falla.
+    if (tx) {
+      await tx.registroAuditoria.create({ data });
+      return;
+    }
+
+    // Sin transaccion: best-effort, no debe romper la operacion ya hecha.
     try {
-      await cliente.registroAuditoria.create({
-        data: {
-          empresaId: datos.empresaId,
-          usuarioId: datos.usuarioId,
-          accion: datos.accion,
-          entidad: datos.entidad,
-          entidadId: datos.entidadId,
-          detalle: datos.detalle,
-        },
-      });
+      await this.prisma.registroAuditoria.create({ data });
     } catch (error: unknown) {
-      // La auditoria es best-effort: nunca debe propagar y romper el negocio.
       this.logger.error(
         `No se pudo registrar auditoria (${datos.entidad}/${datos.accion}): ${
           error instanceof Error ? error.message : String(error)
