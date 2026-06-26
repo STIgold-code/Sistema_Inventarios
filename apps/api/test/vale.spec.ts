@@ -25,6 +25,9 @@ describe("ValesService (integracion)", () => {
   );
 
   let usuario: UsuarioRequest;
+  // Autorizador/despachador distinto del solicitante: la segregacion de
+  // funciones impide que quien solicita el vale lo autorice o despache.
+  let autorizador: UsuarioRequest;
   let almacenId: bigint;
   let centroCostoId: bigint;
   let skuId: bigint;
@@ -37,6 +40,23 @@ describe("ValesService (integracion)", () => {
     const almacen = await prisma.almacen.findFirstOrThrow({ where: { empresaId: empresa.id } });
     almacenId = almacen.id;
     usuario = { id: admin.id, empresaId: empresa.id, email: admin.email, nombre: admin.nombre, permisos: [] };
+
+    // Segundo usuario real (el FK autorizadoPorId lo exige) para autorizar/despachar.
+    const segundo = await prisma.usuario.create({
+      data: {
+        empresaId: empresa.id,
+        email: `autorizador${RUN}@test.com`,
+        hashClave: "x",
+        nombre: "Autorizador test",
+      },
+    });
+    autorizador = {
+      id: segundo.id,
+      empresaId: empresa.id,
+      email: segundo.email,
+      nombre: segundo.nombre,
+      permisos: [],
+    };
 
     const centro = await prisma.centroCosto.create({
       data: { empresaId: empresa.id, codigo: `CC${RUN}`, nombre: "Obra test" },
@@ -71,8 +91,8 @@ describe("ValesService (integracion)", () => {
       lineas: [{ skuId, cantidad: "30" }],
     });
 
-    await vales.autorizar(usuario, BigInt(vale.id));
-    await vales.despachar(usuario, BigInt(vale.id));
+    await vales.autorizar(autorizador, BigInt(vale.id));
+    await vales.despachar(autorizador, BigInt(vale.id));
 
     // Stock disponible descontado en 30.
     const despues = await prisma.itemStock.findFirstOrThrow({ where: { skuId, almacenId } });
