@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
@@ -190,17 +195,27 @@ export class TrasladosService {
     if (traslado.estado !== "PENDIENTE") {
       throw new BadRequestException("Solo se puede anular un traslado pendiente (sin despachar).");
     }
-    await this.prisma.traslado.update({
-      where: { id: traslado.id },
-      data: { estado: "ANULADO" },
-    });
-    await this.auditoria.registrar({
-      empresaId: usuario.empresaId,
-      usuarioId: usuario.id,
-      accion: "ANULAR",
-      entidad: "TRASLADO",
-      entidadId: traslado.id,
-      detalle: `Traslado ${traslado.numero} anulado`,
+    // CAS (solo PENDIENTE) + auditoria en UNA transaccion: traza atomica con la
+    // anulacion y sin carrera contra un despacho concurrente del traslado.
+    await this.prisma.$transaction(async (tx) => {
+      const actualizados = await tx.traslado.updateMany({
+        where: { id: traslado.id, estado: "PENDIENTE" },
+        data: { estado: "ANULADO" },
+      });
+      if (actualizados.count === 0) {
+        throw new ConflictException("El traslado ya no esta PENDIENTE");
+      }
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "ANULAR",
+          entidad: "TRASLADO",
+          entidadId: traslado.id,
+          detalle: `Traslado ${traslado.numero} anulado`,
+        },
+        tx,
+      );
     });
     return { ok: true };
   }

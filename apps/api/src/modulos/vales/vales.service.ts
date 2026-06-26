@@ -257,22 +257,28 @@ export class ValesService {
         "No puedes autorizar un vale que tu mismo solicitaste (segregacion de funciones).",
       );
     }
-    // CAS sobre el estado: solo autoriza si SIGUE en BORRADOR. Si otra peticion ya
-    // lo autorizo/anulo entre el read y este update, afecta 0 filas -> conflicto.
-    const actualizados = await this.prisma.valeSalida.updateMany({
-      where: { id: vale.id, estado: "BORRADOR" },
-      data: { estado: "AUTORIZADO", autorizadoPorId: usuario.id },
-    });
-    if (actualizados.count === 0) {
-      throw new ConflictException("El vale ya no esta en BORRADOR");
-    }
-    await this.auditoria.registrar({
-      empresaId: usuario.empresaId,
-      usuarioId: usuario.id,
-      accion: "AUTORIZAR",
-      entidad: "VALE_SALIDA",
-      entidadId: vale.id,
-      detalle: `Vale de salida N° ${vale.numero} autorizado`,
+    // CAS + auditoria en UNA transaccion: la traza es atomica con la transicion
+    // (AUTORIZAR es accion de gobierno, no puede quedar sin rastro). El CAS sobre
+    // estado=BORRADOR aborta si otra peticion ya lo autorizo/anulo.
+    await this.prisma.$transaction(async (tx) => {
+      const actualizados = await tx.valeSalida.updateMany({
+        where: { id: vale.id, estado: "BORRADOR" },
+        data: { estado: "AUTORIZADO", autorizadoPorId: usuario.id },
+      });
+      if (actualizados.count === 0) {
+        throw new ConflictException("El vale ya no esta en BORRADOR");
+      }
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "AUTORIZAR",
+          entidad: "VALE_SALIDA",
+          entidadId: vale.id,
+          detalle: `Vale de salida N° ${vale.numero} autorizado`,
+        },
+        tx,
+      );
     });
     return { id: id.toString(), estado: "AUTORIZADO" };
   }
@@ -353,17 +359,27 @@ export class ValesService {
     if (vale.estado === "ANULADO") {
       throw new BadRequestException("El vale ya esta anulado");
     }
-    await this.prisma.valeSalida.update({
-      where: { id: vale.id },
-      data: { estado: "ANULADO" },
-    });
-    await this.auditoria.registrar({
-      empresaId: usuario.empresaId,
-      usuarioId: usuario.id,
-      accion: "ANULAR",
-      entidad: "VALE_SALIDA",
-      entidadId: vale.id,
-      detalle: `Vale de salida N° ${vale.numero} anulado`,
+    // CAS (solo BORRADOR/AUTORIZADO) + auditoria en UNA transaccion: traza atomica
+    // con la anulacion y sin carrera contra un despacho concurrente.
+    await this.prisma.$transaction(async (tx) => {
+      const actualizados = await tx.valeSalida.updateMany({
+        where: { id: vale.id, estado: { in: ["BORRADOR", "AUTORIZADO"] } },
+        data: { estado: "ANULADO" },
+      });
+      if (actualizados.count === 0) {
+        throw new ConflictException("El vale ya no se puede anular");
+      }
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "ANULAR",
+          entidad: "VALE_SALIDA",
+          entidadId: vale.id,
+          detalle: `Vale de salida N° ${vale.numero} anulado`,
+        },
+        tx,
+      );
     });
     return { id: id.toString(), estado: "ANULADO" };
   }
