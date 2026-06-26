@@ -40,6 +40,8 @@ const CONCEPTOS: readonly { id: ConceptoContable; etiqueta: string }[] = [
 const TIPOS_ASIENTO: readonly { id: TipoAsiento; etiqueta: string }[] = [
   { id: "COSTO_VENTA", etiqueta: "Costo de venta" },
   { id: "CONSUMO", etiqueta: "Consumo (vales de salida)" },
+  { id: "COMPRA", etiqueta: "Compra (recepción)" },
+  { id: "DEVOLUCION", etiqueta: "Devolución de venta" },
 ];
 
 const PATRON_PERIODO = /^\d{6}$/;

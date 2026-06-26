@@ -5,8 +5,43 @@ import { PrismaService } from "../../comun/prisma/prisma.service.js";
 const D = Prisma.Decimal;
 
 /// Tipo de asiento solicitado por el endpoint de generacion. Cada uno se mapea
-/// a un movimiento de stock y a un concepto contable configurable.
-export type TipoAsiento = "COSTO_VENTA" | "CONSUMO";
+/// a un concepto contable configurable y a los tipos de movimiento que valoriza.
+export type TipoAsiento = "COSTO_VENTA" | "CONSUMO" | "COMPRA" | "DEVOLUCION";
+
+/// Fuente unica de verdad del mapeo asiento -> concepto contable + tipos de
+/// movimiento del ledger que lo alimentan + prefijo de glosa. Las CUENTAS (debe/
+/// haber) NO se deciden aqui: las define BM por concepto en CuentaContableConfig;
+/// aqui solo se conecta cada concepto con su(s) tipo(s) de movimiento (mapeo
+/// factual, no politica contable). Mermas/bajas por desmedro quedan fuera a
+/// proposito: su tratamiento tributario lo debe definir el contador de BM.
+const MAPEO_ASIENTO: Record<
+  TipoAsiento,
+  { concepto: ConceptoContable; tipos: TipoMovimiento[]; glosa: string }
+> = {
+  COSTO_VENTA: {
+    concepto: ConceptoContable.COSTO_VENTA,
+    // La anulacion de devolucion es el reverso de una devolucion: el stock
+    // vuelve a salir, su costo re-debita el costo de venta. Sin incluirla, ese
+    // costo nunca llegaria al asiento y el costo de venta quedaria subvaluado.
+    tipos: [TipoMovimiento.SALIDA_VENTA, TipoMovimiento.SALIDA_ANULACION_DEVOLUCION],
+    glosa: "Costo de venta",
+  },
+  CONSUMO: {
+    concepto: ConceptoContable.CONSUMO,
+    tipos: [TipoMovimiento.SALIDA_CONSUMO],
+    glosa: "Consumo",
+  },
+  COMPRA: {
+    concepto: ConceptoContable.COMPRA,
+    tipos: [TipoMovimiento.ENTRADA_COMPRA],
+    glosa: "Compra",
+  },
+  DEVOLUCION: {
+    concepto: ConceptoContable.DEVOLUCION,
+    tipos: [TipoMovimiento.ENTRADA_DEVOLUCION],
+    glosa: "Devolucion de venta",
+  },
+};
 
 /// Una linea de asiento lista para exportar (estilo CONCAR).
 interface LineaAsiento {
@@ -95,10 +130,8 @@ export class ContabilidadService {
     totalImporte: string;
     lineas: LineaAsiento[];
   }> {
-    const concepto: ConceptoContable =
-      tipo === "COSTO_VENTA"
-        ? ConceptoContable.COSTO_VENTA
-        : ConceptoContable.CONSUMO;
+    const mapeo = MAPEO_ASIENTO[tipo];
+    const concepto = mapeo.concepto;
 
     const config = await this.prisma.cuentaContableConfig.findUnique({
       where: { empresaId_concepto: { empresaId, concepto } },
@@ -110,17 +143,8 @@ export class ContabilidadService {
       );
     }
 
-    // COSTO_VENTA agrupa la salida por venta y la anulacion de devolucion (que
-    // es el reverso de una devolucion: el stock vuelve a salir, asi que su costo
-    // re-debita el costo de venta). Sin incluirla, ese costo nunca llegaria al
-    // asiento y el costo de venta del periodo quedaria subvaluado.
-    const tiposMovimiento: TipoMovimiento[] =
-      tipo === "COSTO_VENTA"
-        ? [TipoMovimiento.SALIDA_VENTA, TipoMovimiento.SALIDA_ANULACION_DEVOLUCION]
-        : [TipoMovimiento.SALIDA_CONSUMO];
-
     const movimientos = await this.prisma.movimientoStock.findMany({
-      where: { empresaId, periodo, tipo: { in: tiposMovimiento } },
+      where: { empresaId, periodo, tipo: { in: mapeo.tipos } },
       include: { sku: { include: { producto: true } } },
       orderBy: [{ fechaEmisionDocumento: "asc" }, { secuencia: "asc" }],
     });
@@ -142,10 +166,7 @@ export class ContabilidadService {
           ? (valePorId.get(m.documentoId)?.centroCostoCodigo ?? null)
           : null;
 
-      const glosa =
-        tipo === "COSTO_VENTA"
-          ? `Costo de venta ${m.sku.codigoParlante} - ${skuNombre}`
-          : `Consumo ${m.sku.codigoParlante} - ${skuNombre}`;
+      const glosa = `${mapeo.glosa} ${m.sku.codigoParlante} - ${skuNombre}`;
 
       return {
         fecha: this.fechaIso(m.fechaEmisionDocumento),

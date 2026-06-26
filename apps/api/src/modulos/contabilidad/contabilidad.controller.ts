@@ -16,7 +16,7 @@ import { ContabilidadService, type TipoAsiento } from "./contabilidad.service.js
 import { ActualizarCuentasDto } from "./dto/contabilidad.dto.js";
 
 const REGEX_PERIODO = /^\d{6}$/;
-const TIPOS_ASIENTO = ["COSTO_VENTA", "CONSUMO"] as const;
+const TIPOS_ASIENTO = ["COSTO_VENTA", "CONSUMO", "COMPRA", "DEVOLUCION"] as const;
 
 @Controller("contabilidad")
 @UseGuards(JwtGuard, PermisosGuard)

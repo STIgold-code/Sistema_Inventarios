@@ -2592,7 +2592,7 @@ export type ConceptoContable =
   | "DEVOLUCION";
 
 /** Tipos de asiento que se pueden generar (conceptos con movimientos valorizados). */
-export type TipoAsiento = "COSTO_VENTA" | "CONSUMO";
+export type TipoAsiento = "COSTO_VENTA" | "CONSUMO" | "COMPRA" | "DEVOLUCION";
 
 export interface CuentaContable {
   concepto: ConceptoContable;
