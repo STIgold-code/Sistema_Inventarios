@@ -60,7 +60,31 @@ export class ActivosService {
     });
     if (!categoria) throw new NotFoundException("Categoria no encontrada");
 
+    // Validaciones cruzadas que el DTO (campos string sueltos) no puede hacer.
     const valorAdquisicion = new D(dto.valorAdquisicion);
+    if (valorAdquisicion.lessThanOrEqualTo(0)) {
+      throw new BadRequestException("El valor de adquisicion debe ser mayor a 0.");
+    }
+    const valorResidual = new D(dto.valorResidual ?? "0");
+    if (valorResidual.lessThan(0)) {
+      throw new BadRequestException("El valor residual no puede ser negativo.");
+    }
+    if (valorResidual.greaterThan(valorAdquisicion)) {
+      throw new BadRequestException(
+        "El valor residual no puede superar el valor de adquisicion.",
+      );
+    }
+    if (dto.vidaUtilMeses <= 0) {
+      throw new BadRequestException("La vida util en meses debe ser mayor a 0.");
+    }
+    const fechaCompra = new Date(dto.fechaCompra);
+    if (Number.isNaN(fechaCompra.getTime())) {
+      throw new BadRequestException("La fecha de compra no es valida.");
+    }
+    if (fechaCompra.getTime() > Date.now()) {
+      throw new BadRequestException("La fecha de compra no puede ser futura.");
+    }
+
     const activo = await this.prisma.activoFijo.create({
       data: {
         empresaId,
@@ -72,9 +96,9 @@ export class ActivosService {
         modelo: dto.modelo ?? null,
         numeroSerie: dto.numeroSerie ?? null,
         departamento: dto.departamento ?? null,
-        fechaCompra: new Date(dto.fechaCompra),
+        fechaCompra,
         valorAdquisicion,
-        valorResidual: dto.valorResidual ?? "0",
+        valorResidual,
         vidaUtilMeses: dto.vidaUtilMeses,
         valorActual: valorAdquisicion,
       },
@@ -110,17 +134,47 @@ export class ActivosService {
     const activos = await this.prisma.activoFijo.findMany({
       where: { empresaId, estado: "OPERATIVO" },
     });
+    if (activos.length === 0) {
+      throw new BadRequestException("No hay activos operativos para depreciar");
+    }
 
-    let procesados = 0;
+    // Pre-carga en UNA query las depreciaciones ya hechas del periodo (evita el
+    // N+1 de un findUnique por activo dentro del loop).
+    const yaHechas = await this.prisma.depreciacionActivo.findMany({
+      where: { empresaId, periodo, activoId: { in: activos.map((a) => a.id) } },
+      select: { activoId: true },
+    });
+    const procesadosPrevios = new Set(yaHechas.map((d) => d.activoId.toString()));
+
+    // Se arman TODAS las operaciones y se ejecutan en UNA sola transaccion: la
+    // corrida es todo-o-nada, no quedan N activos depreciados y M sin depreciar
+    // si el proceso falla a mitad.
+    const ops: Prisma.PrismaPromise<unknown>[] = [];
+    let omitidos = 0;
     for (const activo of activos) {
-      const yaProcesado = await this.prisma.depreciacionActivo.findUnique({
-        where: { empresaId_activoId_periodo: { empresaId, activoId: activo.id, periodo } },
-      });
-      if (yaProcesado) continue;
+      if (procesadosPrevios.has(activo.id.toString())) {
+        omitidos += 1;
+        continue;
+      }
+      // Guard defensivo: vida util 0 reventaria div() y abortaria toda la corrida.
+      if (activo.vidaUtilMeses <= 0) {
+        omitidos += 1;
+        continue;
+      }
+      // No depreciar un periodo anterior al mes de compra del activo.
+      // periodo viene como AAAA-MM (ver DepreciarDto); se compara en el mismo
+      // formato para no depreciar meses anteriores a la compra del activo.
+      const compra = activo.fechaCompra;
+      const periodoCompra = `${compra.getFullYear()}-${String(compra.getMonth() + 1).padStart(2, "0")}`;
+      if (periodo < periodoCompra) {
+        omitidos += 1;
+        continue;
+      }
 
-      const base = new D(activo.valorAdquisicion).sub(new D(activo.valorResidual));
-      const cuota = base.div(activo.vidaUtilMeses);
       const acumuladaPrev = new D(activo.depreciacionAcumulada);
+      const cuota = new D(activo.valorAdquisicion)
+        .sub(new D(activo.valorResidual))
+        .div(activo.vidaUtilMeses);
       let nuevaAcumulada = acumuladaPrev.add(cuota);
       // No depreciar por debajo del valor residual.
       const maxDepreciable = new D(activo.valorAdquisicion).sub(new D(activo.valorResidual));
@@ -128,11 +182,13 @@ export class ActivosService {
         nuevaAcumulada = maxDepreciable;
       }
       const cuotaReal = nuevaAcumulada.sub(acumuladaPrev);
-      if (cuotaReal.lessThanOrEqualTo(0)) continue;
+      if (cuotaReal.lessThanOrEqualTo(0)) {
+        omitidos += 1;
+        continue;
+      }
 
       const valorEnLibros = new D(activo.valorAdquisicion).sub(nuevaAcumulada);
-
-      await this.prisma.$transaction([
+      ops.push(
         this.prisma.depreciacionActivo.create({
           data: {
             empresaId,
@@ -143,17 +199,18 @@ export class ActivosService {
             valorEnLibros,
           },
         }),
-        this.prisma.activoFijo.update({
-          where: { id: activo.id },
+        // updateMany con empresaId en el WHERE: aislamiento por empresa invariante.
+        this.prisma.activoFijo.updateMany({
+          where: { id: activo.id, empresaId },
           data: { depreciacionAcumulada: nuevaAcumulada, valorActual: valorEnLibros },
         }),
-      ]);
-      procesados += 1;
+      );
     }
 
-    if (procesados === 0 && activos.length === 0) {
-      throw new BadRequestException("No hay activos operativos para depreciar");
+    const procesados = ops.length / 2;
+    if (procesados > 0) {
+      await this.prisma.$transaction(ops);
     }
-    return { procesados };
+    return { procesados, omitidos, totalOperativos: activos.length };
   }
 }

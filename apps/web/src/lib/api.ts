@@ -2200,6 +2200,8 @@ export interface DepreciarInput {
 
 export interface DepreciarRespuesta {
   procesados: number;
+  omitidos: number;
+  totalOperativos: number;
 }
 
 // ── Activos: funciones de dominio ───────────────────────────────────────────

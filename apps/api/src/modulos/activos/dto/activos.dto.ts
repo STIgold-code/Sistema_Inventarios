@@ -1,5 +1,6 @@
 import { Type } from "class-transformer";
 import {
+  IsDateString,
   IsInt,
   IsOptional,
   IsString,
@@ -54,8 +55,8 @@ export class CrearActivoDto {
   @IsString()
   departamento?: string;
 
-  @IsString()
-  fechaCompra!: string; // ISO
+  @IsDateString({}, { message: "fechaCompra debe ser una fecha valida ISO 8601" })
+  fechaCompra!: string;
 
   @Matches(REGEX_DECIMAL, { message: "valorAdquisicion debe ser decimal" })
   valorAdquisicion!: string;

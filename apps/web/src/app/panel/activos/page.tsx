@@ -21,7 +21,14 @@ type Pestania = "categorias" | "activos" | "depreciacion";
 
 interface Aviso {
   texto: string;
-  tono: "exito" | "error";
+  tono: "exito" | "error" | "info";
+}
+
+/** Clase de estilo del aviso según el tono. */
+function claseAviso(tono: Aviso["tono"]): string {
+  if (tono === "error") return "aviso-peligro";
+  if (tono === "info") return "border-borde bg-panel-alt text-texto-sec";
+  return "aviso-exito";
 }
 
 const PESTANIAS: readonly { id: Pestania; etiqueta: string }[] = [
@@ -41,7 +48,7 @@ function AvisoLinea({ aviso }: { aviso: Aviso }): React.JSX.Element {
   return (
     <div
       role={aviso.tono === "error" ? "alert" : "status"}
-      className={`mt-4 aviso ${aviso.tono === "error" ? "aviso-peligro" : "aviso-exito"}`}
+      className={`mt-4 aviso ${claseAviso(aviso.tono)}`}
     >
       <span>{aviso.texto}</span>
     </div>
@@ -211,10 +218,19 @@ export default function PaginaActivos(): React.JSX.Element {
     setDepreciando(true);
     try {
       const respuesta = await depreciar({ periodo });
-      setAvisoDepreciacion({
-        texto: `Depreciación ejecutada. Se procesaron ${respuesta.procesados} activo(s).`,
-        tono: "exito",
-      });
+      // Distingue "no hizo nada" (todo ya depreciado o sin cuota) de un avance
+      // real: 0 procesados con activos operativos es informativo, no éxito.
+      setAvisoDepreciacion(
+        respuesta.procesados > 0
+          ? {
+              texto: `Depreciación ejecutada. Se procesaron ${respuesta.procesados} de ${respuesta.totalOperativos} activo(s) operativos.`,
+              tono: "exito",
+            }
+          : {
+              texto: `No se depreció ningún activo: los ${respuesta.totalOperativos} activo(s) operativos ya estaban depreciados en este periodo o no tenían cuota pendiente.`,
+              tono: "info",
+            },
+      );
       setActivos(await obtenerActivos());
     } catch (error) {
       setAvisoDepreciacion({
