@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
@@ -128,62 +133,62 @@ export class VentasService {
     const igv = subtotal.mul(IGV_TASA);
     const total = subtotal.add(igv);
 
-    const orden = await this.prisma.ordenVenta.create({
-      data: {
-        empresaId: usuario.empresaId,
-        almacenId: dto.almacenId,
-        numero: dto.numero,
-        clienteId: dto.clienteId ?? null,
-        cliente: dto.cliente ?? null,
-        moneda: dto.moneda ?? "PEN",
-        tipoCambio: dto.tipoCambio ?? null,
-        subtotal,
-        igv,
-        total,
-        observaciones: dto.observaciones ?? null,
-        usuarioId: usuario.id,
-        lineas: {
-          create: lineasControl.map((l) => ({
-            empresaId: usuario.empresaId,
-            skuId: l.skuId,
-            cantidad: l.cantidad,
-            precioUnitario: l.precioUnitario ?? "0",
-          })),
+    // Creacion de la orden, reserva de cada linea y auditoria en UNA sola
+    // transaccion: si una linea no tiene stock, TODO revierte (sin orden
+    // huerfana ni compensacion manual de reservas, que antes podia fallar a
+    // medias y dejar stock comprometido sin orden).
+    const orden = await this.prisma.$transaction(async (tx) => {
+      const creada = await tx.ordenVenta.create({
+        data: {
+          empresaId: usuario.empresaId,
+          almacenId: dto.almacenId,
+          numero: dto.numero,
+          clienteId: dto.clienteId ?? null,
+          cliente: dto.cliente ?? null,
+          moneda: dto.moneda ?? "PEN",
+          tipoCambio: dto.tipoCambio ?? null,
+          subtotal,
+          igv,
+          total,
+          observaciones: dto.observaciones ?? null,
+          usuarioId: usuario.id,
+          lineas: {
+            create: lineasControl.map((l) => ({
+              empresaId: usuario.empresaId,
+              skuId: l.skuId,
+              cantidad: l.cantidad,
+              precioUnitario: l.precioUnitario ?? "0",
+            })),
+          },
         },
-      },
-    });
+      });
 
-    // Reservar cada linea; si una falla, revertir las previas y borrar la orden.
-    const reservadas: Array<{ skuId: bigint; cantidad: string }> = [];
-    try {
-      for (const l of lineasControl) {
-        await this.movimientos.reservar(usuario, {
+      // Reservar en orden de skuId: los locks de posicion se mantienen toda la
+      // transaccion, asi que el orden consistente evita deadlock entre ordenes
+      // concurrentes con SKUs solapados.
+      const lineasOrdenadas = [...lineasControl].sort((a, b) =>
+        a.skuId < b.skuId ? -1 : a.skuId > b.skuId ? 1 : 0,
+      );
+      for (const l of lineasOrdenadas) {
+        await this.movimientos.reservarEnTx(usuario, tx, {
           skuId: l.skuId,
           almacenId: dto.almacenId,
           cantidad: l.cantidad,
         });
-        reservadas.push({ skuId: l.skuId, cantidad: l.cantidad });
       }
-    } catch (error) {
-      for (const r of reservadas) {
-        await this.movimientos.liberarReserva(usuario, {
-          skuId: r.skuId,
-          almacenId: dto.almacenId,
-          cantidad: r.cantidad,
-        });
-      }
-      await this.prisma.ordenVentaLinea.deleteMany({ where: { ordenVentaId: orden.id } });
-      await this.prisma.ordenVenta.delete({ where: { id: orden.id } });
-      throw error;
-    }
 
-    await this.auditoria.registrar({
-      empresaId: usuario.empresaId,
-      usuarioId: usuario.id,
-      accion: "CREAR",
-      entidad: "ORDEN_VENTA",
-      entidadId: orden.id,
-      detalle: `Orden de venta N° ${orden.numero} creada`,
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "CREAR",
+          entidad: "ORDEN_VENTA",
+          entidadId: creada.id,
+          detalle: `Orden de venta N° ${creada.numero} creada`,
+        },
+        tx,
+      );
+      return creada;
     });
 
     return {
@@ -634,27 +639,43 @@ export class VentasService {
       throw new BadRequestException("No se puede anular una orden ya despachada");
     }
 
-    for (const linea of orden.lineas) {
-      const pendienteReserva = new D(linea.cantidad).sub(new D(linea.cantidadDespachada));
-      if (pendienteReserva.greaterThan(0)) {
-        await this.movimientos.liberarReserva(usuario, {
-          skuId: linea.skuId,
-          almacenId: orden.almacenId,
-          cantidad: pendienteReserva.toString(),
-        });
+    // Liberacion de reservas + cambio de estado + auditoria en UNA transaccion:
+    // antes la liberacion (cada una su propia tx) podia confirmar y luego fallar
+    // el update, dejando stock liberado con la orden aun viva. El CAS sobre el
+    // estado cierra la carrera contra un despacho concurrente.
+    await this.prisma.$transaction(async (tx) => {
+      const anulada = await tx.ordenVenta.updateMany({
+        where: { id: orden.id, estado: { notIn: ["DESPACHADA", "ANULADA"] } },
+        data: { estado: "ANULADA" },
+      });
+      if (anulada.count === 0) {
+        throw new ConflictException("La orden ya no se puede anular");
       }
-    }
-    await this.prisma.ordenVenta.update({
-      where: { id: orden.id },
-      data: { estado: "ANULADA" },
-    });
-    await this.auditoria.registrar({
-      empresaId: usuario.empresaId,
-      usuarioId: usuario.id,
-      accion: "ANULAR",
-      entidad: "ORDEN_VENTA",
-      entidadId: orden.id,
-      detalle: `Orden de venta N° ${orden.numero} anulada`,
+      // Liberar en orden de skuId (mismo motivo anti-deadlock que en crear).
+      const lineasOrdenadas = [...orden.lineas].sort((a, b) =>
+        a.skuId < b.skuId ? -1 : a.skuId > b.skuId ? 1 : 0,
+      );
+      for (const linea of lineasOrdenadas) {
+        const pendienteReserva = new D(linea.cantidad).sub(new D(linea.cantidadDespachada));
+        if (pendienteReserva.greaterThan(0)) {
+          await this.movimientos.liberarReservaEnTx(usuario, tx, {
+            skuId: linea.skuId,
+            almacenId: orden.almacenId,
+            cantidad: pendienteReserva.toString(),
+          });
+        }
+      }
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "ANULAR",
+          entidad: "ORDEN_VENTA",
+          entidadId: orden.id,
+          detalle: `Orden de venta N° ${orden.numero} anulada`,
+        },
+        tx,
+      );
     });
     return { ok: true };
   }

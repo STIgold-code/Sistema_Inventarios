@@ -54,30 +54,37 @@ export class TrasladosService {
     if (skusValidos !== idsSku.length) {
       throw new NotFoundException("Algún SKU del traslado no pertenece a la empresa.");
     }
-    const traslado = await this.prisma.traslado.create({
-      data: {
-        empresaId: usuario.empresaId,
-        almacenOrigenId: dto.almacenOrigenId,
-        almacenDestinoId: dto.almacenDestinoId,
-        numero: dto.numero,
-        observaciones: dto.observaciones ?? null,
-        usuarioId: usuario.id,
-        lineas: {
-          create: dto.lineas.map((l) => ({
-            empresaId: usuario.empresaId,
-            skuId: l.skuId,
-            cantidad: l.cantidad,
-          })),
+    // Creacion + auditoria en una transaccion: la traza es atomica con el alta.
+    const traslado = await this.prisma.$transaction(async (tx) => {
+      const creado = await tx.traslado.create({
+        data: {
+          empresaId: usuario.empresaId,
+          almacenOrigenId: dto.almacenOrigenId,
+          almacenDestinoId: dto.almacenDestinoId,
+          numero: dto.numero,
+          observaciones: dto.observaciones ?? null,
+          usuarioId: usuario.id,
+          lineas: {
+            create: dto.lineas.map((l) => ({
+              empresaId: usuario.empresaId,
+              skuId: l.skuId,
+              cantidad: l.cantidad,
+            })),
+          },
         },
-      },
-    });
-    await this.auditoria.registrar({
-      empresaId: usuario.empresaId,
-      usuarioId: usuario.id,
-      accion: "CREAR",
-      entidad: "TRASLADO",
-      entidadId: traslado.id,
-      detalle: `Traslado ${traslado.numero} creado`,
+      });
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "CREAR",
+          entidad: "TRASLADO",
+          entidadId: creado.id,
+          detalle: `Traslado ${creado.numero} creado`,
+        },
+        tx,
+      );
+      return creado;
     });
     return { id: traslado.id.toString() };
   }

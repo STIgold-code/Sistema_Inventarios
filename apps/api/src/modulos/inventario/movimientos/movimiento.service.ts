@@ -457,22 +457,33 @@ export class MovimientoService {
     usuario: UsuarioRequest,
     dto: { skuId: bigint; almacenId: bigint; cantidad: string; ubicacionId?: bigint },
   ): Promise<void> {
+    await this.prisma.$transaction((tx) => this.reservarEnTx(usuario, tx, dto));
+  }
+
+  /**
+   * Reserva DENTRO de la transaccion del caller. Permite que un flujo multilinea
+   * (crear orden de venta, etc.) reserve todas sus lineas atomicamente: si una
+   * falla por stock, toda la operacion revierte sin compensacion manual.
+   */
+  async reservarEnTx(
+    usuario: UsuarioRequest,
+    tx: Tx,
+    dto: { skuId: bigint; almacenId: bigint; cantidad: string; ubicacionId?: bigint },
+  ): Promise<void> {
     const cantidad = new D(dto.cantidad);
-    await this.prisma.$transaction(async (tx) => {
-      await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
-      const item = await this.obtenerItem(tx, usuario.empresaId, dto.skuId, dto.almacenId, dto.ubicacionId);
-      const disponible = item ? new D(item.cantidadDisponible) : new D(0);
-      if (!item || disponible.lessThan(cantidad)) {
-        throw new StockInsuficienteError(disponible.toString(), cantidad.toString());
-      }
-      await tx.itemStock.update({
-        where: { id: item.id },
-        data: {
-          cantidadDisponible: { decrement: cantidad },
-          cantidadComprometida: { increment: cantidad },
-          version: { increment: 1 },
-        },
-      });
+    await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const item = await this.obtenerItem(tx, usuario.empresaId, dto.skuId, dto.almacenId, dto.ubicacionId);
+    const disponible = item ? new D(item.cantidadDisponible) : new D(0);
+    if (!item || disponible.lessThan(cantidad)) {
+      throw new StockInsuficienteError(disponible.toString(), cantidad.toString());
+    }
+    await tx.itemStock.update({
+      where: { id: item.id },
+      data: {
+        cantidadDisponible: { decrement: cantidad },
+        cantidadComprometida: { increment: cantidad },
+        version: { increment: 1 },
+      },
     });
   }
 
@@ -481,22 +492,29 @@ export class MovimientoService {
     usuario: UsuarioRequest,
     dto: { skuId: bigint; almacenId: bigint; cantidad: string; ubicacionId?: bigint },
   ): Promise<void> {
+    await this.prisma.$transaction((tx) => this.liberarReservaEnTx(usuario, tx, dto));
+  }
+
+  /** Libera una reserva DENTRO de la transaccion del caller (ver reservarEnTx). */
+  async liberarReservaEnTx(
+    usuario: UsuarioRequest,
+    tx: Tx,
+    dto: { skuId: bigint; almacenId: bigint; cantidad: string; ubicacionId?: bigint },
+  ): Promise<void> {
     const cantidad = new D(dto.cantidad);
-    await this.prisma.$transaction(async (tx) => {
-      await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
-      const item = await this.obtenerItem(tx, usuario.empresaId, dto.skuId, dto.almacenId, dto.ubicacionId);
-      const comprometida = item ? new D(item.cantidadComprometida) : new D(0);
-      if (!item || comprometida.lessThan(cantidad)) {
-        throw new StockInsuficienteError(comprometida.toString(), cantidad.toString());
-      }
-      await tx.itemStock.update({
-        where: { id: item.id },
-        data: {
-          cantidadComprometida: { decrement: cantidad },
-          cantidadDisponible: { increment: cantidad },
-          version: { increment: 1 },
-        },
-      });
+    await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const item = await this.obtenerItem(tx, usuario.empresaId, dto.skuId, dto.almacenId, dto.ubicacionId);
+    const comprometida = item ? new D(item.cantidadComprometida) : new D(0);
+    if (!item || comprometida.lessThan(cantidad)) {
+      throw new StockInsuficienteError(comprometida.toString(), cantidad.toString());
+    }
+    await tx.itemStock.update({
+      where: { id: item.id },
+      data: {
+        cantidadComprometida: { decrement: cantidad },
+        cantidadDisponible: { increment: cantidad },
+        version: { increment: 1 },
+      },
     });
   }
 
