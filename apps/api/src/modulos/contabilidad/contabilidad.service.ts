@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { ConceptoContable, Prisma } from "@prisma/client";
+import { ConceptoContable, Prisma, TipoMovimiento } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 
 const D = Prisma.Decimal;
@@ -110,11 +110,17 @@ export class ContabilidadService {
       );
     }
 
-    const tipoMovimiento =
-      tipo === "COSTO_VENTA" ? "SALIDA_VENTA" : "SALIDA_CONSUMO";
+    // COSTO_VENTA agrupa la salida por venta y la anulacion de devolucion (que
+    // es el reverso de una devolucion: el stock vuelve a salir, asi que su costo
+    // re-debita el costo de venta). Sin incluirla, ese costo nunca llegaria al
+    // asiento y el costo de venta del periodo quedaria subvaluado.
+    const tiposMovimiento: TipoMovimiento[] =
+      tipo === "COSTO_VENTA"
+        ? [TipoMovimiento.SALIDA_VENTA, TipoMovimiento.SALIDA_ANULACION_DEVOLUCION]
+        : [TipoMovimiento.SALIDA_CONSUMO];
 
     const movimientos = await this.prisma.movimientoStock.findMany({
-      where: { empresaId, periodo, tipo: tipoMovimiento },
+      where: { empresaId, periodo, tipo: { in: tiposMovimiento } },
       include: { sku: { include: { producto: true } } },
       orderBy: [{ fechaEmisionDocumento: "asc" }, { secuencia: "asc" }],
     });
@@ -172,11 +178,15 @@ export class ContabilidadService {
       .map((l) =>
         [
           l.fecha,
-          l.cuentaDebe,
-          l.cuentaHaber,
+          // Todo campo de texto que provenga de configuracion libre (cuentas,
+          // centro de costo, glosa) se limpia del separador: si una cuenta o un
+          // centro de costo contuviera el caracter, correria las columnas y la
+          // importacion CONCAR/PLE fallaria. El separador debe ser inviolable.
+          this.limpiar(l.cuentaDebe, separador),
+          this.limpiar(l.cuentaHaber, separador),
           l.importe,
           this.limpiar(l.glosa, separador),
-          l.centroCosto ?? "",
+          l.centroCosto ? this.limpiar(l.centroCosto, separador) : "",
         ].join(separador),
       )
       .join("\r\n");
