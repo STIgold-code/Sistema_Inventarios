@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { MovimientoService } from "../inventario/movimientos/movimiento.service.js";
@@ -92,10 +93,28 @@ export class ImportadorService {
         if (!familiaId) {
           throw new Error(`Familia ${familiaCodigo} no existe`);
         }
-        const unidadCodigo = ALIAS_UNIDAD[(fila.unidadCodigo ?? "").trim().toUpperCase()] ?? "NIU";
+        // Unidad: vacia cae a NIU (unidades); una unidad escrita pero no
+        // reconocida es un error de fila (no se asume NIU silenciosamente, seria
+        // un dato contable errado en el kardex SUNAT).
+        const unidadRaw = (fila.unidadCodigo ?? "").trim().toUpperCase();
+        const unidadCodigo = unidadRaw === "" ? "NIU" : ALIAS_UNIDAD[unidadRaw];
+        if (!unidadCodigo) {
+          throw new Error(`Unidad "${fila.unidadCodigo}" no reconocida`);
+        }
         const unidadId = unidades.get(unidadCodigo);
         if (!unidadId) {
           throw new Error(`Unidad ${unidadCodigo} no existe`);
+        }
+
+        // Decimales: normaliza notacion peruana (coma decimal, separador de
+        // miles) y valida; un valor mal formado es error de fila, no se silencia.
+        const cantidad = this.normalizarDecimal(fila.stockFisico, "0");
+        if (cantidad === null) {
+          throw new Error(`Stock "${fila.stockFisico}" no es un numero valido`);
+        }
+        const costoUnitario = this.normalizarDecimal(fila.costoUnitario, "0");
+        if (costoUnitario === null) {
+          throw new Error(`Costo "${fila.costoUnitario}" no es un numero valido`);
         }
 
         if (dryRun) {
@@ -103,43 +122,49 @@ export class ImportadorService {
           continue;
         }
 
-        // Upsert producto + sku (idempotente por codigoParlante).
-        const existente = await this.prisma.sku.findUnique({
-          where: { empresaId_codigoParlante: { empresaId, codigoParlante: codigo } },
+        // Producto + SKU + stock inicial en UNA transaccion: la fila pasa
+        // completa o falla completa (sin SKUs huerfanos sin saldo de apertura).
+        // Idempotente por codigoParlante.
+        const fila2 = await this.prisma.$transaction(async (tx) => {
+          const existente = await tx.sku.findUnique({
+            where: { empresaId_codigoParlante: { empresaId, codigoParlante: codigo } },
+          });
+
+          let skuId: bigint;
+          if (existente) {
+            skuId = existente.id;
+          } else {
+            const producto = await tx.producto.create({
+              data: { empresaId, familiaId, nombre: fila.descripcion.trim() || codigo },
+            });
+            const sku = await tx.sku.create({
+              data: {
+                empresaId,
+                productoId: producto.id,
+                codigoParlante: codigo,
+                unidadId,
+                nombre: fila.descripcion.trim() || null,
+              },
+            });
+            skuId = sku.id;
+          }
+
+          let conStock = false;
+          if (cantidad.greaterThan(0) && !existente) {
+            await this.movimientos.cargarStockInicialEnTx(usuario, tx, {
+              skuId,
+              almacenId,
+              cantidad: cantidad.toString(),
+              costoUnitario: costoUnitario.toString(),
+            });
+            conStock = true;
+          }
+          return { creado: !existente, conStock };
         });
 
-        let skuId: bigint;
-        if (existente) {
-          skuId = existente.id;
-          resultado.actualizados += 1;
-        } else {
-          const producto = await this.prisma.producto.create({
-            data: { empresaId, familiaId, nombre: fila.descripcion.trim() || codigo },
-          });
-          const sku = await this.prisma.sku.create({
-            data: {
-              empresaId,
-              productoId: producto.id,
-              codigoParlante: codigo,
-              unidadId,
-              nombre: fila.descripcion.trim() || null,
-            },
-          });
-          skuId = sku.id;
-          resultado.creados += 1;
-        }
-
-        // Carga de stock inicial si hay cantidad y aun no tiene movimientos.
-        const cantidad = (fila.stockFisico ?? "0").trim();
-        if (Number(cantidad) > 0 && !existente) {
-          await this.movimientos.cargarStockInicial(usuario, {
-            skuId,
-            almacenId,
-            cantidad,
-            costoUnitario: fila.costoUnitario?.trim() || "0",
-          });
-          resultado.conStock += 1;
-        }
+        if (fila2.creado) resultado.creados += 1;
+        else resultado.actualizados += 1;
+        if (fila2.conStock) resultado.conStock += 1;
       } catch (error) {
         resultado.errores.push({
           codigo,
@@ -149,5 +174,37 @@ export class ImportadorService {
     }
 
     return resultado;
+  }
+
+  /**
+   * Normaliza un decimal en notacion peruana a Prisma.Decimal. Acepta coma
+   * decimal ("1234,50") y separador de miles ("1.234,50" o "1,234.50"). Vacio
+   * cae al valor por defecto. Devuelve null si no es un numero valido (la fila
+   * lo reporta como error en vez de crear stock corrupto o NaN silencioso).
+   */
+  private normalizarDecimal(valor: string | undefined, porDefecto: string): Prisma.Decimal | null {
+    const bruto = (valor ?? "").trim();
+    if (bruto === "") return new Prisma.Decimal(porDefecto);
+
+    let limpio = bruto;
+    const tieneComa = limpio.includes(",");
+    const tienePunto = limpio.includes(".");
+    if (tieneComa && tienePunto) {
+      // El ultimo separador que aparece es el decimal; el otro es de miles.
+      const sepDecimal = limpio.lastIndexOf(",") > limpio.lastIndexOf(".") ? "," : ".";
+      const sepMiles = sepDecimal === "," ? "." : ",";
+      limpio = limpio.split(sepMiles).join("");
+      limpio = limpio.replace(sepDecimal, ".");
+    } else if (tieneComa) {
+      // Solo coma: es el separador decimal.
+      limpio = limpio.replace(",", ".");
+    }
+
+    if (!/^\d+(\.\d+)?$/.test(limpio)) return null;
+    try {
+      return new Prisma.Decimal(limpio);
+    } catch {
+      return null;
+    }
   }
 }

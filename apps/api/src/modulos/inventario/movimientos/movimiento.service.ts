@@ -237,64 +237,77 @@ export class MovimientoService {
     usuario: UsuarioRequest,
     dto: { skuId: bigint; almacenId: bigint; cantidad: string; costoUnitario: string },
   ): Promise<{ movimientoId: string }> {
+    const movimientoId = await this.prisma.$transaction((tx) =>
+      this.cargarStockInicialEnTx(usuario, tx, dto),
+    );
+    return { movimientoId: movimientoId.toString() };
+  }
+
+  /**
+   * Carga de stock inicial DENTRO de la transaccion del caller. Permite que un
+   * flujo que tambien crea el producto/SKU (ej. el importador masivo) ate la
+   * creacion y el saldo de apertura en una sola transaccion: la fila falla
+   * completa o pasa completa, sin SKUs huerfanos sin stock.
+   */
+  async cargarStockInicialEnTx(
+    usuario: UsuarioRequest,
+    tx: Tx,
+    dto: { skuId: bigint; almacenId: bigint; cantidad: string; costoUnitario: string },
+  ): Promise<bigint> {
     const cantidad = new D(dto.cantidad);
     const costoUnitario = new D(dto.costoUnitario);
     const costoTotal = cantidad.mul(costoUnitario);
 
-    const movimientoId = await this.prisma.$transaction(async (tx) => {
-      await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
-      const item = await this.obtenerOcrearItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const item = await this.obtenerOcrearItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
 
-      const fisicoPrev = new D(item.cantidadDisponible).add(new D(item.cantidadComprometida));
-      const valorPrev = fisicoPrev.mul(new D(item.costoPromedio));
-      const nuevaDisponible = new D(item.cantidadDisponible).add(cantidad);
-      const nuevoFisico = fisicoPrev.add(cantidad);
-      const nuevoValor = valorPrev.add(costoTotal);
-      const nuevoPromedio = nuevoFisico.isZero() ? new D(0) : nuevoValor.div(nuevoFisico);
+    const fisicoPrev = new D(item.cantidadDisponible).add(new D(item.cantidadComprometida));
+    const valorPrev = fisicoPrev.mul(new D(item.costoPromedio));
+    const nuevaDisponible = new D(item.cantidadDisponible).add(cantidad);
+    const nuevoFisico = fisicoPrev.add(cantidad);
+    const nuevoValor = valorPrev.add(costoTotal);
+    const nuevoPromedio = nuevoFisico.isZero() ? new D(0) : nuevoValor.div(nuevoFisico);
 
-      const mov = await this.crearMovimiento(tx, {
-        usuario,
-        item,
-        tipo: TIPO_MOVIMIENTO.ENTRADA_INICIAL,
-        signo: SIGNO_MOVIMIENTO.ENTRADA,
-        cantidad,
-        costoUnitario,
-        costoTotal,
-        saldoCantidad: nuevoFisico,
-        saldoCostoUnitario: nuevoPromedio,
-        saldoCostoTotal: nuevoValor,
-        documentoTipo: "INICIAL",
-        tipoOperacionSunat: TIPO_OPERACION.SALDO_INICIAL,
-        tipoDocumentoSunat: TIPO_DOCUMENTO.OTROS,
-        observaciones: "Carga de stock inicial",
-      });
-
-      await tx.capaCosto.create({
-        data: {
-          empresaId: usuario.empresaId,
-          skuId: dto.skuId,
-          almacenId: dto.almacenId,
-          movimientoEntradaId: mov.id,
-          cantidadInicial: cantidad,
-          cantidadRestante: cantidad,
-          costoUnitario,
-          costoUnitarioUsd: mov.costoUnitarioUsd,
-        },
-      });
-
-      await tx.itemStock.update({
-        where: { id: item.id },
-        data: {
-          cantidadDisponible: nuevaDisponible,
-          costoPromedio: nuevoPromedio,
-          version: { increment: 1 },
-        },
-      });
-
-      return mov.id;
+    const mov = await this.crearMovimiento(tx, {
+      usuario,
+      item,
+      tipo: TIPO_MOVIMIENTO.ENTRADA_INICIAL,
+      signo: SIGNO_MOVIMIENTO.ENTRADA,
+      cantidad,
+      costoUnitario,
+      costoTotal,
+      saldoCantidad: nuevoFisico,
+      saldoCostoUnitario: nuevoPromedio,
+      saldoCostoTotal: nuevoValor,
+      documentoTipo: "INICIAL",
+      tipoOperacionSunat: TIPO_OPERACION.SALDO_INICIAL,
+      tipoDocumentoSunat: TIPO_DOCUMENTO.OTROS,
+      observaciones: "Carga de stock inicial",
     });
 
-    return { movimientoId: movimientoId.toString() };
+    await tx.capaCosto.create({
+      data: {
+        empresaId: usuario.empresaId,
+        skuId: dto.skuId,
+        almacenId: dto.almacenId,
+        movimientoEntradaId: mov.id,
+        cantidadInicial: cantidad,
+        cantidadRestante: cantidad,
+        costoUnitario,
+        costoUnitarioUsd: mov.costoUnitarioUsd,
+      },
+    });
+
+    await tx.itemStock.update({
+      where: { id: item.id },
+      data: {
+        cantidadDisponible: nuevaDisponible,
+        costoPromedio: nuevoPromedio,
+        version: { increment: 1 },
+      },
+    });
+
+    return mov.id;
   }
 
   /**

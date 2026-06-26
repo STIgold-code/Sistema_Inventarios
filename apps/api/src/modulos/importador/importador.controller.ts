@@ -1,11 +1,13 @@
 import { Body, Controller, Post, UseGuards } from "@nestjs/common";
 import { Type } from "class-transformer";
 import {
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsInt,
   IsOptional,
   IsString,
+  MaxLength,
   ValidateNested,
 } from "class-validator";
 import { JwtGuard } from "../../auth/jwt.guard.js";
@@ -20,9 +22,11 @@ class FilaDto {
   codigoParlante!: string;
 
   @IsString()
+  @MaxLength(200)
   descripcion!: string;
 
   @IsString()
+  @MaxLength(20)
   unidadCodigo!: string;
 
   @IsString()
@@ -41,7 +45,10 @@ class ImportarDto {
   @IsBoolean()
   dryRun?: boolean;
 
+  // Tope de filas por request: el backend es la frontera de confianza real (el
+  // front lotea de a 400). Evita un POST con millones de filas que agote el pool.
   @IsArray()
+  @ArrayMaxSize(1000)
   @ValidateNested({ each: true })
   @Type(() => FilaDto)
   filas!: FilaDto[];
