@@ -56,6 +56,17 @@ export class CierresService {
     this.validarPeriodo(periodo);
 
     return this.prisma.$transaction(async (tx) => {
+      // Lock EXCLUSIVO de periodo (patron lectores/escritor): el cierre es el
+      // escritor. Los movimientos toman el MISMO lock en modo COMPARTIDO al
+      // validar el periodo (movimiento.service.exigirPeriodoAbierto). Asi el
+      // cierre espera a que toda transaccion de movimiento en vuelo del periodo
+      // confirme, y bloquea nuevas, antes de leer el saldo y congelar el
+      // snapshot: ningun movimiento puede colarse en un periodo CERRADO fuera
+      // del snapshot. Tambien serializa dos cierres concurrentes del mismo
+      // periodo (el segundo ve CERRADO y aborta).
+      const claveCierre = `cierre:${usuario.empresaId}:${periodo}`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${claveCierre}, 0))`;
+
       const existente = await tx.cierrePeriodo.findUnique({
         where: { empresaId_periodo: { empresaId: usuario.empresaId, periodo } },
       });
@@ -193,26 +204,37 @@ export class CierresService {
   /** Reabre un periodo cerrado (solo ADMIN). Conserva el snapshot historico. */
   async reabrir(usuario: UsuarioRequest, periodo: string) {
     this.validarPeriodo(periodo);
-    const cierre = await this.prisma.cierrePeriodo.findUnique({
-      where: { empresaId_periodo: { empresaId: usuario.empresaId, periodo } },
+    // El flip de estado y su auditoria van en UNA transaccion: reabrir es la
+    // operacion mas sensible (permite mutar inventario ya declarado), no puede
+    // quedar reabierto sin su registro de auditoria si el log falla.
+    return this.prisma.$transaction(async (tx) => {
+      const claveCierre = `cierre:${usuario.empresaId}:${periodo}`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${claveCierre}, 0))`;
+
+      const cierre = await tx.cierrePeriodo.findUnique({
+        where: { empresaId_periodo: { empresaId: usuario.empresaId, periodo } },
+      });
+      if (!cierre) throw new NotFoundException(`No existe cierre para el periodo ${periodo}.`);
+      if (cierre.estado === "ABIERTO") {
+        throw new ConflictException(`El periodo ${periodo} ya esta abierto.`);
+      }
+      await tx.cierrePeriodo.update({
+        where: { id: cierre.id },
+        data: { estado: "ABIERTO", cerradoPorId: null, fechaCierre: null },
+      });
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "REABRIR_PERIODO",
+          entidad: "CIERRE_PERIODO",
+          entidadId: cierre.id,
+          detalle: `Periodo ${periodo} reabierto`,
+        },
+        tx,
+      );
+      return { id: cierre.id.toString(), periodo, estado: "ABIERTO" as const };
     });
-    if (!cierre) throw new NotFoundException(`No existe cierre para el periodo ${periodo}.`);
-    if (cierre.estado === "ABIERTO") {
-      throw new ConflictException(`El periodo ${periodo} ya esta abierto.`);
-    }
-    await this.prisma.cierrePeriodo.update({
-      where: { id: cierre.id },
-      data: { estado: "ABIERTO", cerradoPorId: null, fechaCierre: null },
-    });
-    await this.auditoria.registrar({
-      empresaId: usuario.empresaId,
-      usuarioId: usuario.id,
-      accion: "REABRIR_PERIODO",
-      entidad: "CIERRE_PERIODO",
-      entidadId: cierre.id,
-      detalle: `Periodo ${periodo} reabierto`,
-    });
-    return { id: cierre.id.toString(), periodo, estado: "ABIERTO" as const };
   }
 
   private validarPeriodo(periodo: string): void {
@@ -222,6 +244,15 @@ export class CierresService {
     const mes = Number(periodo.slice(4, 6));
     if (mes < 1 || mes > 12) {
       throw new BadRequestException("El mes del periodo debe estar entre 01 y 12.");
+    }
+    // No se puede operar sobre un periodo futuro: cerrar un mes que aun no llega
+    // crearia una fila CERRADO con total 0 que despues bloquea el registro de
+    // movimientos cuando ese mes finalmente opere. Comparacion lexicografica
+    // valida sobre AAAAMM.
+    const ahora = new Date();
+    const periodoActual = `${ahora.getFullYear()}${String(ahora.getMonth() + 1).padStart(2, "0")}`;
+    if (periodo > periodoActual) {
+      throw new BadRequestException("No se puede cerrar un periodo futuro.");
     }
   }
 }

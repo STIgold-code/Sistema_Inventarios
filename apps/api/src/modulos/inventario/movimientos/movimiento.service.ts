@@ -1694,6 +1694,16 @@ export class MovimientoService {
     empresaId: bigint,
     periodo: string,
   ): Promise<void> {
+    // Lock COMPARTIDO de periodo (patron lectores/escritor): el movimiento es un
+    // lector del estado del periodo. Varios movimientos del mismo periodo lo
+    // toman en paralelo sin bloquearse entre si; solo el cierre (escritor,
+    // CierresService.cerrar) toma el lock EXCLUSIVO y espera a que estos
+    // confirmen. Cierra la carrera "registrar movimiento mientras se cierra":
+    // sin esto, en READ COMMITTED un movimiento podia leer el periodo ABIERTO y
+    // confirmar DESPUES del cierre, quedando fuera del snapshot congelado.
+    const claveCierre = `cierre:${empresaId}:${periodo}`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(hashtextextended(${claveCierre}, 0))`;
+
     const cierre = await tx.cierrePeriodo.findUnique({
       where: { empresaId_periodo: { empresaId, periodo } },
       select: { estado: true },
