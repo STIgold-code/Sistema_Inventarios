@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
+import { Archivo, IBM_Plex_Mono } from "next/font/google";
 import { RecuperacionChunks } from "@/componentes/recuperacion-chunks";
 import "./globals.css";
 
-const base = IBM_Plex_Sans({
+const base = Archivo({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
   variable: "--fuente-base",
