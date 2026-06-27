@@ -61,31 +61,16 @@ El resumen de cada feature está abajo (suficiente para continuar sin el temp).
 
 | # | Feature | Commit | Qué quedó |
 |---|---------|--------|-----------|
-| 26 | **Vendedor** | `31ce3dc` | Maestro `Vendedor` + FK opcional en `Cliente` (vendedor por defecto) y `OrdenVenta` (hereda del cliente). Permiso `venta.gestionar`. Pantalla `/panel/vendedores` + selector en form de cliente. |
-| 27 | **Transportistas** | `2abac4d` | Maestro `Transportista` (codigo, RUC, nombre) + FK opcional `transportistaId` en `GuiaRemision` con snapshot denormalizado. Permiso `guia.gestionar`. Pantalla `/panel/transportistas`. |
-| 31 | **Entrada por producción** | `f90b0ec` | `TipoMovimiento.ENTRADA_PRODUCCION` (op SUNAT 10), `entradaPorProduccion()` en movimiento.service (reusa `aplicarEntrada`), endpoint `POST /inventario/produccion` (permiso `inventario.movimiento.crear`), opción "Producción" en pantalla de movimientos. |
+| 26 | **Vendedor** | `31ce3dc` | Maestro + FK en Cliente/OrdenVenta. Permiso `venta.gestionar`. |
+| 27 | **Transportistas** | `2abac4d` | Maestro + FK opcional en GuiaRemision con snapshot. Permiso `guia.gestionar`. |
+| 31 | **Entrada por producción** | `f90b0ec` | `ENTRADA_PRODUCCION` (op 10), `POST /inventario/produccion`. |
+| 33 | **Reportes faltantes** | `70d0887` | antiguedadStock, proyeccionCompra, kardexAnual + rentabilidad por vendedor/línea. Pantallas nuevas. Permiso `reporte.ver`. (FALTA solo el Formato 9.1, que depende de consignación.) |
+| 28 | **Devolución a proveedor** | `3d8875e` | `SALIDA_DEVOLUCION_PROVEEDOR` (op 06), módulo devoluciones-proveedor (registrar+listar). Permiso `compra.gestionar`. MVP sin anular. |
+| 29 | **Transferencia de código** | `b75d115` | `SALIDA/ENTRADA_TRANSFORMACION` (op 10), módulo transferencias-codigo (crear+listar), conserva valor FIFO real. Rechaza serializados. MVP sin anular. |
 
 ---
 
 ## Pendientes (specs listos, en orden recomendado)
-
-### 1. reportes-faltantes [L] — independiente, alto valor
-Solo `apps/api/src/modulos/reportes/reportes.service.ts` + controller + frontend.
-Cuatro reportes nuevos (cálculo puro, sin ledger): (a) **antigüedad/composición
-de stock** por rangos; (b) **proyección de compra por días de stock** (consumo
-promedio → días de cobertura → sugerido); (c) **rentabilidad por vendedor y por
-línea** (la `OrdenVenta` ya tiene `vendedorId`; la línea sale de familia/producto);
-(d) **kardex anual** (resumen 12 meses). Permiso `reporte.ver`.
-
-### 2. devolucion-proveedor [L]
-Nuevo `TipoMovimiento.SALIDA_DEVOLUCION_PROVEEDOR` (signo SALIDA). Salida
-valorizada de mercadería recibida de un proveedor (reverso de recepción de
-compra). Consume FIFO. Migración `ALTER TYPE ADD VALUE`. Permiso `compra.gestionar`.
-
-### 3. transferencia-codigo [M]
-DOS `TipoMovimiento` nuevos (SALIDA_TRANSFORMACION + ENTRADA_TRANSFORMACION).
-Transformar un SKU en otro con factor (kits/re-empaque): salida del SKU origen +
-entrada del SKU destino, mismo almacén, conservando valor. En una transacción.
 
 ### 4. pedido [L]
 Documento previo a la guía/venta con control atendido/por atender por línea.
