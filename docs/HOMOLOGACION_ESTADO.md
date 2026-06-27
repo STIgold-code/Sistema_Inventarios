@@ -67,23 +67,15 @@ El resumen de cada feature está abajo (suficiente para continuar sin el temp).
 | 33 | **Reportes faltantes** | `70d0887` | antiguedadStock, proyeccionCompra, kardexAnual + rentabilidad por vendedor/línea. Pantallas nuevas. Permiso `reporte.ver`. (FALTA solo el Formato 9.1, que depende de consignación.) |
 | 28 | **Devolución a proveedor** | `3d8875e` | `SALIDA_DEVOLUCION_PROVEEDOR` (op 06), módulo devoluciones-proveedor (registrar+listar). Permiso `compra.gestionar`. MVP sin anular. |
 | 29 | **Transferencia de código** | `b75d115` | `SALIDA/ENTRADA_TRANSFORMACION` (op 10), módulo transferencias-codigo (crear+listar), conserva valor FIFO real. Rechaza serializados. MVP sin anular. |
+| 34 | **Parametrización (IGV editable)** | `209a1fb` | Tabla `ParametrosEmpresa` + ParametrosService (`tasaIgv`/`tasaIgvEnTx`). IGV deja de ser constante: ventas/compras lo toman de parámetros. Pantalla en Utilitarios. **DEFERIDO del #34: gestor de series de comprobante** (sobre DocumentoCorrelativo, tipos COMPROBANTE_FACTURA/BOLETA/NC/ND, permiso venta.gestionar) — ver spec parametrizacion-utilitarios. |
+
+| 30 | **Pedido** | `57201e4` | Documento Pedido (crear/aprobar/anular/listar) con control atendido/por atender. `Generar orden de venta` desde el pedido → marca ATENDIDO. Permiso venta.gestionar. MVP atención total. |
 
 ---
 
-## Pendientes (specs listos, en orden recomendado)
+## Pendiente (último — el más grande)
 
-### 4. pedido [L]
-Documento previo a la guía/venta con control atendido/por atender por línea.
-SIN impacto en ledger (es un documento). Estados BORRADOR/APROBADO/ATENDIDO_
-PARCIAL/ATENDIDO/ANULADO. La orden de venta puede originarse de un pedido.
-
-### 5. parametrizacion-utilitarios [M]
-Tabla `ParametrosEmpresa` (costeo promedio activo, precios incluyen IGV, permite
-serie única, unidad referencial visible) + **tasa de IGV editable por empresa**
-(hoy `IGV_TASA` es constante en código — inyectarla desde la config) + gestor de
-series de comprobante por tipo (BV/FT/NC/ND). Pantalla en Utilitarios.
-
-### 6. consignacion [XL]  →  luego  7. formato-9-1 [S]
+### consignacion [XL]  →  luego  formato-9-1 [S]
 **consignacion**: la más compleja. 3 `TipoMovimiento` nuevos (op SUNAT
 CONSIGNACION_ENTREGADA "04" / RECIBIDA "03"). Mercadería entregada a cliente/obra
 en consignación (sigue siendo de la empresa). Definir si es almacén tipo
