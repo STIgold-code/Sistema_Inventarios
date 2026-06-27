@@ -18,6 +18,7 @@ import { TrasladosModule } from "./modulos/traslados/traslados.module.js";
 import { AlmacenesModule } from "./modulos/almacenes/almacenes.module.js";
 import { CentrosCostoModule } from "./modulos/centros-costo/centros-costo.module.js";
 import { VendedoresModule } from "./modulos/vendedores/vendedores.module.js";
+import { TransportistasModule } from "./modulos/transportistas/transportistas.module.js";
 import { CorrelativoModule } from "./modulos/comun/correlativo/correlativo.module.js";
 import { RequerimientosModule } from "./modulos/requerimientos/requerimientos.module.js";
 import { ValesModule } from "./modulos/vales/vales.module.js";
@@ -56,6 +57,7 @@ import { DashboardModule } from "./modulos/dashboard/dashboard.module.js";
     AlmacenesModule,
     CentrosCostoModule,
     VendedoresModule,
+    TransportistasModule,
     CorrelativoModule,
     RequerimientosModule,
     ValesModule,

@@ -15,6 +15,7 @@ interface NuevaGuia {
   numero: string;
   fechaTraslado: Date;
   motivoTraslado: string;
+  transportistaId?: bigint;
   transportistaDoc?: string;
   transportistaNombre?: string;
   puntoPartida: string;
@@ -81,6 +82,21 @@ export class GuiasService {
       throw new BadRequestException(`Ya existe la guia ${dto.serie}-${dto.numero}.`);
     }
 
+    // Transportista del maestro (opcional): valida pertenencia y deja un snapshot
+    // denormalizado de RUC/nombre en el documento (las capturas manuales siguen
+    // pudiendo enviar transportistaDoc/Nombre directamente).
+    let transportistaDoc = dto.transportistaDoc ?? null;
+    let transportistaNombre = dto.transportistaNombre ?? null;
+    if (dto.transportistaId !== undefined) {
+      const transportista = await this.prisma.transportista.findFirst({
+        where: { id: dto.transportistaId, empresaId: usuario.empresaId },
+        select: { ruc: true, nombre: true },
+      });
+      if (!transportista) throw new NotFoundException("Transportista no encontrado.");
+      transportistaDoc = dto.transportistaDoc ?? transportista.ruc;
+      transportistaNombre = dto.transportistaNombre ?? transportista.nombre;
+    }
+
     const guia = await this.prisma.guiaRemision.create({
       data: {
         empresaId: usuario.empresaId,
@@ -88,8 +104,9 @@ export class GuiasService {
         numero: dto.numero,
         fechaTraslado: dto.fechaTraslado,
         motivoTraslado: dto.motivoTraslado,
-        transportistaDoc: dto.transportistaDoc ?? null,
-        transportistaNombre: dto.transportistaNombre ?? null,
+        transportistaId: dto.transportistaId ?? null,
+        transportistaDoc,
+        transportistaNombre,
         puntoPartida: dto.puntoPartida,
         puntoLlegada: dto.puntoLlegada,
         pesoBruto: dto.pesoBruto ?? null,

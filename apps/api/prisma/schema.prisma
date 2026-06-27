@@ -118,6 +118,7 @@ model Empresa {
   correlativos  DocumentoCorrelativo[]
   clientes      Cliente[]
   vendedores    Vendedor[]
+  transportistas Transportista[]
   guiasRemision GuiaRemision[]
   tiposCambio   TipoCambioDiario[]
   cierres       CierrePeriodo[]
@@ -145,6 +146,24 @@ model Vendedor {
 
   @@unique([empresaId, codigo])
   @@map("vendedor")
+}
+
+/// Transportista (maestro) para la guia de remision remitente. RUC opcional.
+model Transportista {
+  id            BigInt   @id @default(autoincrement())
+  empresaId     BigInt   @map("empresa_id")
+  codigo        String
+  ruc           String?  // RUC del transportista (11 digitos)
+  nombre        String
+  activo        Boolean  @default(true)
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  empresa Empresa        @relation(fields: [empresaId], references: [id])
+  guias   GuiaRemision[]
+
+  @@unique([empresaId, codigo])
+  @@map("transportista")
 }
 
 model Sucursal {
@@ -1142,8 +1161,9 @@ model GuiaRemision {
   numero              String
   fechaTraslado       DateTime @map("fecha_traslado")
   motivoTraslado      String   @map("motivo_traslado") @db.VarChar(2) // Catalogo 20 SUNAT
-  transportistaDoc    String?  @map("transportista_doc") // RUC del transportista
-  transportistaNombre String?  @map("transportista_nombre")
+  transportistaDoc    String?  @map("transportista_doc") // RUC del transportista (snapshot)
+  transportistaNombre String?  @map("transportista_nombre") // snapshot del nombre
+  transportistaId     BigInt?  @map("transportista_id") // FK opcional al maestro
   puntoPartida        String   @map("punto_partida")
   puntoLlegada        String   @map("punto_llegada")
   pesoBruto           Decimal? @map("peso_bruto") @db.Decimal(20, 3)
@@ -1156,11 +1176,13 @@ model GuiaRemision {
   empresa    Empresa     @relation(fields: [empresaId], references: [id])
   traslado   Traslado?   @relation(fields: [trasladoId], references: [id])
   ordenVenta OrdenVenta? @relation(fields: [ordenVentaId], references: [id])
+  transportistaRef Transportista? @relation(fields: [transportistaId], references: [id])
   devoluciones DevolucionVenta[]
 
   @@unique([empresaId, serie, numero])
   @@index([empresaId, trasladoId])
   @@index([empresaId, ordenVentaId])
+  @@index([empresaId, transportistaId])
   @@map("guia_remision")
 }
 

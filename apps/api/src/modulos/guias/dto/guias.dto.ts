@@ -28,6 +28,10 @@ export class CrearGuiaRemisionDto {
   motivoTraslado!: string;
 
   @IsOptional()
+  @IsInt()
+  transportistaId?: number;
+
+  @IsOptional()
   @IsString()
   transportistaDoc?: string;
 

@@ -39,6 +39,8 @@ export class GuiasController {
       numero: dto.numero,
       fechaTraslado: new Date(dto.fechaTraslado),
       motivoTraslado: dto.motivoTraslado,
+      transportistaId:
+        dto.transportistaId !== undefined ? BigInt(dto.transportistaId) : undefined,
       transportistaDoc: dto.transportistaDoc,
       transportistaNombre: dto.transportistaNombre,
       puntoPartida: dto.puntoPartida,

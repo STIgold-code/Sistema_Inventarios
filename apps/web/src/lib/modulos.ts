@@ -49,6 +49,7 @@ export const MODULOS: readonly ModuloNav[] = [
       { href: "/panel/proveedores", etiqueta: "Proveedores" },
       { href: "/panel/clientes", etiqueta: "Clientes" },
       { href: "/panel/vendedores", etiqueta: "Vendedores" },
+      { href: "/panel/transportistas", etiqueta: "Transportistas" },
       { href: "/panel/almacenes", etiqueta: "Almacenes y zonas" },
       { href: "/panel/tipo-cambio", etiqueta: "Tipo de cambio" },
     ],

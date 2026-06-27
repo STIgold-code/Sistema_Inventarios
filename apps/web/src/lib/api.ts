@@ -1000,6 +1000,41 @@ export function actualizarVendedor(
   });
 }
 
+// ── Transportistas ──────────────────────────────────────────────────────────
+
+export interface Transportista {
+  id: string;
+  codigo: string;
+  ruc: string | null;
+  nombre: string;
+  activo: boolean;
+}
+
+export function obtenerTransportistas(): Promise<Transportista[]> {
+  return apiFetch<Transportista[]>("/transportistas");
+}
+
+export function crearTransportista(datos: {
+  codigo: string;
+  nombre: string;
+  ruc?: string;
+}): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>("/transportistas", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function actualizarTransportista(
+  id: string,
+  datos: { nombre?: string; ruc?: string; activo?: boolean },
+): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>(`/transportistas/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(datos),
+  });
+}
+
 // ── Requerimientos: tipos ───────────────────────────────────────────────────
 
 export type EstadoRequerimiento =
