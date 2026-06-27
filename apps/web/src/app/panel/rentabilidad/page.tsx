@@ -20,6 +20,8 @@ interface Aviso {
 const EJES: readonly { id: EjeRentabilidad; etiqueta: string }[] = [
   { id: "articulo", etiqueta: "Artículo" },
   { id: "cliente", etiqueta: "Cliente" },
+  { id: "vendedor", etiqueta: "Vendedor" },
+  { id: "linea", etiqueta: "Línea / familia" },
 ];
 
 /** Fecha local en formato AAAA-MM-DD para los campos de rango. */

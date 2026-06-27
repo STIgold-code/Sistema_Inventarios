@@ -2128,7 +2128,7 @@ export function obtenerPle(
 
 // ── Rentabilidad: tipos ─────────────────────────────────────────────────────
 
-export type EjeRentabilidad = "articulo" | "cliente";
+export type EjeRentabilidad = "articulo" | "cliente" | "vendedor" | "linea";
 
 export interface FilaRentabilidad {
   claveId: string | null;
@@ -2164,6 +2164,96 @@ export function obtenerRentabilidad(
 ): Promise<ReporteRentabilidad> {
   const params = new URLSearchParams({ desde, hasta, agrupar });
   return apiFetch<ReporteRentabilidad>(`/reportes/rentabilidad?${params.toString()}`);
+}
+
+// ── Antiguedad de stock ───────────────────────────────────────────────────────
+
+export interface FilaAntiguedad {
+  clave: string;
+  etiqueta: string;
+  cantidad: string;
+  valor: string;
+  porcentajeValor: string;
+}
+
+export interface ReporteAntiguedad {
+  generadoEn: string;
+  totalCantidad: string;
+  totalValor: string;
+  rangos: FilaAntiguedad[];
+}
+
+export function obtenerAntiguedadStock(): Promise<ReporteAntiguedad> {
+  return apiFetch<ReporteAntiguedad>("/reportes/antiguedad-stock");
+}
+
+// ── Proyeccion de compra ──────────────────────────────────────────────────────
+
+export interface FilaProyeccion {
+  skuId: string;
+  codigoParlante: string;
+  producto: string;
+  unidad: string;
+  disponible: string;
+  consumoPromedioDiario: string;
+  diasStock: string | null;
+  sugeridoPedir: string;
+}
+
+export interface ReporteProyeccion {
+  generadoEn: string;
+  dias: number;
+  diasCobertura: number;
+  filas: FilaProyeccion[];
+}
+
+export function obtenerProyeccionCompra(
+  dias?: number,
+  diasCobertura?: number,
+): Promise<ReporteProyeccion> {
+  const params = new URLSearchParams();
+  if (dias) params.set("dias", String(dias));
+  if (diasCobertura) params.set("diasCobertura", String(diasCobertura));
+  const cadena = params.toString();
+  return apiFetch<ReporteProyeccion>(
+    `/reportes/proyeccion-compra${cadena ? `?${cadena}` : ""}`,
+  );
+}
+
+// ── Kardex anual ──────────────────────────────────────────────────────────────
+
+export interface MesKardexAnual {
+  mes: number;
+  etiqueta: string;
+  entradasCantidad: string;
+  entradasValor: string;
+  salidasCantidad: string;
+  salidasValor: string;
+  saldoCantidad: string;
+  saldoValor: string;
+}
+
+export interface ReporteKardexAnual {
+  skuId: string;
+  codigoParlante: string;
+  producto: string;
+  unidad: string;
+  anio: number;
+  meses: MesKardexAnual[];
+  totales: {
+    entradasCantidad: string;
+    entradasValor: string;
+    salidasCantidad: string;
+    salidasValor: string;
+  };
+}
+
+export function obtenerKardexAnual(
+  skuId: number,
+  anio: number,
+): Promise<ReporteKardexAnual> {
+  const params = new URLSearchParams({ skuId: String(skuId), anio: String(anio) });
+  return apiFetch<ReporteKardexAnual>(`/reportes/kardex-anual?${params.toString()}`);
 }
 
 // ── Reposicion y clasificacion ABC: tipos ──────────────────────────────────────

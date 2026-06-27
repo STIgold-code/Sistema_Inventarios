@@ -122,10 +122,10 @@ export class ReportesController {
     if (hasta < desde) {
       throw new BadRequestException("hasta no puede ser anterior a desde");
     }
-    const ejes = ["articulo", "cliente"] as const;
+    const ejes = ["articulo", "cliente", "vendedor", "linea"] as const;
     const eje = agrupar ?? "articulo";
     if (!ejes.includes(eje as (typeof ejes)[number])) {
-      throw new BadRequestException("agrupar debe ser articulo o cliente");
+      throw new BadRequestException("agrupar debe ser articulo, cliente, vendedor o linea");
     }
     return this.reportes.rentabilidad(
       usuario.empresaId,
@@ -133,6 +133,40 @@ export class ReportesController {
       hasta,
       eje as (typeof ejes)[number],
     );
+  }
+
+  @Get("antiguedad-stock")
+  @Permisos("reporte.ver")
+  antiguedadStock(@UsuarioActual() usuario: UsuarioRequest) {
+    return this.reportes.antiguedadStock(usuario.empresaId);
+  }
+
+  @Get("proyeccion-compra")
+  @Permisos("reporte.ver")
+  proyeccionCompra(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Query("dias") dias?: string,
+    @Query("diasCobertura") diasCobertura?: string,
+  ) {
+    const d = Math.min(365, Math.max(1, Number(dias) || 90));
+    const dc = Math.min(365, Math.max(1, Number(diasCobertura) || 30));
+    return this.reportes.proyeccionCompra(usuario.empresaId, d, dc);
+  }
+
+  @Get("kardex-anual")
+  @Permisos("reporte.ver")
+  kardexAnual(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Query("skuId") skuId?: string,
+    @Query("anio") anio?: string,
+  ) {
+    if (!skuId || !/^\d+$/.test(skuId)) {
+      throw new BadRequestException("skuId es obligatorio y debe ser numérico");
+    }
+    if (!anio || !/^\d{4}$/.test(anio)) {
+      throw new BadRequestException("anio debe tener formato AAAA");
+    }
+    return this.reportes.kardexAnual(usuario.empresaId, BigInt(skuId), Number(anio));
   }
 
   @Get("reposicion/export.xlsx")

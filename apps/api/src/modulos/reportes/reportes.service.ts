@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { SIGNO_MOVIMIENTO } from "@bm/tipos";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
@@ -7,6 +7,26 @@ const D = Prisma.Decimal;
 
 /** Cero a 8 decimales para los campos de cantidad/costo unitario del PLE 13.1. */
 const CERO_8 = "0.00000000";
+
+/** Rangos de antiguedad de stock (dias desde el ingreso de la capa). */
+const RANGOS_ANTIGUEDAD: ReadonlyArray<{
+  clave: string;
+  etiqueta: string;
+  min: number;
+  max: number;
+}> = [
+  { clave: "0-30", etiqueta: "0 a 30 días", min: 0, max: 30 },
+  { clave: "31-60", etiqueta: "31 a 60 días", min: 31, max: 60 },
+  { clave: "61-90", etiqueta: "61 a 90 días", min: 61, max: 90 },
+  { clave: "91-180", etiqueta: "91 a 180 días", min: 91, max: 180 },
+  { clave: "181-360", etiqueta: "181 a 360 días", min: 181, max: 360 },
+  { clave: ">360", etiqueta: "Más de 360 días", min: 361, max: Infinity },
+];
+
+const MESES_ABREV = [
+  "Ene", "Feb", "Mar", "Abr", "May", "Jun",
+  "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
+] as const;
 
 type MovimientoConSku = Prisma.MovimientoStockGetPayload<{
   include: { sku: { include: { producto: true; unidad: true } } };
@@ -247,7 +267,7 @@ export class ReportesService {
     empresaId: bigint,
     desde: string,
     hasta: string,
-    agrupar: "articulo" | "cliente",
+    agrupar: "articulo" | "cliente" | "vendedor" | "linea",
   ) {
     const fechaDesde = new Date(`${desde}T00:00:00.000Z`);
     const fechaHasta = new Date(`${hasta}T23:59:59.999Z`);
@@ -280,10 +300,26 @@ export class ReportesService {
       where: { id: { in: comprobanteIds }, empresaId },
       include: {
         cliente: true,
-        ordenVenta: { include: { lineas: true } },
+        ordenVenta: { include: { lineas: true, vendedor: true } },
       },
     });
     const comprobantePorId = new Map(comprobantes.map((c) => [c.id, c]));
+
+    // Para agrupar por linea (familia) se resuelve la familia de cada SKU vendido.
+    const familiaPorSku = new Map<string, { id: string; nombre: string }>();
+    if (agrupar === "linea") {
+      const skuIds = [...new Set(movimientos.map((m) => m.skuId))];
+      const skus = await this.prisma.sku.findMany({
+        where: { id: { in: skuIds }, empresaId },
+        include: { producto: { include: { familia: true } } },
+      });
+      for (const s of skus) {
+        familiaPorSku.set(s.id.toString(), {
+          id: s.producto.familia.id.toString(),
+          nombre: s.producto.familia.nombre,
+        });
+      }
+    }
 
     interface Acumulado {
       claveId: string | null;
@@ -321,6 +357,14 @@ export class ReportesService {
       if (agrupar === "articulo") {
         claveId = mov.skuId.toString();
         etiqueta = ""; // se resuelve abajo con el maestro de SKU
+      } else if (agrupar === "vendedor") {
+        const vend = comprobante?.ordenVenta.vendedor;
+        claveId = vend ? vend.id.toString() : null;
+        etiqueta = vend ? vend.nombre : "Sin vendedor";
+      } else if (agrupar === "linea") {
+        const fam = familiaPorSku.get(mov.skuId.toString());
+        claveId = fam ? fam.id : null;
+        etiqueta = fam ? fam.nombre : "Sin línea";
       } else {
         const cli = comprobante?.cliente;
         claveId = cli ? cli.id.toString() : null;
@@ -328,9 +372,7 @@ export class ReportesService {
       }
 
       const clave =
-        agrupar === "articulo"
-          ? `sku_${claveId}`
-          : (claveId ?? "__sin_cliente");
+        agrupar === "articulo" ? `sku_${claveId}` : (claveId ?? `__sin_${agrupar}`);
       const acc =
         grupos.get(clave) ??
         ({
@@ -406,6 +448,213 @@ export class ReportesService {
           : null,
       sinPrecio,
       filas,
+    };
+  }
+
+  /**
+   * Antiguedad / composicion del stock: clasifica las capas FIFO vivas por dias
+   * desde su ingreso en rangos fijos, acumulando cantidad y valor por rango.
+   */
+  async antiguedadStock(empresaId: bigint) {
+    const ahora = Date.now();
+    const capas = await this.prisma.capaCosto.findMany({
+      where: { empresaId, agotada: false, cantidadRestante: { gt: 0 } },
+      select: { cantidadRestante: true, costoUnitario: true, fechaIngreso: true },
+    });
+    const acum = RANGOS_ANTIGUEDAD.map((r) => ({
+      clave: r.clave,
+      etiqueta: r.etiqueta,
+      cantidad: new D(0),
+      valor: new D(0),
+    }));
+    let totalCantidad = new D(0);
+    let totalValor = new D(0);
+    for (const capa of capas) {
+      const dias = Math.floor((ahora - capa.fechaIngreso.getTime()) / 86400000);
+      const idx = RANGOS_ANTIGUEDAD.findIndex((r) => dias >= r.min && dias <= r.max);
+      const fila = acum[idx >= 0 ? idx : acum.length - 1]!;
+      const cantidad = new D(capa.cantidadRestante);
+      const valor = cantidad.mul(new D(capa.costoUnitario));
+      fila.cantidad = fila.cantidad.add(cantidad);
+      fila.valor = fila.valor.add(valor);
+      totalCantidad = totalCantidad.add(cantidad);
+      totalValor = totalValor.add(valor);
+    }
+    return {
+      generadoEn: new Date(ahora).toISOString(),
+      totalCantidad: totalCantidad.toFixed(8),
+      totalValor: this.dinero(totalValor),
+      rangos: acum.map((r) => ({
+        clave: r.clave,
+        etiqueta: r.etiqueta,
+        cantidad: r.cantidad.toFixed(8),
+        valor: this.dinero(r.valor),
+        porcentajeValor: totalValor.greaterThan(new D(0))
+          ? r.valor.div(totalValor).mul(100).toFixed(2)
+          : "0.00",
+      })),
+    };
+  }
+
+  /**
+   * Proyeccion de compra: consumo promedio diario (ventana `dias`) -> dias de
+   * cobertura del stock disponible -> cantidad sugerida para alcanzar el
+   * objetivo `diasCobertura`. Solo lista SKUs con consumo en la ventana.
+   */
+  async proyeccionCompra(empresaId: bigint, dias: number, diasCobertura: number) {
+    const fechaDesde = new Date(Date.now() - dias * 86400000);
+    const salidas = await this.prisma.movimientoStock.findMany({
+      where: { empresaId, signo: "SALIDA", fechaEmisionDocumento: { gte: fechaDesde } },
+      select: { skuId: true, cantidad: true },
+    });
+    const consumoPorSku = new Map<string, Prisma.Decimal>();
+    for (const s of salidas) {
+      const k = s.skuId.toString();
+      consumoPorSku.set(k, (consumoPorSku.get(k) ?? new D(0)).add(new D(s.cantidad)));
+    }
+
+    const skuIds = [...consumoPorSku.keys()].map((s) => BigInt(s));
+    const items = await this.prisma.itemStock.findMany({
+      where: { empresaId, skuId: { in: skuIds } },
+      select: { skuId: true, cantidadDisponible: true },
+    });
+    const dispPorSku = new Map<string, Prisma.Decimal>();
+    for (const i of items) {
+      const k = i.skuId.toString();
+      dispPorSku.set(k, (dispPorSku.get(k) ?? new D(0)).add(new D(i.cantidadDisponible)));
+    }
+
+    const skus = await this.prisma.sku.findMany({
+      where: { id: { in: skuIds }, empresaId },
+      include: { producto: true, unidad: true },
+    });
+    const skuPorId = new Map(skus.map((s) => [s.id.toString(), s]));
+
+    const filas = [...consumoPorSku.entries()]
+      .map(([k, consumo]) => {
+        const sku = skuPorId.get(k);
+        const disponible = dispPorSku.get(k) ?? new D(0);
+        const consumoDiario = consumo.div(dias);
+        const diasStock = consumoDiario.greaterThan(0)
+          ? disponible.div(consumoDiario)
+          : null;
+        const sugerido = consumoDiario.greaterThan(0)
+          ? D.max(consumoDiario.mul(diasCobertura).sub(disponible), new D(0))
+          : new D(0);
+        return {
+          skuId: k,
+          codigoParlante: sku?.codigoParlante ?? k,
+          producto: sku ? (sku.nombre ?? sku.producto.nombre) : "",
+          unidad: sku?.unidad.codigo ?? "",
+          disponible: disponible.toFixed(8),
+          consumoPromedioDiario: consumoDiario.toFixed(8),
+          diasStock: diasStock !== null ? diasStock.toFixed(2) : null,
+          sugeridoPedir: sugerido.toFixed(8),
+        };
+      })
+      .sort((a, b) => {
+        if (a.diasStock === null) return 1;
+        if (b.diasStock === null) return -1;
+        return new D(a.diasStock).comparedTo(new D(b.diasStock));
+      });
+
+    return { generadoEn: new Date().toISOString(), dias, diasCobertura, filas };
+  }
+
+  /**
+   * Kardex anual: resumen mensual (12 meses) de entradas, salidas y saldo final
+   * de un SKU. El saldo final del mes es el del ultimo movimiento (snapshot del
+   * ledger); meses sin movimiento heredan el saldo del mes previo del anio.
+   */
+  async kardexAnual(empresaId: bigint, skuId: bigint, anio: number) {
+    const sku = await this.prisma.sku.findFirst({
+      where: { id: skuId, empresaId },
+      include: { producto: true, unidad: true },
+    });
+    if (!sku) throw new NotFoundException("SKU no encontrado");
+
+    const movimientos = await this.prisma.movimientoStock.findMany({
+      where: { empresaId, skuId, periodo: { gte: `${anio}01`, lte: `${anio}12` } },
+      orderBy: [{ fechaMovimiento: "asc" }, { secuencia: "asc" }],
+      select: {
+        periodo: true,
+        signo: true,
+        cantidad: true,
+        costoTotal: true,
+        saldoCantidad: true,
+        saldoCostoTotal: true,
+      },
+    });
+
+    const meses = MESES_ABREV.map((etiqueta, i) => ({
+      mes: i + 1,
+      etiqueta,
+      entradasCantidad: new D(0),
+      entradasValor: new D(0),
+      salidasCantidad: new D(0),
+      salidasValor: new D(0),
+      saldoCantidad: null as Prisma.Decimal | null,
+      saldoValor: null as Prisma.Decimal | null,
+    }));
+    const tot = {
+      entradasCantidad: new D(0),
+      entradasValor: new D(0),
+      salidasCantidad: new D(0),
+      salidasValor: new D(0),
+    };
+    for (const m of movimientos) {
+      const idx = Number(m.periodo.slice(4, 6)) - 1;
+      const fila = meses[idx]!;
+      if (m.signo === "ENTRADA") {
+        fila.entradasCantidad = fila.entradasCantidad.add(new D(m.cantidad));
+        fila.entradasValor = fila.entradasValor.add(new D(m.costoTotal));
+        tot.entradasCantidad = tot.entradasCantidad.add(new D(m.cantidad));
+        tot.entradasValor = tot.entradasValor.add(new D(m.costoTotal));
+      } else {
+        fila.salidasCantidad = fila.salidasCantidad.add(new D(m.cantidad));
+        fila.salidasValor = fila.salidasValor.add(new D(m.costoTotal));
+        tot.salidasCantidad = tot.salidasCantidad.add(new D(m.cantidad));
+        tot.salidasValor = tot.salidasValor.add(new D(m.costoTotal));
+      }
+      // El ultimo movimiento del mes deja el saldo final (snapshot del ledger).
+      fila.saldoCantidad = new D(m.saldoCantidad);
+      fila.saldoValor = new D(m.saldoCostoTotal);
+    }
+    // Meses sin movimiento heredan el saldo final del mes previo del anio.
+    let prevCant = new D(0);
+    let prevValor = new D(0);
+    for (const fila of meses) {
+      if (fila.saldoCantidad === null) {
+        fila.saldoCantidad = prevCant;
+        fila.saldoValor = prevValor;
+      } else {
+        prevCant = fila.saldoCantidad;
+        prevValor = fila.saldoValor ?? new D(0);
+      }
+    }
+
+    return {
+      skuId: skuId.toString(),
+      codigoParlante: sku.codigoParlante,
+      producto: sku.nombre ?? sku.producto.nombre,
+      unidad: sku.unidad.codigo,
+      anio,
+      meses: meses.map((m) => ({
+        mes: m.mes,
+        etiqueta: m.etiqueta,
+        entradasCantidad: m.entradasCantidad.toFixed(8),
+        entradasValor: this.dinero(m.entradasValor),
+        salidasCantidad: m.salidasCantidad.toFixed(8),
+        salidasValor: this.dinero(m.salidasValor),
+        saldoCantidad: (m.saldoCantidad ?? new D(0)).toFixed(8),
+        saldoValor: this.dinero(m.saldoValor ?? new D(0)),
+      })),
+      totales: {
+        entradasCantidad: tot.entradasCantidad.toFixed(8),
+        entradasValor: this.dinero(tot.entradasValor),
+        salidasCantidad: tot.salidasCantidad.toFixed(8),
+        salidasValor: this.dinero(tot.salidasValor),
+      },
     };
   }
 
