@@ -1,0 +1,163 @@
+============================================================
+COMPARATIVO FUNCIONAL
+SISALM (sistema actual) vs. SISTEMA DE INVENTARIOS (nuevo)
+============================================================
+
+Cliente:   BENITES MALPICA INGENIEROS
+Fecha:     26/06/2026
+Alcance:   Comparacion de funcionalidades entre el software de
+           almacenes SISALM (Sistema Almacen v6.72, Real Systems)
+           que la empresa usa actualmente, y el nuevo Sistema de
+           Inventarios desarrollado a medida.
+
+Leyenda:
+  [OK]       Paridad: la funcion existe en ambos.
+  [PARCIAL]  Existe pero de forma incompleta o distinta.
+  [FALTA]    El nuevo sistema todavia no lo tiene.
+  [VENTAJA]  El nuevo sistema lo hace mejor o lo incluye sin costo aparte.
+
+
+------------------------------------------------------------
+1. DATOS BASE (maestros)
+------------------------------------------------------------
+- Articulos / productos y codigos parlantes ......... [OK]
+- Proveedores ....................................... [OK]
+- Almacenes, tipos de movimiento, cuentas contables . [OK]
+- Unidad de control + unidad referencial (factor) ... [OK]
+- Clientes .......................................... [PARCIAL]  (falta vendedor, zona y categoria)
+- Tipo de cambio .................................... [PARCIAL]  (Soles y Dolares; sin Euro)
+- Maestro de transportistas ......................... [PARCIAL]  (hoy se ingresa como texto en la guia)
+- Transferencia entre codigos (transformar un
+  articulo en otro con factor de conversion) ........ [FALTA]
+- Tabla de cajas (series por caja) .................. [FALTA]
+
+
+------------------------------------------------------------
+2. MOVIMIENTOS
+------------------------------------------------------------
+- Entradas / compras (con factura) y carga masiva ... [OK]
+- Vales de salida / consumo interno ................. [OK]
+- Ventas (orden, reserva, despacho, comprobante) .... [OK]
+- Traslados entre almacenes (con transito) .......... [OK]
+- Ajustes, conteos fisicos, inventario inicial ...... [OK]
+- Guias de remision (transportista, motivo SUNAT,
+  puntos de partida/llegada, peso) .................. [OK]
+- Requerimiento -> cotizacion -> orden de compra ->
+  aprobacion ........................................ [VENTAJA]  (flujo de compras mas completo)
+- Condicion de existencias (deterioro / baja) ....... [VENTAJA]
+- Devolucion de ventas (con nota de credito) ........ [PARCIAL]  (falta devolucion al proveedor)
+- Entrada por produccion (producto terminado) ....... [PARCIAL]  (hay ordenes de trabajo de consumo;
+                                                       falta el ingreso del producto terminado)
+- Guia contra pedido (control atendido/por atender) . [FALTA]   (no existe el "pedido" previo)
+- Transferencia de codigo y consignacion ............ [FALTA]
+
+
+------------------------------------------------------------
+3. CONSULTAS Y REPORTES
+------------------------------------------------------------
+- Kardex fisico y valorizado (con rango de fechas) .. [OK]
+- Existencias por almacen (disponible/comprometido/
+  fisico) ........................................... [OK]
+- Formatos SUNAT 12.1 y 13.1 (inventario permanente)  [OK]
+- Valorizacion de stock ............................. [OK]
+- Reposicion y clasificacion ABC .................... [OK]
+- Rentabilidad ...................................... [PARCIAL]  (por articulo y cliente;
+                                                       falta por vendedor y por linea)
+- Consumo valorizado ................................ [PARCIAL]  (por orden/centro de costo;
+                                                       faltan cortes por vendedor)
+- Formato SUNAT 9.1 (consignaciones) ................ [FALTA]
+- Analisis de antiguedad del stock .................. [FALTA]
+- Proyeccion de compra por dias de stock ............ [FALTA]
+- Kardex anual ...................................... [FALTA]
+
+
+------------------------------------------------------------
+4. PROCESO MENSUAL
+------------------------------------------------------------
+- Cierre de periodo / inicializacion ................ [OK]
+- Generacion de asientos contables hacia CONCAR
+  (costo de venta, consumo, compra, devolucion) ..... [OK]
+- Cierre manual de valorizacion ..................... [VENTAJA]  (no es necesario: el saldo queda
+                                                       congelado automaticamente y a prueba de
+                                                       cambios posteriores)
+- Exportacion por facturacion/cobranza .............. [PARCIAL]  (corresponde a otro modulo;
+                                                       exportamos los asientos de inventario)
+
+
+------------------------------------------------------------
+5. UTILITARIOS
+------------------------------------------------------------
+- Carga masiva de articulos y movimientos ........... [OK]
+- Usuarios y permisos (por rol/accion) .............. [OK]
+- Activos fijos con depreciacion .................... [VENTAJA]  (en el sistema actual es un
+                                                       modulo aparte)
+- Bitacora de auditoria ............................. [VENTAJA]
+- Backup / recalculo de stock / renumeracion ........ [VENTAJA]  (innecesarios: el respaldo es
+                                                       gestionado y el stock no se "recalcula")
+- Pantalla de parametrizacion (costeo, IGV, etc.) ... [PARCIAL]  (los comportamientos existen,
+                                                       falta la pantalla para configurarlos)
+- Cambio de tasa de IGV (utilitario) ................ [PARCIAL]
+- Gestor de series de comprobante (BV/FT/NC/ND) ..... [PARCIAL]
+- Formatos de impresion de documentos ............... [FALTA]
+
+
+------------------------------------------------------------
+6. PLAN CONTABLE (PCGE)
+------------------------------------------------------------
+- Gestion de PCGE / balance ......................... [PARCIAL]  (se mapean las cuentas hacia
+                                                       CONCAR por concepto; sin gestion de
+                                                       PCGE propia)
+
+
+============================================================
+RESUMEN DE BRECHAS (lo que el sistema actual tiene y el nuevo aun no)
+============================================================
+
+PRIORIDAD ALTA:
+  1. Vendedor como dato (habilita rentabilidad y comisiones por vendedor).
+  2. Maestro de transportistas (hoy es texto libre en la guia).
+  3. Devolucion al proveedor.
+  4. Formato SUNAT 9.1 (consignaciones), si la empresa maneja consignacion.
+
+PRIORIDAD MEDIA:
+  5. Transferencia de codigo (transformar un articulo en otro / kits / re-empaque).
+  6. Consignacion (almacen y movimientos de consignacion).
+  7. Pedido como paso previo a la guia (control de atendido / por atender).
+  8. Entrada por produccion (ingreso de producto terminado).
+  9. Reportes faltantes: antiguedad de stock, proyeccion de compra por dias,
+     rentabilidad por linea/vendedor, kardex anual.
+
+PRIORIDAD BAJA / A DEFINIR:
+  10. Pantalla de parametrizacion (costeo, IGV editable, serie unica).
+  11. Gestor de series de comprobante por tipo.
+  12. Multi-moneda Euro y formatos de impresion configurables.
+
+
+============================================================
+VENTAJAS DEL NUEVO SISTEMA (mejoras respecto al actual)
+============================================================
+  - Registro de movimientos inmutable y a prueba de manipulacion
+    (el sistema actual permite recalcular stock y cerrar valorizacion
+    a mano, lo que es fragil y dificil de auditar).
+  - Costeo FIFO por capas ademas de promedio movil
+    (el sistema actual solo maneja promedio ponderado).
+  - Multi-empresa real (el actual es una instalacion por empresa).
+  - Control de concurrencia y seguridad de nivel ERP: operaciones
+    atomicas, segregacion de funciones, trazabilidad completa.
+  - Acceso web / multi-dispositivo (el actual es de escritorio Windows).
+  - Flujo de compras estructurado (requerimiento, aprobacion, recepcion).
+  - Activos fijos y auditoria incluidos (en el actual son modulos aparte).
+
+
+============================================================
+CONCLUSION
+============================================================
+El nuevo sistema esta en PARIDAD con el nucleo del sistema actual
+(stock, kardex, valorizacion, costeo, multi-almacen, IGV, formatos
+SUNAT, asientos a CONCAR, series, unidad referencial) y POR ENCIMA en
+arquitectura y controles. Las brechas pendientes son principalmente de
+la periferia comercial (vendedor, consignacion, pedido, transferencia
+de codigo, devolucion al proveedor) y algunos reportes y utilitarios.
+
+Se recomienda priorizar el cierre de las brechas de PRIORIDAD ALTA para
+alcanzar paridad operativa completa.
