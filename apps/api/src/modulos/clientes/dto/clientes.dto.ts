@@ -44,6 +44,10 @@ export class CrearClienteDto {
   @IsInt()
   @IsIn([1, 2, 3, 4], { message: "tipoPrecio debe ser 1, 2, 3 o 4" })
   tipoPrecio?: number;
+
+  @IsOptional()
+  @IsInt()
+  vendedorId?: number;
 }
 
 export class ActualizarClienteDto {
@@ -81,4 +85,8 @@ export class ActualizarClienteDto {
   @IsInt()
   @IsIn([1, 2, 3, 4], { message: "tipoPrecio debe ser 1, 2, 3 o 4" })
   tipoPrecio?: number;
+
+  @IsOptional()
+  @IsInt()
+  vendedorId?: number;
 }

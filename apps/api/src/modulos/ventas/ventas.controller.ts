@@ -54,6 +54,7 @@ export class VentasController {
       almacenId: BigInt(dto.almacenId),
       numero: dto.numero,
       clienteId: dto.clienteId ? BigInt(dto.clienteId) : undefined,
+      vendedorId: dto.vendedorId ? BigInt(dto.vendedorId) : undefined,
       cliente: dto.cliente,
       moneda: dto.moneda,
       tipoCambio: dto.tipoCambio,

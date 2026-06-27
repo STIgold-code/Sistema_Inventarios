@@ -11,7 +11,9 @@ import {
   desactivarCliente,
   reactivarCliente,
   obtenerClientes,
+  obtenerVendedores,
   type Cliente,
+  type Vendedor,
 } from "@/lib/api";
 
 interface Aviso {
@@ -27,6 +29,7 @@ interface FormCliente {
   telefono: string;
   email: string;
   tipoPrecio: string;
+  vendedorId: string;
 }
 
 /** Niveles de precio de venta aplicables a un cliente. */
@@ -58,6 +61,7 @@ const CLIENTE_VACIO: FormCliente = {
   telefono: "",
   email: "",
   tipoPrecio: "1",
+  vendedorId: "",
 };
 
 function mensajeError(error: unknown, porDefecto: string): string {
@@ -100,6 +104,7 @@ function clienteAForm(c: Cliente): FormCliente {
     telefono: c.telefono ?? "",
     email: c.email ?? "",
     tipoPrecio: c.tipoPrecio != null ? String(c.tipoPrecio) : "1",
+    vendedorId: c.vendedorId ?? "",
   };
 }
 
@@ -124,6 +129,7 @@ function AvisoLinea({ aviso }: { aviso: Aviso }): React.JSX.Element {
 
 export default function PaginaClientes(): React.JSX.Element {
   const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [vendedores, setVendedores] = useState<Vendedor[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
   const [incluirInactivos, setIncluirInactivos] = useState<boolean>(false);
   const [busqueda, setBusqueda] = useState<string>("");
@@ -155,6 +161,14 @@ export default function PaginaClientes(): React.JSX.Element {
   function marcarTocado(campo: keyof FormCliente): void {
     setTocado((previo) => ({ ...previo, [campo]: true }));
   }
+
+  useEffect(() => {
+    obtenerVendedores()
+      .then((lista) => setVendedores(lista.filter((v) => v.activo)))
+      .catch(() => {
+        /* sin vendedores: el selector queda vacío */
+      });
+  }, []);
 
   useEffect(() => {
     void (async (): Promise<void> => {
@@ -244,6 +258,7 @@ export default function PaginaClientes(): React.JSX.Element {
         telefono: form.telefono || undefined,
         email: form.email || undefined,
         tipoPrecio: form.tipoPrecio ? Number(form.tipoPrecio) : undefined,
+        vendedorId: form.vendedorId ? Number(form.vendedorId) : undefined,
       };
       if (editandoId !== null) {
         await actualizarCliente(editandoId, datos);
@@ -555,6 +570,28 @@ export default function PaginaClientes(): React.JSX.Element {
             <p id="tipo-precio-ayuda" className="mt-1.5 text-xs text-texto-ter">
               Define qué precio del producto se sugiere al crear órdenes de venta
               para este cliente.
+            </p>
+          </div>
+          <div>
+            <label htmlFor="vendedor" className="etiqueta-campo">
+              Vendedor <span className="text-texto-ter">(opcional)</span>
+            </label>
+            <select
+              id="vendedor"
+              value={form.vendedorId}
+              onChange={(e) => actualizarForm("vendedorId", e.target.value)}
+              className="campo"
+            >
+              <option value="">Sin vendedor</option>
+              {vendedores.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.codigo} — {v.nombre}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs text-texto-ter">
+              Vendedor por defecto del cliente. Las ventas lo heredan para los
+              reportes por vendedor.
             </p>
           </div>
           <div className="flex gap-3 pt-2">

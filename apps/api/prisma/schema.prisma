@@ -117,6 +117,7 @@ model Empresa {
   centrosCosto  CentroCosto[]
   correlativos  DocumentoCorrelativo[]
   clientes      Cliente[]
+  vendedores    Vendedor[]
   guiasRemision GuiaRemision[]
   tiposCambio   TipoCambioDiario[]
   cierres       CierrePeriodo[]
@@ -124,6 +125,26 @@ model Empresa {
   registrosAuditoria RegistroAuditoria[]
 
   @@map("empresa")
+}
+
+/// Vendedor / asesor comercial. Se asocia al cliente (vendedor por defecto) y a
+/// la orden de venta para reportes de rentabilidad y consumo por vendedor.
+model Vendedor {
+  id            BigInt   @id @default(autoincrement())
+  empresaId     BigInt   @map("empresa_id")
+  codigo        String
+  nombre        String
+  documento     String?  // DNI/RUC opcional
+  activo        Boolean  @default(true)
+  creadoEn      DateTime @default(now()) @map("creado_en")
+  actualizadoEn DateTime @updatedAt @map("actualizado_en")
+
+  empresa  Empresa      @relation(fields: [empresaId], references: [id])
+  clientes Cliente[]
+  ordenes  OrdenVenta[]
+
+  @@unique([empresaId, codigo])
+  @@map("vendedor")
 }
 
 model Sucursal {
@@ -889,11 +910,13 @@ model Cliente {
   // Nivel de precio de venta aplicado a este cliente (mapea a las listas del SKU):
   // 1=publico, 2=distribuidor, 3, 4. Null => se asume publico (1) al sugerir precio.
   tipoPrecio       Int?     @map("tipo_precio")
+  vendedorId       BigInt?  @map("vendedor_id") // vendedor por defecto del cliente
   activo           Boolean  @default(true)
   creadoEn         DateTime @default(now()) @map("creado_en")
   actualizadoEn    DateTime @updatedAt @map("actualizado_en")
 
   empresa      Empresa            @relation(fields: [empresaId], references: [id])
+  vendedor     Vendedor?          @relation(fields: [vendedorId], references: [id])
   ordenes      OrdenVenta[]
   comprobantes ComprobanteVenta[]
 
@@ -907,6 +930,7 @@ model OrdenVenta {
   empresaId    BigInt           @map("empresa_id")
   almacenId    BigInt           @map("almacen_id")
   clienteId    BigInt?          @map("cliente_id") // FK al maestro Cliente (preferido)
+  vendedorId   BigInt?          @map("vendedor_id") // vendedor de la venta
   numero       String
   cliente      String?          // texto libre legacy/fallback (deprecado, usar clienteId)
   estado       EstadoOrdenVenta @default(PENDIENTE)
@@ -920,6 +944,7 @@ model OrdenVenta {
   usuarioId    BigInt           @map("usuario_id")
 
   clienteRef   Cliente?           @relation(fields: [clienteId], references: [id])
+  vendedor     Vendedor?          @relation(fields: [vendedorId], references: [id])
   lineas       OrdenVentaLinea[]
   comprobantes ComprobanteVenta[]
   guiasRemision GuiaRemision[]

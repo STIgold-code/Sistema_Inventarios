@@ -965,6 +965,41 @@ export function obtenerCentrosCosto(): Promise<CentroCosto[]> {
   return apiFetch<CentroCosto[]>("/centros-costo");
 }
 
+// ── Vendedores ──────────────────────────────────────────────────────────────
+
+export interface Vendedor {
+  id: string;
+  codigo: string;
+  nombre: string;
+  documento: string | null;
+  activo: boolean;
+}
+
+export function obtenerVendedores(): Promise<Vendedor[]> {
+  return apiFetch<Vendedor[]>("/vendedores");
+}
+
+export function crearVendedor(datos: {
+  codigo: string;
+  nombre: string;
+  documento?: string;
+}): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>("/vendedores", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function actualizarVendedor(
+  id: string,
+  datos: { nombre?: string; documento?: string; activo?: boolean },
+): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>(`/vendedores/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(datos),
+  });
+}
+
 // ── Requerimientos: tipos ───────────────────────────────────────────────────
 
 export type EstadoRequerimiento =
@@ -1256,6 +1291,8 @@ export interface Cliente {
   email?: string | null;
   /** Nivel de precio de venta aplicado al cliente (1=publico, 2=distribuidor, 3, 4). */
   tipoPrecio?: number | null;
+  /** Vendedor por defecto del cliente (id como string, o null). */
+  vendedorId?: string | null;
   activo: boolean;
 }
 

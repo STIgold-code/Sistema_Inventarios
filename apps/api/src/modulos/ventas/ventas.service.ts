@@ -26,6 +26,7 @@ interface NuevaOrdenVenta {
   almacenId: bigint;
   numero: string;
   clienteId?: bigint;
+  vendedorId?: bigint;
   cliente?: string;
   moneda?: string;
   tipoCambio?: string;
@@ -113,12 +114,23 @@ export class VentasService {
    * libera las reservas previas y elimina la orden (atomicidad efectiva).
    */
   async crearOrdenVenta(usuario: UsuarioRequest, dto: NuevaOrdenVenta) {
-    // Si se provee clienteId, validar pertenencia a la empresa (anti-IDOR).
+    // Si se provee clienteId, validar pertenencia a la empresa (anti-IDOR). El
+    // vendedor de la venta sale del dto; si no viene, se hereda del vendedor por
+    // defecto del cliente.
+    let vendedorId = dto.vendedorId ?? null;
     if (dto.clienteId !== undefined) {
       const cliente = await this.prisma.cliente.findFirst({
         where: { id: dto.clienteId, empresaId: usuario.empresaId },
       });
       if (!cliente) throw new NotFoundException("Cliente no encontrado");
+      if (vendedorId === null) vendedorId = cliente.vendedorId;
+    }
+    // Validar que el vendedor (si lo hay) pertenezca a la empresa (anti-IDOR).
+    if (vendedorId !== null) {
+      const vendedor = await this.prisma.vendedor.findFirst({
+        where: { id: vendedorId, empresaId: usuario.empresaId },
+      });
+      if (!vendedor) throw new NotFoundException("Vendedor no encontrado");
     }
 
     // Normaliza cada linea a unidad de control (reserva, stock y costos viven en
@@ -144,6 +156,7 @@ export class VentasService {
           almacenId: dto.almacenId,
           numero: dto.numero,
           clienteId: dto.clienteId ?? null,
+          vendedorId,
           cliente: dto.cliente ?? null,
           moneda: dto.moneda ?? "PEN",
           tipoCambio: dto.tipoCambio ?? null,

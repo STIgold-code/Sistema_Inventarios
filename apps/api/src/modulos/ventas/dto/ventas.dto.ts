@@ -50,6 +50,10 @@ export class CrearOrdenVentaDto {
   @IsInt()
   clienteId?: number;
 
+  @IsOptional()
+  @IsInt()
+  vendedorId?: number;
+
   /** @deprecated Usar clienteId. Texto libre legacy. */
   @IsOptional()
   @IsString()
