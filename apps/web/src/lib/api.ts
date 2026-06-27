@@ -1680,6 +1680,49 @@ export function obtenerDetalleRecepcion(
   return apiFetch<DetalleRecepcion>(`/compras/recepciones/${id}`);
 }
 
+// ── Devoluciones al proveedor ─────────────────────────────────────────────────
+
+export interface LineaDevolucionProveedor {
+  id: string;
+  skuId: string;
+  codigoSku: string | null;
+  nombreSku: string | null;
+  cantidad: string;
+  costoUnitario: string;
+  motivo: string | null;
+}
+
+export interface DevolucionProveedor {
+  id: string;
+  numero: string;
+  estado: "REGISTRADA" | "ANULADA";
+  fecha: string;
+  motivo: string | null;
+  ordenCompraNumero: string;
+  proveedor: string;
+  lineas: LineaDevolucionProveedor[];
+}
+
+export interface CrearDevolucionProveedorInput {
+  recepcionId: number;
+  motivo?: string;
+  fecha?: string;
+  lineas: Array<{ skuId: number; cantidad: string; motivo?: string }>;
+}
+
+export function obtenerDevolucionesProveedor(): Promise<DevolucionProveedor[]> {
+  return apiFetch<DevolucionProveedor[]>("/devoluciones-proveedor");
+}
+
+export function crearDevolucionProveedor(
+  datos: CrearDevolucionProveedorInput,
+): Promise<{ id: string; numero: string }> {
+  return apiFetch<{ id: string; numero: string }>("/devoluciones-proveedor", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
 // ── Ventas: tipos ─────────────────────────────────────────────────────────────
 
 export type EstadoOrdenVenta = "PENDIENTE" | "PARCIAL" | "DESPACHADA" | "ANULADA";

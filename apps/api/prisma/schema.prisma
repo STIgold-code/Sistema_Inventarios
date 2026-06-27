@@ -29,6 +29,7 @@ enum TipoMovimiento {
   SALIDA_CONSUMO
   SALIDA_ANULACION_DEVOLUCION
   ENTRADA_PRODUCCION
+  SALIDA_DEVOLUCION_PROVEEDOR
   DETERIORO
   RECUPERACION
   BAJA_DETERIORO
@@ -50,6 +51,12 @@ enum TipoDocumentoOrigen {
   VALE_SALIDA
   DEVOLUCION_VENTA
   PRODUCCION
+  DEVOLUCION_PROVEEDOR
+}
+
+enum EstadoDevolucionProveedor {
+  REGISTRADA
+  ANULADA
 }
 
 enum EstadoDevolucionVenta {
@@ -840,6 +847,7 @@ model OrdenCompra {
   aprobadoPor   Usuario?            @relation("OrdenCompraAprobador", fields: [aprobadoPorId], references: [id])
   lineas        OrdenCompraLinea[]
   recepciones   Recepcion[]
+  devolucionesProveedor DevolucionProveedor[]
 
   @@unique([empresaId, numero])
   @@index([empresaId, estado])
@@ -882,6 +890,7 @@ model Recepcion {
 
   ordenCompra OrdenCompra      @relation(fields: [ordenCompraId], references: [id])
   lineas      RecepcionLinea[]
+  devolucionesProveedor DevolucionProveedor[]
 
   // Unicidad del comprobante del proveedor por empresa (igual que ComprobanteVenta
   // y GuiaRemision): no se registra dos veces la misma factura. Las recepciones de
@@ -1075,6 +1084,53 @@ model DevolucionVentaLinea {
   @@index([devolucionId])
   @@index([empresaId, skuId])
   @@map("devolucion_venta_linea")
+}
+
+/// Devolucion de mercaderia a un proveedor (reverso de recepcion de compra).
+/// Saca stock valorizado del almacen via SALIDA_DEVOLUCION_PROVEEDOR.
+model DevolucionProveedor {
+  id                BigInt                    @id @default(autoincrement())
+  empresaId         BigInt                    @map("empresa_id")
+  almacenId         BigInt                    @map("almacen_id")
+  ordenCompraId     BigInt                    @map("orden_compra_id")
+  recepcionId       BigInt                    @map("recepcion_id")
+  numero            String
+  estado            EstadoDevolucionProveedor @default(REGISTRADA)
+  fecha             DateTime                  @default(now())
+  motivo            String?
+  tipoComprobante   String?                   @map("tipo_comprobante")
+  serieComprobante  String?                   @map("serie_comprobante")
+  numeroComprobante String?                   @map("numero_comprobante")
+  fechaComprobante  DateTime?                 @map("fecha_comprobante")
+  usuarioId         BigInt                    @map("usuario_id")
+  creadoEn          DateTime                  @default(now()) @map("creado_en")
+
+  ordenCompra OrdenCompra @relation(fields: [ordenCompraId], references: [id])
+  recepcion   Recepcion   @relation(fields: [recepcionId], references: [id])
+  lineas      DevolucionProveedorLinea[]
+
+  @@unique([empresaId, numero])
+  @@index([empresaId, recepcionId])
+  @@map("devolucion_proveedor")
+}
+
+model DevolucionProveedorLinea {
+  id                 BigInt  @id @default(autoincrement())
+  empresaId          BigInt  @map("empresa_id")
+  devolucionId       BigInt  @map("devolucion_id")
+  recepcionLineaId   BigInt? @map("recepcion_linea_id")
+  skuId              BigInt  @map("sku_id")
+  cantidad           Decimal @db.Decimal(20, 8)
+  motivo             String?
+  /// Costo unitario con el que salio el stock (promedio movil vigente).
+  costoUnitario      Decimal @default(0) @map("costo_unitario") @db.Decimal(20, 8)
+  movimientoSalidaId BigInt? @map("movimiento_salida_id")
+
+  devolucion DevolucionProveedor @relation(fields: [devolucionId], references: [id])
+
+  @@index([devolucionId])
+  @@index([empresaId, skuId])
+  @@map("devolucion_proveedor_linea")
 }
 
 // ===========================================================================

@@ -912,6 +912,46 @@ export class MovimientoService {
   }
 
   /**
+   * Salida por devolucion de mercaderia a un proveedor (reverso de recepcion de
+   * compra). Es una SALIDA REAL de stock valorizada al costo promedio vigente,
+   * que consume capas FIFO. Operacion SUNAT 06 (devolucion entregada). Opera
+   * DENTRO de la transaccion de la devolucion. Devuelve el costo unitario usado.
+   */
+  async salidaPorDevolucionProveedorEnTx(
+    usuario: UsuarioRequest,
+    tx: Tx,
+    dto: {
+      skuId: bigint;
+      almacenId: bigint;
+      cantidad: string;
+      documentoId: bigint;
+      observaciones?: string;
+      numerosSerie?: string[];
+    },
+  ): Promise<{ movimientoId: bigint; costoUnitario: Prisma.Decimal }> {
+    const cantidad = new D(dto.cantidad);
+    await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const item = await this.obtenerItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    if (!item) throw new StockInsuficienteError("0", cantidad.toString());
+    const { mov } = await this.aplicarSalida(tx, usuario, item, {
+      cantidad,
+      tipo: TIPO_MOVIMIENTO.SALIDA_DEVOLUCION_PROVEEDOR,
+      documentoTipo: "DEVOLUCION_PROVEEDOR",
+      documentoId: dto.documentoId,
+      tipoOperacionSunat: TIPO_OPERACION.DEVOLUCION_ENTREGADA,
+      observaciones: dto.observaciones ?? "Devolucion a proveedor",
+    });
+    await this.marcarSeriesSalida(tx, usuario.empresaId, {
+      skuId: dto.skuId,
+      almacenId: dto.almacenId,
+      cantidad,
+      movimientoSalidaId: mov.id,
+      numerosSerie: dto.numerosSerie,
+    });
+    return { movimientoId: mov.id, costoUnitario: new D(item.costoPromedio) };
+  }
+
+  /**
    * Entrada por devolucion de venta (reverso de despacho): reingresa stock al
    * almacen. El costo basis es, preferentemente, el costo con que el stock SALIO
    * en el despacho original (dto.costoUnitario); asi el reingreso no corrompe el

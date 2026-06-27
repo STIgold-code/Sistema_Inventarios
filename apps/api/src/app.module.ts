@@ -28,6 +28,7 @@ import { CierresModule } from "./modulos/cierres/cierres.module.js";
 import { OrdenesTrabajoModule } from "./modulos/ordenes-trabajo/ordenes-trabajo.module.js";
 import { SeriesModule } from "./modulos/series/series.module.js";
 import { DevolucionesModule } from "./modulos/devoluciones/devoluciones.module.js";
+import { DevolucionesProveedorModule } from "./modulos/devoluciones-proveedor/devoluciones-proveedor.module.js";
 import { FamiliasModule } from "./modulos/familias/familias.module.js";
 import { AuditoriaModule } from "./modulos/auditoria/auditoria.module.js";
 import { ExportModule } from "./modulos/comun/export/export.module.js";
@@ -67,6 +68,7 @@ import { DashboardModule } from "./modulos/dashboard/dashboard.module.js";
     OrdenesTrabajoModule,
     SeriesModule,
     DevolucionesModule,
+    DevolucionesProveedorModule,
     FamiliasModule,
     AuditoriaModule,
     ExportModule,
