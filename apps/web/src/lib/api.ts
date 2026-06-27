@@ -329,6 +329,15 @@ export interface MermaInput {
   observaciones?: string;
 }
 
+export interface ProduccionInput {
+  skuId: number;
+  almacenId: number;
+  cantidad: string;
+  costoUnitario: string;
+  ordenTrabajoId?: number;
+  observaciones?: string;
+}
+
 export interface MovimientoRespuesta {
   movimientoId: number;
 }
@@ -516,6 +525,15 @@ export function registrarAjuste(datos: AjusteInput): Promise<MovimientoRespuesta
 
 export function registrarMerma(datos: MermaInput): Promise<MovimientoRespuesta> {
   return apiFetch<MovimientoRespuesta>("/inventario/mermas", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function registrarProduccion(
+  datos: ProduccionInput,
+): Promise<{ movimientoId: string }> {
+  return apiFetch<{ movimientoId: string }>("/inventario/produccion", {
     method: "POST",
     body: JSON.stringify(datos),
   });

@@ -23,6 +23,7 @@ import {
   obtenerStock,
   registrarAjuste,
   registrarMerma,
+  registrarProduccion,
   type Almacen,
   type DetalleMovimiento,
   type Movimiento,
@@ -36,11 +37,12 @@ import {
   formatearSoles,
 } from "@/lib/formato";
 
-type Motivo = "ajuste" | "merma";
+type Motivo = "ajuste" | "merma" | "produccion";
 
 const MOTIVOS: ReadonlyArray<{ id: Motivo; etiqueta: string; nota: string }> = [
   { id: "ajuste", etiqueta: "Ajuste", nota: "Corrige la cantidad por error de conteo (+/−)" },
   { id: "merma", etiqueta: "Merma / desmedro", nota: "Da de baja stock roto, vencido o perdido" },
+  { id: "produccion", etiqueta: "Producción", nota: "Ingresa producto terminado al stock con su costo" },
 ];
 
 interface Aviso {
@@ -77,6 +79,7 @@ export default function PaginaMovimientos(): React.JSX.Element {
   const [almacenId, setAlmacenId] = useState<string>("");
   const [incremento, setIncremento] = useState<boolean>(true);
   const [cantidad, setCantidad] = useState<string>("");
+  const [costoUnitario, setCostoUnitario] = useState<string>("");
   const [observaciones, setObservaciones] = useState<string>("");
 
   const [procesando, setProcesando] = useState<boolean>(false);
@@ -184,6 +187,9 @@ export default function PaginaMovimientos(): React.JSX.Element {
     if (!/^\d+(\.\d+)?$/.test(cantidad) || Number(cantidad) <= 0) {
       return "Ingresa una cantidad válida.";
     }
+    if (motivo === "produccion" && (!/^\d+(\.\d+)?$/.test(costoUnitario) || Number(costoUnitario) <= 0)) {
+      return "Ingresa un costo unitario válido.";
+    }
     return null;
   }
 
@@ -204,6 +210,14 @@ export default function PaginaMovimientos(): React.JSX.Element {
           cantidad,
           observaciones: observaciones || undefined,
         });
+      } else if (motivo === "produccion") {
+        await registrarProduccion({
+          skuId: sku!.id,
+          almacenId: Number(almacenId),
+          cantidad,
+          costoUnitario,
+          observaciones: observaciones || undefined,
+        });
       } else {
         await registrarMerma({
           skuId: sku!.id,
@@ -214,6 +228,7 @@ export default function PaginaMovimientos(): React.JSX.Element {
       }
       setAviso({ texto: "Movimiento registrado correctamente.", tono: "exito" });
       setCantidad("");
+      setCostoUnitario("");
       setObservaciones("");
       setStock(await obtenerStock(sku!.id));
       void cargarMovimientos(1);
@@ -320,6 +335,21 @@ export default function PaginaMovimientos(): React.JSX.Element {
                     <option value="mas">Incrementar (+)</option>
                     <option value="menos">Disminuir (−)</option>
                   </select>
+                </div>
+              )}
+              {motivo === "produccion" && (
+                <div>
+                  <label htmlFor="costo-unitario" className="etiqueta-campo">
+                    Costo unitario
+                  </label>
+                  <input
+                    id="costo-unitario"
+                    value={costoUnitario}
+                    onChange={(e) => setCostoUnitario(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    className="campo font-mono"
+                  />
                 </div>
               )}
             </div>

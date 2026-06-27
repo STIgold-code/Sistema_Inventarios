@@ -823,6 +823,53 @@ export class MovimientoService {
   }
 
   /**
+   * Ingreso de producto terminado al stock por produccion. Entrada valorizada
+   * real (crea capa FIFO, recalcula promedio movil) al costo unitario informado.
+   * Operacion SUNAT 10 (salida de produccion). Puede vincularse a una orden de
+   * trabajo via documentoId. Abre su propia transaccion.
+   */
+  async entradaPorProduccion(
+    usuario: UsuarioRequest,
+    dto: {
+      skuId: bigint;
+      almacenId: bigint;
+      cantidad: string;
+      costoUnitario: string;
+      documentoId?: bigint;
+      observaciones?: string;
+    },
+  ): Promise<{ movimientoId: string }> {
+    const movimientoId = await this.prisma.$transaction(async (tx) => {
+      const cantidad = new D(dto.cantidad);
+      const costoUnitario = new D(dto.costoUnitario);
+      await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+      const item = await this.obtenerOcrearItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+      const mov = await this.aplicarEntrada(tx, usuario, item, {
+        cantidad,
+        costoUnitario,
+        tipo: TIPO_MOVIMIENTO.ENTRADA_PRODUCCION,
+        documentoTipo: "PRODUCCION",
+        documentoId: dto.documentoId,
+        tipoOperacionSunat: TIPO_OPERACION.SALIDA_PRODUCCION,
+        observaciones: dto.observaciones ?? "Ingreso por produccion",
+      });
+      await this.auditoria.registrar(
+        {
+          empresaId: usuario.empresaId,
+          usuarioId: usuario.id,
+          accion: "ENTRADA_PRODUCCION",
+          entidad: "MOVIMIENTO",
+          entidadId: mov.id,
+          detalle: `Ingreso por produccion de ${cantidad.toString()} u.`,
+        },
+        tx,
+      );
+      return mov.id;
+    });
+    return { movimientoId: movimientoId.toString() };
+  }
+
+  /**
    * Salida interna por vale de salida (hoja de cargo): consumo a obra, area o
    * centro de costo. Es una SALIDA REAL de stock (no venta, sin precio ni
    * cliente). Consume capas FIFO al costo vigente y enlaza el movimiento al

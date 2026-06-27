@@ -55,6 +55,15 @@ class CondicionDto {
   @IsString() motivo!: string;
 }
 
+class ProduccionDto {
+  @IsInt() skuId!: number;
+  @IsInt() almacenId!: number;
+  @Matches(DEC, { message: "cantidad debe ser decimal positivo" }) cantidad!: string;
+  @Matches(DEC, { message: "costoUnitario debe ser decimal positivo" }) costoUnitario!: string;
+  @IsOptional() @IsInt() ordenTrabajoId?: number;
+  @IsOptional() @IsString() observaciones?: string;
+}
+
 class ExistenciasDto {
   @IsOptional() @IsInt() pagina?: number;
   @IsOptional() @IsInt() porPagina?: number;
@@ -90,6 +99,19 @@ export class InventarioController {
       almacenId: BigInt(dto.almacenId),
       incremento: dto.incremento,
       cantidad: dto.cantidad,
+      observaciones: dto.observaciones,
+    });
+  }
+
+  @Post("produccion")
+  @Permisos("inventario.movimiento.crear")
+  produccion(@UsuarioActual() usuario: UsuarioRequest, @Body() dto: ProduccionDto) {
+    return this.movimientos.entradaPorProduccion(usuario, {
+      skuId: BigInt(dto.skuId),
+      almacenId: BigInt(dto.almacenId),
+      cantidad: dto.cantidad,
+      costoUnitario: dto.costoUnitario,
+      documentoId: dto.ordenTrabajoId !== undefined ? BigInt(dto.ordenTrabajoId) : undefined,
       observaciones: dto.observaciones,
     });
   }
