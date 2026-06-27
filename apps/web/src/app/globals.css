@@ -16,10 +16,10 @@
   --blanco: #ffffff;
 
   /* Texto / grafito de marca */
-  --tinta: #1f2328;
-  --texto: #2f343b;
-  --texto-sec: #656d76;
-  --texto-ter: #8b9198;
+  --tinta: #14181d;
+  --texto: #23282e;
+  --texto-sec: #4d555d;
+  --texto-ter: #69707a;
 
   /* Bordes */
   --borde: #e3e6ea;
@@ -165,7 +165,7 @@ body {
   background-color: var(--fondo);
   color: var(--texto);
   font-family: var(--fuente-base);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
@@ -288,9 +288,9 @@ h1, h2, h3, h4 {
   .insignia-info    { background: var(--info-tenue); border-color: #aacbf0; color: var(--info); }
 
   /* --- Tablas --- */
-  .tabla-datos { @apply w-full border-collapse text-sm; }
+  .tabla-datos { @apply w-full border-collapse text-[0.925rem]; }
   .tabla-datos thead th {
-    @apply px-4 py-2.5 text-left text-xs font-semibold;
+    @apply px-4 py-2.5 text-left text-[0.78rem] font-semibold;
     color: var(--texto-sec);
     background: var(--panel-alt);
     border-bottom: 1px solid var(--borde);
@@ -298,6 +298,7 @@ h1, h2, h3, h4 {
   .tabla-datos tbody td {
     @apply px-4 py-2.5;
     color: var(--texto);
+    font-weight: 450;
     border-bottom: 1px solid var(--borde);
   }
   .tabla-datos tbody tr:last-child td { border-bottom: none; }

@@ -6,7 +6,6 @@ import "./globals.css";
 
 const base = Archivo({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
   variable: "--fuente-base",
 });
 
