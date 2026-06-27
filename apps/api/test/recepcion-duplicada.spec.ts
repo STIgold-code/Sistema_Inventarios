@@ -5,6 +5,7 @@ import { ComprasService } from "../src/modulos/compras/compras.service.js";
 import { ProveedoresService } from "../src/modulos/proveedores/proveedores.service.js";
 import { CorrelativoService } from "../src/modulos/comun/correlativo/correlativo.service.js";
 import { AuditoriaService } from "../src/modulos/auditoria/auditoria.service.js";
+import { ParametrosService } from "../src/modulos/parametros/parametros.service.js";
 import type { UsuarioRequest } from "../src/comun/contexto/usuario-request.js";
 
 /**
@@ -18,6 +19,7 @@ describe("ComprasService - recepcion duplicada", () => {
     new MovimientoService(prisma, new TiposCambioService(prisma), new AuditoriaService(prisma)),
     new CorrelativoService(),
     new AuditoriaService(prisma),
+    new ParametrosService(prisma),
   );
   const proveedores = new ProveedoresService(prisma);
 

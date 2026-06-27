@@ -141,8 +141,27 @@ model Empresa {
   cierres       CierrePeriodo[]
   cuentasContables CuentaContableConfig[]
   registrosAuditoria RegistroAuditoria[]
+  parametros    ParametrosEmpresa?
 
   @@map("empresa")
+}
+
+/// Parametrizacion general por empresa (una fila por empresa). Reemplaza la
+/// configuracion hardcodeada de SISALM. Los defaults reproducen el comportamiento
+/// actual del codigo (IGV 18%, costeo promedio movil activo).
+model ParametrosEmpresa {
+  id                       BigInt   @id @default(autoincrement())
+  empresaId                BigInt   @unique @map("empresa_id")
+  tasaIgv                  Decimal  @default("0.18") @map("tasa_igv") @db.Decimal(6, 4)
+  costeoPromedioActivo     Boolean  @default(true) @map("costeo_promedio_activo")
+  preciosIncluyenIgv       Boolean  @default(false) @map("precios_incluyen_igv")
+  permiteSerieUnica        Boolean  @default(false) @map("permite_serie_unica")
+  unidadReferencialVisible Boolean  @default(true) @map("unidad_referencial_visible")
+  actualizadoEn            DateTime @updatedAt @map("actualizado_en")
+
+  empresa Empresa @relation(fields: [empresaId], references: [id])
+
+  @@map("parametros_empresa")
 }
 
 /// Vendedor / asesor comercial. Se asocia al cliente (vendedor por defecto) y a

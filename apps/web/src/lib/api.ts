@@ -983,6 +983,29 @@ export function obtenerCentrosCosto(): Promise<CentroCosto[]> {
   return apiFetch<CentroCosto[]>("/centros-costo");
 }
 
+// ── Parametros de la empresa ──────────────────────────────────────────────────
+
+export interface ParametrosEmpresa {
+  tasaIgv: string;
+  costeoPromedioActivo: boolean;
+  preciosIncluyenIgv: boolean;
+  permiteSerieUnica: boolean;
+  unidadReferencialVisible: boolean;
+}
+
+export function obtenerParametros(): Promise<ParametrosEmpresa> {
+  return apiFetch<ParametrosEmpresa>("/parametros");
+}
+
+export function actualizarParametros(
+  datos: Partial<ParametrosEmpresa>,
+): Promise<ParametrosEmpresa> {
+  return apiFetch<ParametrosEmpresa>("/parametros", {
+    method: "PUT",
+    body: JSON.stringify(datos),
+  });
+}
+
 // ── Vendedores ──────────────────────────────────────────────────────────────
 
 export interface Vendedor {

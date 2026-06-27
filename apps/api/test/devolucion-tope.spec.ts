@@ -2,6 +2,7 @@ import { PrismaService } from "../src/comun/prisma/prisma.service.js";
 import { MovimientoService } from "../src/modulos/inventario/movimientos/movimiento.service.js";
 import { TiposCambioService } from "../src/modulos/tipos-cambio/tipos-cambio.service.js";
 import { AuditoriaService } from "../src/modulos/auditoria/auditoria.service.js";
+import { ParametrosService } from "../src/modulos/parametros/parametros.service.js";
 import { CorrelativoService } from "../src/modulos/comun/correlativo/correlativo.service.js";
 import { VentasService } from "../src/modulos/ventas/ventas.service.js";
 import { DevolucionesService } from "../src/modulos/devoluciones/devoluciones.service.js";
@@ -18,7 +19,7 @@ describe("DevolucionesService - tope con devoluciones previas", () => {
     new TiposCambioService(prisma),
     new AuditoriaService(prisma),
   );
-  const ventas = new VentasService(prisma, movimientos, new AuditoriaService(prisma));
+  const ventas = new VentasService(prisma, movimientos, new AuditoriaService(prisma), new ParametrosService(prisma));
   const devoluciones = new DevolucionesService(
     prisma,
     movimientos,

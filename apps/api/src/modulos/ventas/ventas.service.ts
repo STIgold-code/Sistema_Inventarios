@@ -8,6 +8,7 @@ import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { AuditoriaService } from "../auditoria/auditoria.service.js";
+import { ParametrosService } from "../parametros/parametros.service.js";
 import { MovimientoService } from "../inventario/movimientos/movimiento.service.js";
 import {
   aUnidadDeControl,
@@ -16,8 +17,6 @@ import {
 
 const D = Prisma.Decimal;
 
-/** Tasa de IGV vigente en Peru (18%). */
-const IGV_TASA = new D("0.18");
 
 /** Tolerancia (en moneda) para conciliar los montos del comprobante. */
 const TOLERANCIA_CONCILIACION = new D("0.50");
@@ -107,6 +106,7 @@ export class VentasService {
     private readonly prisma: PrismaService,
     private readonly movimientos: MovimientoService,
     private readonly auditoria: AuditoriaService,
+    private readonly parametros: ParametrosService,
   ) {}
 
   /**
@@ -142,7 +142,7 @@ export class VentasService {
     for (const l of lineasControl) {
       subtotal = subtotal.add(new D(l.cantidad).mul(new D(l.precioUnitario ?? "0")));
     }
-    const igv = subtotal.mul(IGV_TASA);
+    const igv = subtotal.mul(await this.parametros.tasaIgv(usuario.empresaId));
     const total = subtotal.add(igv);
 
     // Creacion de la orden, reserva de cada linea y auditoria en UNA sola
@@ -543,7 +543,9 @@ export class VentasService {
       );
     }
     const igvComprobante = new D(c.igv);
-    const igvEsperado = subtotalComprobante.mul(IGV_TASA);
+    const igvEsperado = subtotalComprobante.mul(
+      await this.parametros.tasaIgv(usuario.empresaId),
+    );
     if (igvComprobante.sub(igvEsperado).abs().greaterThan(TOLERANCIA_CONCILIACION)) {
       throw new BadRequestException(
         `El IGV del comprobante (${igvComprobante.toString()}) no concilia con el ` +

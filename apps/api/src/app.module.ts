@@ -30,6 +30,7 @@ import { SeriesModule } from "./modulos/series/series.module.js";
 import { DevolucionesModule } from "./modulos/devoluciones/devoluciones.module.js";
 import { DevolucionesProveedorModule } from "./modulos/devoluciones-proveedor/devoluciones-proveedor.module.js";
 import { TransferenciasCodigoModule } from "./modulos/transferencias-codigo/transferencias-codigo.module.js";
+import { ParametrosModule } from "./modulos/parametros/parametros.module.js";
 import { FamiliasModule } from "./modulos/familias/familias.module.js";
 import { AuditoriaModule } from "./modulos/auditoria/auditoria.module.js";
 import { ExportModule } from "./modulos/comun/export/export.module.js";
@@ -71,6 +72,7 @@ import { DashboardModule } from "./modulos/dashboard/dashboard.module.js";
     DevolucionesModule,
     DevolucionesProveedorModule,
     TransferenciasCodigoModule,
+    ParametrosModule,
     FamiliasModule,
     AuditoriaModule,
     ExportModule,

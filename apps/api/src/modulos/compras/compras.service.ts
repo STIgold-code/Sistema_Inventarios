@@ -10,6 +10,7 @@ import { AuditoriaService } from "../auditoria/auditoria.service.js";
 import { CorrelativoService } from "../comun/correlativo/correlativo.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { MovimientoService } from "../inventario/movimientos/movimiento.service.js";
+import { ParametrosService } from "../parametros/parametros.service.js";
 import {
   aUnidadDeControl,
   precioAUnidadDeControl,
@@ -17,8 +18,6 @@ import {
 
 const D = Prisma.Decimal;
 
-/** Tasa de IGV vigente en Peru (18%). */
-const IGV_TASA = new D("0.18");
 
 /** Tolerancia (en moneda) para conciliar el subtotal capturado vs el calculado. */
 const TOLERANCIA_CONCILIACION = new D("0.50");
@@ -107,6 +106,7 @@ export class ComprasService {
     private readonly movimientos: MovimientoService,
     private readonly correlativos: CorrelativoService,
     private readonly auditoria: AuditoriaService,
+    private readonly parametros: ParametrosService,
   ) {}
 
   /**
@@ -158,7 +158,7 @@ export class ComprasService {
     for (const l of lineasControl) {
       subtotal = subtotal.add(new D(l.cantidad).mul(new D(l.costoUnitario)));
     }
-    const igv = subtotal.mul(IGV_TASA);
+    const igv = subtotal.mul(await this.parametros.tasaIgv(usuario.empresaId));
     const total = subtotal.add(igv);
 
     const resultado = await this.prisma.$transaction(async (tx) => {
@@ -421,7 +421,9 @@ export class ComprasService {
     // Conciliacion de IGV y total: el IGV debe ser ~ subtotal x 18% y el total
     // ~ subtotal + IGV, dentro de la tolerancia por redondeo.
     const igvFactura = new D(dto.igv);
-    const igvEsperado = subtotalFactura.mul(IGV_TASA);
+    const igvEsperado = subtotalFactura.mul(
+      await this.parametros.tasaIgv(usuario.empresaId),
+    );
     if (igvFactura.sub(igvEsperado).abs().greaterThan(TOLERANCIA_CONCILIACION)) {
       throw new BadRequestException(
         `El IGV de la factura (${igvFactura.toString()}) no concilia con el esperado ` +

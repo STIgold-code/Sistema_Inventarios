@@ -3,6 +3,7 @@ import { PrismaService } from "../src/comun/prisma/prisma.service.js";
 import { MovimientoService } from "../src/modulos/inventario/movimientos/movimiento.service.js";
 import { TiposCambioService } from "../src/modulos/tipos-cambio/tipos-cambio.service.js";
 import { AuditoriaService } from "../src/modulos/auditoria/auditoria.service.js";
+import { ParametrosService } from "../src/modulos/parametros/parametros.service.js";
 import { VentasService } from "../src/modulos/ventas/ventas.service.js";
 import type { UsuarioRequest } from "../src/comun/contexto/usuario-request.js";
 
@@ -13,7 +14,7 @@ import type { UsuarioRequest } from "../src/comun/contexto/usuario-request.js";
 describe("VentasService (integracion)", () => {
   const prisma = new PrismaService();
   const movimientos = new MovimientoService(prisma, new TiposCambioService(prisma), new AuditoriaService(prisma));
-  const ventas = new VentasService(prisma, movimientos, new AuditoriaService(prisma));
+  const ventas = new VentasService(prisma, movimientos, new AuditoriaService(prisma), new ParametrosService(prisma));
 
   let usuario: UsuarioRequest;
   let almacenId: bigint;

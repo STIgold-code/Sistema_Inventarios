@@ -99,6 +99,7 @@ export const MODULOS: readonly ModuloNav[] = [
     titulo: "Utilitarios",
     color: "utilitarios",
     enlaces: [
+      { href: "/panel/parametros", etiqueta: "Parámetros" },
       { href: "/panel/importador", etiqueta: "Importador" },
       { href: "/panel/activos", etiqueta: "Activos fijos" },
       { href: "/panel/auditoria", etiqueta: "Auditoría" },
