@@ -1057,6 +1057,74 @@ export function obtenerTransferenciasCodigo(): Promise<TransferenciaCodigo[]> {
   return apiFetch<TransferenciaCodigo[]>("/transferencias-codigo");
 }
 
+// ── Pedidos de venta ──────────────────────────────────────────────────────────
+
+export type EstadoPedido =
+  | "BORRADOR"
+  | "APROBADO"
+  | "ATENDIDO_PARCIAL"
+  | "ATENDIDO"
+  | "ANULADO";
+
+export interface LineaPedido {
+  id: string;
+  skuId: string;
+  codigoSku: string | null;
+  nombreSku: string | null;
+  cantidad: string;
+  cantidadAtendida: string;
+  porAtender: string;
+  precioUnitario: string;
+}
+
+export interface Pedido {
+  id: string;
+  numero: string;
+  estado: EstadoPedido;
+  fechaEmision: string;
+  total: string;
+  observaciones: string | null;
+  lineas: LineaPedido[];
+}
+
+export interface CrearPedidoInput {
+  almacenId: number;
+  numero: string;
+  clienteId?: number;
+  vendedorId?: number;
+  observaciones?: string;
+  lineas: Array<{ skuId: number; cantidad: string; precioUnitario?: string }>;
+}
+
+export function obtenerPedidos(): Promise<Pedido[]> {
+  return apiFetch<Pedido[]>("/pedidos");
+}
+
+export function crearPedido(datos: CrearPedidoInput): Promise<{ id: string; numero: string }> {
+  return apiFetch<{ id: string; numero: string }>("/pedidos", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function aprobarPedido(id: string): Promise<{ id: string; estado: EstadoPedido }> {
+  return apiFetch<{ id: string; estado: EstadoPedido }>(`/pedidos/${id}/aprobar`, { method: "POST" });
+}
+
+export function anularPedido(id: string): Promise<{ id: string; estado: EstadoPedido }> {
+  return apiFetch<{ id: string; estado: EstadoPedido }>(`/pedidos/${id}/anular`, { method: "POST" });
+}
+
+export function generarOrdenDesdePedido(
+  id: string,
+  numero: string,
+): Promise<{ id: string; ordenVentaId: string; ordenNumero: string }> {
+  return apiFetch<{ id: string; ordenVentaId: string; ordenNumero: string }>(
+    `/pedidos/${id}/orden-venta`,
+    { method: "POST", body: JSON.stringify({ numero }) },
+  );
+}
+
 export function crearTransferenciaCodigo(
   datos: CrearTransferenciaCodigoInput,
 ): Promise<{ id: string; numero: string }> {

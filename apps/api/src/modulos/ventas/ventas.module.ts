@@ -10,5 +10,6 @@ import { VentasService } from "./ventas.service.js";
   imports: [AuthModule, AuditoriaModule, InventarioModule, ParametrosModule],
   controllers: [VentasController],
   providers: [VentasService],
+  exports: [VentasService],
 })
 export class VentasModule {}

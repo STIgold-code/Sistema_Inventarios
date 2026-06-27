@@ -1030,6 +1030,61 @@ model OrdenVentaLinea {
   @@map("orden_venta_linea")
 }
 
+enum EstadoPedido {
+  BORRADOR
+  APROBADO
+  ATENDIDO_PARCIAL
+  ATENDIDO
+  ANULADO
+}
+
+/// Pedido de venta: documento PREVIO a la orden/despacho. Registra lo que el
+/// cliente solicita y, por linea, cuanto se atendio (cantidadAtendida) vs. lo
+/// pendiente. La "atencion" genera una OrdenVenta desde el pedido.
+model Pedido {
+  id            BigInt       @id @default(autoincrement())
+  empresaId     BigInt       @map("empresa_id")
+  almacenId     BigInt       @map("almacen_id")
+  clienteId     BigInt?      @map("cliente_id")
+  vendedorId    BigInt?      @map("vendedor_id")
+  numero        String
+  estado        EstadoPedido @default(BORRADOR)
+  fechaEmision  DateTime     @default(now()) @map("fecha_emision")
+  fechaEntrega  DateTime?    @map("fecha_entrega")
+  moneda        String       @default("PEN")
+  tipoCambio    Decimal?     @map("tipo_cambio") @db.Decimal(20, 6)
+  subtotal      Decimal      @default(0) @db.Decimal(20, 2)
+  igv           Decimal      @default(0) @db.Decimal(20, 2)
+  total         Decimal      @default(0) @db.Decimal(20, 2)
+  observaciones String?
+  usuarioId     BigInt       @map("usuario_id")
+  aprobadoPorId BigInt?      @map("aprobado_por_id")
+  creadoEn      DateTime     @default(now()) @map("creado_en")
+  actualizadoEn DateTime     @updatedAt @map("actualizado_en")
+
+  lineas PedidoLinea[]
+
+  @@unique([empresaId, numero])
+  @@index([empresaId, estado])
+  @@map("pedido")
+}
+
+model PedidoLinea {
+  id               BigInt  @id @default(autoincrement())
+  empresaId        BigInt  @map("empresa_id")
+  pedidoId         BigInt  @map("pedido_id")
+  skuId            BigInt  @map("sku_id")
+  cantidad         Decimal @db.Decimal(20, 8)
+  cantidadAtendida Decimal @default(0) @map("cantidad_atendida") @db.Decimal(20, 8)
+  precioUnitario   Decimal @default(0) @map("precio_unitario") @db.Decimal(20, 8)
+
+  pedido Pedido @relation(fields: [pedidoId], references: [id])
+
+  @@index([pedidoId])
+  @@index([empresaId, skuId])
+  @@map("pedido_linea")
+}
+
 /// Referencia del comprobante de venta (NO emite electronicamente, solo
 /// registra el sustento SUNAT). Un comprobante por despacho de la orden.
 model ComprobanteVenta {
