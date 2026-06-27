@@ -625,7 +625,7 @@ export default function PaginaProductos(): React.JSX.Element {
                       </span>
                     </td>
                     <td>
-                      <div className="flex justify-end gap-2">
+                      <div className="flex flex-nowrap items-center justify-end gap-3 whitespace-nowrap pl-6">
                         <BotonVer
                           onVer={() => void abrirDetalle(sku.id)}
                           etiqueta={`Ver detalle de ${sku.nombre ?? sku.producto.nombre}`}
