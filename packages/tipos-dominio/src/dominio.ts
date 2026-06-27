@@ -21,6 +21,9 @@ export const TIPO_MOVIMIENTO = {
   ENTRADA_PRODUCCION: "ENTRADA_PRODUCCION",
   // Salida por devolucion de mercaderia a un proveedor (reverso de recepcion).
   SALIDA_DEVOLUCION_PROVEEDOR: "SALIDA_DEVOLUCION_PROVEEDOR",
+  // Transformacion de codigo: un SKU se convierte en otro (kits/re-empaque).
+  SALIDA_TRANSFORMACION: "SALIDA_TRANSFORMACION",
+  ENTRADA_TRANSFORMACION: "ENTRADA_TRANSFORMACION",
   // Cambio de condicion: la existencia fisica no entra ni sale del sistema,
   // solo pasa de "buen uso" (disponible) a "deteriorado" o viceversa.
   DETERIORO: "DETERIORO",
@@ -52,6 +55,7 @@ export const TIPO_DOCUMENTO_ORIGEN = {
   PRODUCCION: "PRODUCCION",
   DEVOLUCION_VENTA: "DEVOLUCION_VENTA",
   DEVOLUCION_PROVEEDOR: "DEVOLUCION_PROVEEDOR",
+  TRANSFORMACION: "TRANSFORMACION",
 } as const;
 export type TipoDocumentoOrigen =
   (typeof TIPO_DOCUMENTO_ORIGEN)[keyof typeof TIPO_DOCUMENTO_ORIGEN];
@@ -80,6 +84,8 @@ export const SIGNO_POR_TIPO: Record<TipoMovimiento, SignoMovimiento> = {
   SALIDA_ANULACION_DEVOLUCION: SIGNO_MOVIMIENTO.SALIDA,
   ENTRADA_PRODUCCION: SIGNO_MOVIMIENTO.ENTRADA,
   SALIDA_DEVOLUCION_PROVEEDOR: SIGNO_MOVIMIENTO.SALIDA,
+  SALIDA_TRANSFORMACION: SIGNO_MOVIMIENTO.SALIDA,
+  ENTRADA_TRANSFORMACION: SIGNO_MOVIMIENTO.ENTRADA,
   // DETERIORO retira stock de la condicion "disponible" (signo SALIDA);
   // RECUPERACION lo reintegra a "disponible" (signo ENTRADA). En ambos casos
   // el stock fisico total no cambia: es la misma existencia cambiando de condicion.

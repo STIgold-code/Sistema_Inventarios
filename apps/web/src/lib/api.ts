@@ -997,6 +997,52 @@ export function obtenerVendedores(): Promise<Vendedor[]> {
   return apiFetch<Vendedor[]>("/vendedores");
 }
 
+// ── Transferencia de codigo (transformacion de SKU) ───────────────────────────
+
+export interface LineaTransferenciaCodigo {
+  id: string;
+  origen: string;
+  destino: string;
+  cantidadOrigen: string;
+  factorConversion: string;
+  cantidadDestino: string;
+  costoTotal: string;
+}
+
+export interface TransferenciaCodigo {
+  id: string;
+  numero: string;
+  estado: "CONFIRMADA" | "ANULADA";
+  fecha: string;
+  observaciones: string | null;
+  lineas: LineaTransferenciaCodigo[];
+}
+
+export interface CrearTransferenciaCodigoInput {
+  almacenId: number;
+  numero: string;
+  observaciones?: string;
+  lineas: Array<{
+    skuOrigenId: number;
+    skuDestinoId: number;
+    cantidadOrigen: string;
+    factorConversion: string;
+  }>;
+}
+
+export function obtenerTransferenciasCodigo(): Promise<TransferenciaCodigo[]> {
+  return apiFetch<TransferenciaCodigo[]>("/transferencias-codigo");
+}
+
+export function crearTransferenciaCodigo(
+  datos: CrearTransferenciaCodigoInput,
+): Promise<{ id: string; numero: string }> {
+  return apiFetch<{ id: string; numero: string }>("/transferencias-codigo", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
 export function crearVendedor(datos: {
   codigo: string;
   nombre: string;

@@ -30,6 +30,8 @@ enum TipoMovimiento {
   SALIDA_ANULACION_DEVOLUCION
   ENTRADA_PRODUCCION
   SALIDA_DEVOLUCION_PROVEEDOR
+  SALIDA_TRANSFORMACION
+  ENTRADA_TRANSFORMACION
   DETERIORO
   RECUPERACION
   BAJA_DETERIORO
@@ -52,10 +54,16 @@ enum TipoDocumentoOrigen {
   DEVOLUCION_VENTA
   PRODUCCION
   DEVOLUCION_PROVEEDOR
+  TRANSFORMACION
 }
 
 enum EstadoDevolucionProveedor {
   REGISTRADA
+  ANULADA
+}
+
+enum EstadoTransferenciaCodigo {
+  CONFIRMADA
   ANULADA
 }
 
@@ -1131,6 +1139,47 @@ model DevolucionProveedorLinea {
   @@index([devolucionId])
   @@index([empresaId, skuId])
   @@map("devolucion_proveedor_linea")
+}
+
+/// Transferencia de codigo: transforma un SKU en otro con factor (kits, re-empaque,
+/// reclasificacion) en el mismo almacen. Salida del origen + entrada del destino,
+/// conservando el valor (el costo FIFO extraido del origen se reinyecta al destino).
+model TransferenciaCodigo {
+  id            BigInt                    @id @default(autoincrement())
+  empresaId     BigInt                    @map("empresa_id")
+  numero        String
+  almacenId     BigInt                    @map("almacen_id")
+  estado        EstadoTransferenciaCodigo @default(CONFIRMADA)
+  fecha         DateTime                  @default(now())
+  observaciones String?
+  usuarioId     BigInt                    @map("usuario_id")
+
+  lineas TransferenciaCodigoLinea[]
+
+  @@unique([empresaId, numero])
+  @@index([empresaId, estado])
+  @@map("transferencia_codigo")
+}
+
+model TransferenciaCodigoLinea {
+  id                  BigInt  @id @default(autoincrement())
+  empresaId           BigInt  @map("empresa_id")
+  transferenciaId     BigInt  @map("transferencia_id")
+  skuOrigenId         BigInt  @map("sku_origen_id")
+  skuDestinoId        BigInt  @map("sku_destino_id")
+  cantidadOrigen      Decimal @map("cantidad_origen") @db.Decimal(20, 8)
+  factorConversion    Decimal @map("factor_conversion") @db.Decimal(20, 8)
+  cantidadDestino     Decimal @map("cantidad_destino") @db.Decimal(20, 8)
+  costoTotal          Decimal @default(0) @map("costo_total") @db.Decimal(20, 8)
+  movimientoSalidaId  BigInt? @map("movimiento_salida_id")
+  movimientoEntradaId BigInt? @map("movimiento_entrada_id")
+
+  transferencia TransferenciaCodigo @relation(fields: [transferenciaId], references: [id])
+
+  @@index([transferenciaId])
+  @@index([empresaId, skuOrigenId])
+  @@index([empresaId, skuDestinoId])
+  @@map("transferencia_codigo_linea")
 }
 
 // ===========================================================================

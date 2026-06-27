@@ -952,6 +952,102 @@ export class MovimientoService {
   }
 
   /**
+   * Salida del SKU ORIGEN en una transformacion de codigo. Consume capas FIFO y
+   * devuelve el COSTO TOTAL REAL extraido (no el promedio), para reinyectarlo
+   * exacto al SKU destino y conservar el valor. Op SUNAT 10 (produccion).
+   */
+  async salidaPorTransformacionEnTx(
+    usuario: UsuarioRequest,
+    tx: Tx,
+    dto: { skuId: bigint; almacenId: bigint; cantidad: string; documentoId?: bigint; observaciones?: string },
+  ): Promise<{ movimientoId: bigint; costoTotal: Prisma.Decimal }> {
+    const cantidad = new D(dto.cantidad);
+    await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const item = await this.obtenerItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const disponible = item ? new D(item.cantidadDisponible) : new D(0);
+    if (!item || disponible.lessThan(cantidad)) {
+      throw new StockInsuficienteError(disponible.toString(), cantidad.toString());
+    }
+    const comprometida = new D(item.cantidadComprometida);
+    const { costoTotalSalida, consumos } = await this.consumirCapasFifo(
+      tx,
+      usuario.empresaId,
+      dto.skuId,
+      dto.almacenId,
+      cantidad,
+    );
+    const costoUnit = cantidad.isZero() ? new D(0) : costoTotalSalida.div(cantidad);
+    const nuevaDisponible = disponible.sub(cantidad);
+    const saldoFisico = nuevaDisponible.add(comprometida);
+    const nuevoPromedio = await this.promedioDesdeCapas(
+      tx,
+      usuario.empresaId,
+      dto.skuId,
+      dto.almacenId,
+    );
+    const mov = await this.crearMovimiento(tx, {
+      usuario,
+      item,
+      tipo: TIPO_MOVIMIENTO.SALIDA_TRANSFORMACION,
+      signo: SIGNO_MOVIMIENTO.SALIDA,
+      cantidad,
+      costoUnitario: costoUnit,
+      costoTotal: costoTotalSalida,
+      saldoCantidad: saldoFisico,
+      saldoCostoUnitario: nuevoPromedio,
+      saldoCostoTotal: saldoFisico.mul(nuevoPromedio),
+      documentoTipo: "TRANSFORMACION",
+      documentoId: dto.documentoId,
+      tipoOperacionSunat: TIPO_OPERACION.SALIDA_PRODUCCION,
+      tipoDocumentoSunat: TIPO_DOCUMENTO.OTROS,
+      observaciones: dto.observaciones ?? "Transformacion de codigo (salida)",
+    });
+    for (const c of consumos) {
+      await tx.consumoCapa.create({
+        data: {
+          empresaId: usuario.empresaId,
+          movimientoSalidaId: mov.id,
+          capaCostoId: c.capaCostoId,
+          cantidad: c.cantidad,
+          costoUnitario: c.costoUnitario,
+        },
+      });
+    }
+    await tx.itemStock.update({
+      where: { id: item.id },
+      data: { cantidadDisponible: nuevaDisponible, costoPromedio: nuevoPromedio, version: { increment: 1 } },
+    });
+    return { movimientoId: mov.id, costoTotal: costoTotalSalida };
+  }
+
+  /**
+   * Entrada del SKU DESTINO en una transformacion de codigo. Crea una capa nueva
+   * con costoUnitario = costoTotal / cantidadDestino (el valor extraido del
+   * origen se conserva). Op SUNAT 10 (produccion).
+   */
+  async entradaPorTransformacionEnTx(
+    usuario: UsuarioRequest,
+    tx: Tx,
+    dto: { skuId: bigint; almacenId: bigint; cantidadDestino: string; costoTotal: string; documentoId?: bigint; observaciones?: string },
+  ): Promise<{ movimientoId: bigint }> {
+    const cantidad = new D(dto.cantidadDestino);
+    const costoTotal = new D(dto.costoTotal);
+    const costoUnitario = cantidad.isZero() ? new D(0) : costoTotal.div(cantidad);
+    await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const item = await this.obtenerOcrearItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const mov = await this.aplicarEntrada(tx, usuario, item, {
+      cantidad,
+      costoUnitario,
+      tipo: TIPO_MOVIMIENTO.ENTRADA_TRANSFORMACION,
+      documentoTipo: "TRANSFORMACION",
+      documentoId: dto.documentoId,
+      tipoOperacionSunat: TIPO_OPERACION.SALIDA_PRODUCCION,
+      observaciones: dto.observaciones ?? "Transformacion de codigo (entrada)",
+    });
+    return { movimientoId: mov.id };
+  }
+
+  /**
    * Entrada por devolucion de venta (reverso de despacho): reingresa stock al
    * almacen. El costo basis es, preferentemente, el costo con que el stock SALIO
    * en el despacho original (dto.costoUnitario); asi el reingreso no corrompe el
