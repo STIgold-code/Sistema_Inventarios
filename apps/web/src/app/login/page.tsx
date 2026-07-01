@@ -2,20 +2,50 @@
 
 import { loginSchema } from "@bm/contratos";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState, type FormEvent } from "react";
 import { ErrorApi, login } from "@/lib/api";
 import { guardarSesion } from "@/lib/sesion";
 
 type ErroresCampo = Partial<Record<"email" | "clave", string>>;
 
+/**
+ * Solo se navega a rutas internas para evitar open-redirect via `destino`.
+ * Se rechazan backslashes porque el navegador normaliza `\` a `/`, de modo que
+ * `/\evil.com` se resolveria como URL protocol-relative hacia un host externo.
+ */
+function rutaInternaSegura(destino: string | null): string {
+  if (
+    destino &&
+    destino.startsWith("/") &&
+    !destino.startsWith("//") &&
+    !destino.includes("\\")
+  ) {
+    return destino;
+  }
+  return "/panel";
+}
+
 export default function PaginaLogin(): React.JSX.Element {
+  return (
+    <Suspense fallback={null}>
+      <FormularioLogin />
+    </Suspense>
+  );
+}
+
+function FormularioLogin(): React.JSX.Element {
   const router = useRouter();
+  const parametros = useSearchParams();
+  const sesionExpirada = parametros.get("expirada") === "1";
+  const destino = rutaInternaSegura(parametros.get("destino"));
   const [email, setEmail] = useState<string>("");
   const [clave, setClave] = useState<string>("");
   const [verClave, setVerClave] = useState<boolean>(false);
   const [errores, setErrores] = useState<ErroresCampo>({});
-  const [errorGeneral, setErrorGeneral] = useState<string | null>(null);
+  const [errorGeneral, setErrorGeneral] = useState<string | null>(
+    sesionExpirada ? "Tu sesión expiró, vuelve a ingresar." : null,
+  );
   const [cargando, setCargando] = useState<boolean>(false);
 
   async function manejarEnvio(evento: FormEvent<HTMLFormElement>): Promise<void> {
@@ -39,8 +69,12 @@ export default function PaginaLogin(): React.JSX.Element {
     setCargando(true);
     try {
       const respuesta = await login(resultado.data);
-      guardarSesion(respuesta.token, respuesta.usuario);
-      router.push("/panel");
+      guardarSesion({
+        token: respuesta.token,
+        refreshToken: respuesta.refreshToken,
+        usuario: respuesta.usuario,
+      });
+      router.push(destino);
     } catch (error) {
       const mensaje =
         error instanceof ErrorApi

@@ -4,7 +4,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { borrarSesion, haySesion, leerUsuario } from "@/lib/sesion";
+import { cerrarSesionServidor } from "@/lib/api";
+import { haySesion, leerRefresh, leerUsuario, limpiarSesion } from "@/lib/sesion";
 import { INICIO, MODULOS, esActivo, moduloDeRuta } from "@/lib/modulos";
 import type { UsuarioAutenticado } from "@bm/contratos";
 
@@ -53,7 +54,9 @@ export default function LayoutPanel({
   }
 
   function cerrarSesion(): void {
-    borrarSesion();
+    const refresh = leerRefresh();
+    if (refresh) void cerrarSesionServidor(refresh);
+    limpiarSesion();
     router.replace("/login");
   }
 

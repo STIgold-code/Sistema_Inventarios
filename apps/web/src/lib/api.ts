@@ -2,8 +2,9 @@ import type {
   LoginInput,
   RespuestaLogin,
   RespuestaPaginada,
+  RespuestaRefresco,
 } from "@bm/contratos";
-import { leerToken } from "./sesion";
+import { guardarTokens, leerRefresh, leerToken, limpiarSesion } from "./sesion";
 
 const URL_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4021";
@@ -32,34 +33,114 @@ function extraerMensaje(cuerpo: CuerpoError | null, estado: number): string {
   return `Error de servidor (${estado})`;
 }
 
+/** Lanza `ErrorApi` con el mensaje del backend si la respuesta no es OK. */
+async function lanzarSiError(respuesta: Response): Promise<void> {
+  if (respuesta.ok) return;
+  let cuerpo: CuerpoError | null = null;
+  try {
+    cuerpo = (await respuesta.json()) as CuerpoError;
+  } catch {
+    cuerpo = null;
+  }
+  throw new ErrorApi(extraerMensaje(cuerpo, respuesta.status), respuesta.status);
+}
+
+// ── Renovacion silenciosa de sesion (interceptor de 401) ─────────────────────
+
+/** Rutas de autenticacion que NO deben disparar un refresh (evita loops). */
+const RUTAS_SIN_REFRESH = ["/auth/login", "/auth/refresh", "/auth/logout"];
+
+function esRutaAuth(path: string): boolean {
+  return RUTAS_SIN_REFRESH.some((ruta) => path.startsWith(ruta));
+}
+
+/**
+ * Promesa de refresh compartida (mutex): si varias peticiones fallan con 401 a
+ * la vez, todas esperan el mismo POST /auth/refresh y luego reintentan.
+ */
+let refrescoEnVuelo: Promise<boolean> | null = null;
+
+async function renovarSesion(): Promise<boolean> {
+  const refreshToken = leerRefresh();
+  if (!refreshToken) return false;
+  try {
+    const respuesta = await fetch(`${URL_BASE}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!respuesta.ok) return false;
+    const datos = (await respuesta.json()) as RespuestaRefresco;
+    guardarTokens(datos.accessToken, datos.refreshToken);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function renovarSesionCompartida(): Promise<boolean> {
+  if (!refrescoEnVuelo) {
+    refrescoEnVuelo = renovarSesion().finally(() => {
+      refrescoEnVuelo = null;
+    });
+  }
+  return refrescoEnVuelo;
+}
+
+/** Limpia la sesion y redirige a /login conservando la ruta de retorno. */
+function forzarReingreso(): void {
+  limpiarSesion();
+  if (typeof window === "undefined") return;
+  const actual = window.location.pathname + window.location.search;
+  window.location.href = `/login?expirada=1&destino=${encodeURIComponent(actual)}`;
+}
+
+/**
+ * Ejecuta un fetch autenticado con Bearer token. Ante 401 intenta UNA
+ * renovacion silenciosa (compartida entre peticiones concurrentes) y reintenta
+ * la peticion original una sola vez. Si el refresh falla, fuerza el reingreso.
+ */
+async function fetchConAuth(
+  path: string,
+  opts: RequestInit,
+  incluirContentTypeJson: boolean,
+): Promise<Response> {
+  const construir = (): Promise<Response> => {
+    const token = leerToken();
+    const cabeceras = new Headers(opts.headers);
+    if (incluirContentTypeJson) cabeceras.set("Content-Type", "application/json");
+    if (token) cabeceras.set("Authorization", `Bearer ${token}`);
+    return fetch(`${URL_BASE}${path}`, { ...opts, headers: cabeceras });
+  };
+
+  const respuesta = await construir();
+  if (respuesta.status !== 401 || esRutaAuth(path)) return respuesta;
+
+  const renovado = await renovarSesionCompartida();
+  if (!renovado) {
+    forzarReingreso();
+    throw new ErrorApi("Tu sesión expiró, vuelve a ingresar", 401);
+  }
+
+  const reintento = await construir();
+  if (reintento.status === 401) {
+    forzarReingreso();
+    throw new ErrorApi("Tu sesión expiró, vuelve a ingresar", 401);
+  }
+  return reintento;
+}
+
 /**
  * Wrapper de fetch que inyecta el Bearer token desde localStorage, parsea
  * JSON y lanza `ErrorApi` con el mensaje del backend ante respuestas no OK.
+ * Ante 401 renueva la sesion en silencio y reintenta.
  */
 export async function apiFetch<T>(
   path: string,
   opts: RequestInit = {},
 ): Promise<T> {
-  const token = leerToken();
-  const cabeceras = new Headers(opts.headers);
-  cabeceras.set("Content-Type", "application/json");
-  if (token) cabeceras.set("Authorization", `Bearer ${token}`);
-
-  const respuesta = await fetch(`${URL_BASE}${path}`, {
-    ...opts,
-    headers: cabeceras,
-  });
-
-  if (!respuesta.ok) {
-    let cuerpo: CuerpoError | null = null;
-    try {
-      cuerpo = (await respuesta.json()) as CuerpoError;
-    } catch {
-      cuerpo = null;
-    }
-    throw new ErrorApi(extraerMensaje(cuerpo, respuesta.status), respuesta.status);
-  }
-
+  const respuesta = await fetchConAuth(path, opts, true);
+  await lanzarSiError(respuesta);
   if (respuesta.status === 204) return undefined as T;
   return (await respuesta.json()) as T;
 }
@@ -75,21 +156,8 @@ export async function descargarArchivo(
   path: string,
   nombreSugerido: string,
 ): Promise<void> {
-  const token = leerToken();
-  const cabeceras = new Headers();
-  if (token) cabeceras.set("Authorization", `Bearer ${token}`);
-
-  const respuesta = await fetch(`${URL_BASE}${path}`, { headers: cabeceras });
-
-  if (!respuesta.ok) {
-    let cuerpo: CuerpoError | null = null;
-    try {
-      cuerpo = (await respuesta.json()) as CuerpoError;
-    } catch {
-      cuerpo = null;
-    }
-    throw new ErrorApi(extraerMensaje(cuerpo, respuesta.status), respuesta.status);
-  }
+  const respuesta = await fetchConAuth(path, {}, false);
+  await lanzarSiError(respuesta);
 
   const blob = await respuesta.blob();
   const url = URL.createObjectURL(blob);
@@ -116,21 +184,8 @@ export async function descargarJson(
   path: string,
   nombreArchivo: string,
 ): Promise<void> {
-  const token = leerToken();
-  const cabeceras = new Headers();
-  if (token) cabeceras.set("Authorization", `Bearer ${token}`);
-
-  const respuesta = await fetch(`${URL_BASE}${path}`, { headers: cabeceras });
-
-  if (!respuesta.ok) {
-    let cuerpo: CuerpoError | null = null;
-    try {
-      cuerpo = (await respuesta.json()) as CuerpoError;
-    } catch {
-      cuerpo = null;
-    }
-    throw new ErrorApi(extraerMensaje(cuerpo, respuesta.status), respuesta.status);
-  }
+  const respuesta = await fetchConAuth(path, {}, false);
+  await lanzarSiError(respuesta);
 
   const datos = await respuesta.json();
   const blob = new Blob([JSON.stringify(datos, null, 2)], {
@@ -157,20 +212,25 @@ export async function login(datos: LoginInput): Promise<RespuestaLogin> {
     body: JSON.stringify(datos),
   });
 
-  if (!respuesta.ok) {
-    let cuerpo: CuerpoError | null = null;
-    try {
-      cuerpo = (await respuesta.json()) as CuerpoError;
-    } catch {
-      cuerpo = null;
-    }
-    throw new ErrorApi(
-      extraerMensaje(cuerpo, respuesta.status),
-      respuesta.status,
-    );
-  }
-
+  await lanzarSiError(respuesta);
   return (await respuesta.json()) as RespuestaLogin;
+}
+
+/**
+ * Revoca el refresh token en el servidor (logout). Usa fetch directo porque el
+ * endpoint es publico y no debe disparar la renovacion silenciosa. No lanza si
+ * el servidor falla: el cierre de sesion local procede igual.
+ */
+export async function cerrarSesionServidor(refreshToken: string): Promise<void> {
+  try {
+    await fetch(`${URL_BASE}/auth/logout`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refreshToken }),
+    });
+  } catch {
+    // El logout local procede aunque el servidor no responda.
+  }
 }
 
 // ── Tipos de respuesta de la API ───────────────────────────────────────────
