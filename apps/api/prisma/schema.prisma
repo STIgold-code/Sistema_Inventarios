@@ -616,9 +616,31 @@ model Usuario {
   valesAutorizados          ValeSalida[]          @relation("ValeSalidaAutorizador")
   cierresRealizados         CierrePeriodo[]       @relation("CierrePeriodoCerradoPor")
   registrosAuditoria        RegistroAuditoria[]
+  tokensRefresh             TokenRefresh[]
 
   @@unique([empresaId, email])
   @@map("usuario")
+}
+
+/// Token de refresco (sesion persistente). Se guarda SOLO el hash SHA-256 del
+/// token opaco entregado al cliente; el token plano nunca se persiste. La
+/// rotacion encadena registros via reemplazadoPorId para detectar reuso.
+model TokenRefresh {
+  id               BigInt    @id @default(autoincrement())
+  usuarioId        BigInt    @map("usuario_id")
+  empresaId        BigInt    @map("empresa_id")
+  tokenHash        String    @unique @map("token_hash")
+  expiraEn         DateTime  @map("expira_en")
+  revocadoEn       DateTime? @map("revocado_en")
+  reemplazadoPorId BigInt?   @map("reemplazado_por_id")
+  creadoEn         DateTime  @default(now()) @map("creado_en")
+
+  usuario        Usuario        @relation(fields: [usuarioId], references: [id])
+  reemplazadoPor TokenRefresh?  @relation("RotacionToken", fields: [reemplazadoPorId], references: [id])
+  reemplazaA     TokenRefresh[] @relation("RotacionToken")
+
+  @@index([usuarioId])
+  @@map("token_refresh")
 }
 
 model Rol {

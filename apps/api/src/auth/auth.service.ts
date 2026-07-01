@@ -1,6 +1,9 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
+import { Prisma } from "@prisma/client";
 import * as bcrypt from "bcrypt";
+import { createHash, randomBytes } from "node:crypto";
 import { PrismaService } from "../comun/prisma/prisma.service.js";
 
 interface PayloadToken {
@@ -9,22 +12,37 @@ interface PayloadToken {
   email: string;
 }
 
-export interface ResultadoLogin {
-  token: string;
-  usuario: {
-    id: string;
-    empresaId: string;
-    email: string;
-    nombre: string;
-    permisos: string[];
-  };
+interface UsuarioAutenticado {
+  id: string;
+  empresaId: string;
+  email: string;
+  nombre: string;
+  permisos: string[];
 }
+
+export interface ResultadoLogin {
+  /** Access token JWT de vida corta. Se mantiene el nombre `token` por compatibilidad. */
+  token: string;
+  /** Refresh token opaco (texto plano). Solo se entrega en esta respuesta. */
+  refreshToken: string;
+  usuario: UsuarioAutenticado;
+}
+
+export interface ResultadoRefresco {
+  accessToken: string;
+  refreshToken: string;
+  usuario: UsuarioAutenticado;
+}
+
+/** Cantidad de bytes aleatorios del refresh token opaco (256 bits). */
+const BYTES_REFRESH = 32;
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly config: ConfigService,
   ) {}
 
   async login(email: string, clave: string): Promise<ResultadoLogin> {
@@ -40,22 +58,112 @@ export class AuthService {
     }
 
     const permisos = this.extraerPermisos(usuario.roles);
-    const payload: PayloadToken = {
-      sub: usuario.id.toString(),
+    const datos: UsuarioAutenticado = {
+      id: usuario.id.toString(),
       empresaId: usuario.empresaId.toString(),
       email: usuario.email,
+      nombre: usuario.nombre,
+      permisos,
     };
 
+    const { accessToken, refreshToken } = await this.emitirPar(
+      usuario.id,
+      usuario.empresaId,
+      usuario.email,
+    );
+
+    return { token: accessToken, refreshToken, usuario: datos };
+  }
+
+  /**
+   * Renueva la sesion a partir de un refresh token opaco. Rota el token
+   * (revoca el actual y emite uno nuevo encadenado). Si detecta reuso de un
+   * token ya revocado, revoca toda la cadena de sesiones del usuario como
+   * defensa ante robo de token.
+   */
+  async refrescar(refreshTokenPlano: string): Promise<ResultadoRefresco> {
+    const hash = this.hashToken(refreshTokenPlano);
+    const registro = await this.prisma.tokenRefresh.findUnique({
+      where: { tokenHash: hash },
+    });
+
+    if (!registro) {
+      throw new UnauthorizedException("Sesion invalida");
+    }
+
+    // Reuso: un token ya revocado se vuelve a presentar. Revoca toda la cadena
+    // activa del usuario (posible robo del refresh token).
+    if (registro.revocadoEn !== null) {
+      await this.revocarSesionesUsuario(registro.usuarioId);
+      throw new UnauthorizedException("Sesion invalida");
+    }
+
+    if (registro.expiraEn.getTime() <= Date.now()) {
+      throw new UnauthorizedException("Sesion expirada");
+    }
+
+    const usuario = await this.prisma.usuario.findFirst({
+      where: { id: registro.usuarioId, activo: true },
+      include: {
+        roles: { include: { rol: { include: { permisos: { include: { permiso: true } } } } } },
+      },
+    });
+    if (!usuario) {
+      throw new UnauthorizedException("Usuario no valido");
+    }
+
+    // Rotacion atomica: la revocacion del token actual es la GUARDA de
+    // concurrencia. Se marca revocado condicionando a que siga activo; si otra
+    // peticion concurrente ya lo roto (count === 0), es reuso/carrera: se revoca
+    // toda la cadena activa del usuario y se rechaza. Solo el ganador emite el
+    // par nuevo, garantizando un unico uso por token.
+    const { accessToken, refreshToken } = await this.prisma.$transaction(
+      async (tx) => {
+        const revocado = await tx.tokenRefresh.updateMany({
+          where: { id: registro.id, revocadoEn: null },
+          data: { revocadoEn: new Date() },
+        });
+        if (revocado.count === 0) {
+          await tx.tokenRefresh.updateMany({
+            where: { usuarioId: registro.usuarioId, revocadoEn: null },
+            data: { revocadoEn: new Date() },
+          });
+          throw new UnauthorizedException("Sesion invalida");
+        }
+        const par = await this.emitirPar(
+          usuario.id,
+          usuario.empresaId,
+          usuario.email,
+          tx,
+        );
+        await tx.tokenRefresh.update({
+          where: { id: registro.id },
+          data: { reemplazadoPorId: par.idRefresh },
+        });
+        return { accessToken: par.accessToken, refreshToken: par.refreshToken };
+      },
+    );
+
     return {
-      token: await this.jwt.signAsync(payload),
+      accessToken,
+      refreshToken,
       usuario: {
         id: usuario.id.toString(),
         empresaId: usuario.empresaId.toString(),
         email: usuario.email,
         nombre: usuario.nombre,
-        permisos,
+        permisos: this.extraerPermisos(usuario.roles),
       },
     };
+  }
+
+  /** Revoca un refresh token (logout). No falla si el token no existe. */
+  async revocar(refreshTokenPlano: string): Promise<void> {
+    const hash = this.hashToken(refreshTokenPlano);
+    await this.prisma.tokenRefresh.updateMany({
+      where: { tokenHash: hash, revocadoEn: null },
+      data: { revocadoEn: new Date() },
+    });
   }
 
   /** Carga el usuario y sus permisos a partir del id del token. */
@@ -82,6 +190,59 @@ export class AuthService {
       nombre: usuario.nombre,
       permisos: this.extraerPermisos(usuario.roles),
     };
+  }
+
+  /**
+   * Emite un par access (JWT corto) + refresh (opaco). Persiste el hash del
+   * refresh y devuelve el token PLANO (unica vez que se conoce). Acepta un
+   * cliente transaccional opcional para encadenar con la rotacion.
+   */
+  private async emitirPar(
+    usuarioId: bigint,
+    empresaId: bigint,
+    email: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<{
+    accessToken: string;
+    refreshToken: string;
+    idRefresh: bigint;
+  }> {
+    const payload: PayloadToken = {
+      sub: usuarioId.toString(),
+      empresaId: empresaId.toString(),
+      email,
+    };
+    const accessToken = await this.jwt.signAsync(payload);
+
+    const refreshToken = randomBytes(BYTES_REFRESH).toString("hex");
+    const tokenHash = this.hashToken(refreshToken);
+    const expiraEn = new Date(Date.now() + this.diasRefresh() * 24 * 60 * 60 * 1000);
+
+    const cliente = tx ?? this.prisma;
+    const creado = await cliente.tokenRefresh.create({
+      data: { usuarioId, empresaId, tokenHash, expiraEn },
+    });
+
+    return { accessToken, refreshToken, idRefresh: creado.id };
+  }
+
+  /** Revoca todos los refresh tokens activos de un usuario (defensa por reuso). */
+  private async revocarSesionesUsuario(usuarioId: bigint): Promise<void> {
+    await this.prisma.tokenRefresh.updateMany({
+      where: { usuarioId, revocadoEn: null },
+      data: { revocadoEn: new Date() },
+    });
+  }
+
+  /** SHA-256 del token opaco. Nunca se persiste ni se loguea el token plano. */
+  private hashToken(tokenPlano: string): string {
+    return createHash("sha256").update(tokenPlano).digest("hex");
+  }
+
+  private diasRefresh(): number {
+    const bruto = this.config.get<string>("JWT_REFRESH_DIAS");
+    const dias = bruto ? Number.parseInt(bruto, 10) : 30;
+    return Number.isFinite(dias) && dias > 0 ? dias : 30;
   }
 
   private extraerPermisos(

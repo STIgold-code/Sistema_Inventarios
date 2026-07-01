@@ -12,7 +12,7 @@ import { PermisosGuard } from "./permisos.guard.js";
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         secret: config.getOrThrow<string>("JWT_SECRET"),
-        signOptions: { expiresIn: config.get<string>("JWT_EXPIRACION") ?? "8h" },
+        signOptions: { expiresIn: config.get<string>("JWT_EXPIRACION") ?? "1h" },
       }),
     }),
   ],

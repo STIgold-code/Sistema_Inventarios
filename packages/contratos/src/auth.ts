@@ -15,6 +15,16 @@ export interface UsuarioAutenticado {
 }
 
 export interface RespuestaLogin {
+  /** Access token JWT de vida corta. Se conserva `token` por compatibilidad. */
   token: string;
+  /** Refresh token opaco para la renovacion silenciosa de sesion. */
+  refreshToken: string;
+  usuario: UsuarioAutenticado;
+}
+
+/** Respuesta de POST /auth/refresh: par renovado + usuario. */
+export interface RespuestaRefresco {
+  accessToken: string;
+  refreshToken: string;
   usuario: UsuarioAutenticado;
 }
