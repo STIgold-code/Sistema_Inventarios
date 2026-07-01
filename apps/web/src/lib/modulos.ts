@@ -40,7 +40,7 @@ export const INICIO: Enlace = { href: "/panel", etiqueta: "Inicio" };
  */
 export const MODULOS: readonly ModuloNav[] = [
   {
-    titulo: "Datos base",
+    titulo: "Datos maestros",
     color: "datos",
     enlaces: [
       { href: "/panel/productos", etiqueta: "Productos" },
