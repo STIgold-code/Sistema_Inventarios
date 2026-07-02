@@ -1,5 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
+import { ScheduleModule } from "@nestjs/schedule";
+import { ThrottlerModule } from "@nestjs/throttler";
 import { PrismaModule } from "./comun/prisma/prisma.module.js";
 import { SaludModule } from "./salud/salud.module.js";
 import { AuthModule } from "./auth/auth.module.js";
@@ -43,6 +45,15 @@ import { DashboardModule } from "./modulos/dashboard/dashboard.module.js";
       isGlobal: true,
       envFilePath: ["../../.env"],
     }),
+    // Rate limiting. NO se registra ThrottlerGuard como APP_GUARD global a
+    // proposito: solo AuthController lo aplica (ver @UseGuards ahi). Este default
+    // laxo (20 req/min por IP) cubre las rutas del controller que no fijan un
+    // limite propio (p. ej. si en el futuro se agregan endpoints de auth).
+    ThrottlerModule.forRoot([
+      { name: "default", ttl: 60_000, limit: 20 },
+    ]),
+    // Habilita @Cron para las tareas programadas (purga de tokens obsoletos).
+    ScheduleModule.forRoot(),
     PrismaModule,
     SaludModule,
     AuthModule,

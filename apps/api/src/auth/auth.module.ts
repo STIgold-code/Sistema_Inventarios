@@ -5,6 +5,7 @@ import { AuthController } from "./auth.controller.js";
 import { AuthService } from "./auth.service.js";
 import { JwtGuard } from "./jwt.guard.js";
 import { PermisosGuard } from "./permisos.guard.js";
+import { TareasAuthService } from "./tareas-auth.service.js";
 
 @Module({
   imports: [
@@ -17,7 +18,7 @@ import { PermisosGuard } from "./permisos.guard.js";
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtGuard, PermisosGuard],
+  providers: [AuthService, JwtGuard, PermisosGuard, TareasAuthService],
   exports: [AuthService, JwtGuard, PermisosGuard, JwtModule],
 })
 export class AuthModule {}

@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import { json, urlencoded } from "express";
 import { AppModule } from "./app.module.js";
 import { FiltroExcepcionesPrisma } from "./comun/filtros/prisma-exception.filter.js";
@@ -17,7 +18,16 @@ const LIMITE_CUERPO = "5mb";
 };
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bodyParser: false });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bodyParser: false,
+  });
+
+  // Railway (y cualquier PaaS) sirve la app detras de un proxy inverso. Sin esto,
+  // Express veria siempre la IP del proxy y el rate limiting agruparia a TODOS los
+  // clientes bajo una sola IP, bloqueandolos entre si. Con trust proxy = 1 se toma
+  // la IP real del cliente desde el primer salto de X-Forwarded-For, que es lo que
+  // usa el ThrottlerGuard para rastrear por IP.
+  app.set("trust proxy", 1);
 
   app.use(json({ limit: LIMITE_CUERPO }));
   app.use(urlencoded({ extended: true, limit: LIMITE_CUERPO }));

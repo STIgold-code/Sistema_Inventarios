@@ -37,6 +37,13 @@ export interface ResultadoRefresco {
 /** Cantidad de bytes aleatorios del refresh token opaco (256 bits). */
 const BYTES_REFRESH = 32;
 
+/**
+ * Dias que se conserva un token ya revocado antes de purgarlo. Da una ventana
+ * breve de auditoria/forense (p. ej. investigar un reuso) sin dejar crecer la
+ * tabla indefinidamente.
+ */
+const DIAS_RETENCION_REVOCADOS = 7;
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -164,6 +171,31 @@ export class AuthService {
       where: { tokenHash: hash, revocadoEn: null },
       data: { revocadoEn: new Date() },
     });
+  }
+
+  /**
+   * Purga tokens de refresh que ya no aportan valor: los expirados y los
+   * revocados hace mas de {@link DIAS_RETENCION_REVOCADOS} dias. Evita que la
+   * tabla crezca sin techo. La self-FK reemplazadoPorId es ON DELETE SET NULL,
+   * asi que borrar registros encadenados no rompe la integridad referencial.
+   * Devuelve la cantidad de filas eliminadas.
+   */
+  async purgarTokensObsoletos(): Promise<number> {
+    const ahora = new Date();
+    const limiteRevocados = new Date(
+      ahora.getTime() - DIAS_RETENCION_REVOCADOS * 24 * 60 * 60 * 1000,
+    );
+    // Nota: `lt` sobre revocadoEn ya excluye los NULL (una comparacion contra
+    // NULL nunca es verdadera), de modo que los tokens activos no se tocan.
+    const { count } = await this.prisma.tokenRefresh.deleteMany({
+      where: {
+        OR: [
+          { expiraEn: { lt: ahora } },
+          { revocadoEn: { lt: limiteRevocados } },
+        ],
+      },
+    });
+    return count;
   }
 
   /** Carga el usuario y sus permisos a partir del id del token. */
