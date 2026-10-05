@@ -39,7 +39,7 @@ describe("ValesService (integracion)", () => {
     const admin = await prisma.usuario.findFirstOrThrow({ where: { empresaId: empresa.id } });
     const almacen = await prisma.almacen.findFirstOrThrow({ where: { empresaId: empresa.id } });
     almacenId = almacen.id;
-    usuario = { id: admin.id, empresaId: empresa.id, email: admin.email, nombre: admin.nombre, permisos: [] };
+    usuario = { id: admin.id, empresaId: empresa.id, email: admin.email, nombre: admin.nombre, permisos: [], debeCambiarClave: false };
 
     // Segundo usuario real (el FK autorizadoPorId lo exige) para autorizar/despachar.
     const segundo = await prisma.usuario.create({
@@ -56,6 +56,7 @@ describe("ValesService (integracion)", () => {
       email: segundo.email,
       nombre: segundo.nombre,
       permisos: [],
+      debeCambiarClave: false,
     };
 
     const centro = await prisma.centroCosto.create({

@@ -38,6 +38,7 @@ describe("MovimientoService (integracion)", () => {
       email: admin.email,
       nombre: admin.nombre,
       permisos: [],
+      debeCambiarClave: false,
     };
   });
 

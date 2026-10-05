@@ -604,6 +604,12 @@ model Usuario {
   hashClave String   @map("hash_clave")
   nombre    String
   activo    Boolean  @default(true)
+  /// true cuando la clave vigente la fijo alguien distinto del titular (seed,
+  /// alta o restablecimiento). El titular debe reemplazarla al ingresar.
+  debeCambiarClave Boolean @default(false) @map("debe_cambiar_clave")
+  /// Version de sesion: viaja en el JWT (claim `ver`). Al revocar las sesiones
+  /// se incrementa y todo access token emitido antes deja de ser valido.
+  versionSesion Int @default(0) @map("version_sesion")
   creadoEn  DateTime @default(now()) @map("creado_en")
 
   empresa     Empresa           @relation(fields: [empresaId], references: [id])
@@ -1601,8 +1607,8 @@ model RegistroAuditoria {
   id        BigInt   @id @default(autoincrement())
   empresaId BigInt   @map("empresa_id")
   usuarioId BigInt   @map("usuario_id")
-  accion    String // CREAR, APROBAR, RECHAZAR, ANULAR, DESPACHAR, AUTORIZAR, RECIBIR, DEVOLVER, MARCAR_DETERIORADO, RECUPERAR, BAJA_DETERIORO, CERRAR_PERIODO, REABRIR_PERIODO
-  entidad   String // REQUERIMIENTO, ORDEN_COMPRA, RECEPCION, VALE_SALIDA, ORDEN_VENTA, DEVOLUCION, MOVIMIENTO, TRASLADO, CIERRE
+  accion    String // CREAR, APROBAR, RECHAZAR, ANULAR, DESPACHAR, AUTORIZAR, RECIBIR, DEVOLVER, MARCAR_DETERIORADO, RECUPERAR, BAJA_DETERIORO, CERRAR_PERIODO, REABRIR_PERIODO, CAMBIAR_CLAVE
+  entidad   String // REQUERIMIENTO, ORDEN_COMPRA, RECEPCION, VALE_SALIDA, ORDEN_VENTA, DEVOLUCION, MOVIMIENTO, TRASLADO, CIERRE, USUARIO
   entidadId BigInt?  @map("entidad_id")
   detalle   String? // Texto legible, ej "Requerimiento N° 5 aprobado"
   creadoEn  DateTime @default(now()) @map("creado_en")

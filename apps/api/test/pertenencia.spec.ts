@@ -43,7 +43,7 @@ describe("Pertenencia por empresa en orden de compra (integracion)", () => {
     const admin = await prisma.usuario.findFirstOrThrow({ where: { empresaId: empresaA.id } });
     const almacenA = await prisma.almacen.findFirstOrThrow({ where: { empresaId: empresaA.id } });
     almacenPropio = almacenA.id;
-    usuario = { id: admin.id, empresaId: empresaA.id, email: admin.email, nombre: admin.nombre, permisos: [] };
+    usuario = { id: admin.id, empresaId: empresaA.id, email: admin.email, nombre: admin.nombre, permisos: [], debeCambiarClave: false };
 
     const familiaA = await prisma.familia.findFirstOrThrow({ where: { empresaId: empresaA.id } });
     const unidadA = await prisma.unidad.findFirstOrThrow({ where: { empresaId: empresaA.id } });

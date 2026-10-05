@@ -34,6 +34,22 @@ export function guardarTokens(token: string, refreshToken: string): void {
   window.localStorage.setItem(CLAVE_REFRESH, refreshToken);
 }
 
+/** Reemplaza el usuario guardado (permisos y marca de clave temporal vigentes). */
+export function guardarUsuario(usuario: UsuarioAutenticado): void {
+  if (!hayNavegador()) return;
+  window.localStorage.setItem(CLAVE_USUARIO, JSON.stringify(usuario));
+}
+
+/**
+ * Marca el usuario guardado con clave temporal pendiente. Se usa cuando la API
+ * rechaza con CLAVE_TEMPORAL y el usuario guardado esta desactualizado.
+ */
+export function marcarCambioClavePendiente(): void {
+  const usuario = leerUsuario();
+  if (!usuario) return;
+  guardarUsuario({ ...usuario, debeCambiarClave: true });
+}
+
 export function leerToken(): string | null {
   if (!hayNavegador()) return null;
   return window.localStorage.getItem(CLAVE_TOKEN);

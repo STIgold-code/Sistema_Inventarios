@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { PrismaClient } from "@prisma/client";
-import * as bcrypt from "bcrypt";
+import { hashearClave } from "../src/auth/clave.js";
 
 const prisma = new PrismaClient();
 const aqui = dirname(fileURLToPath(import.meta.url));
@@ -174,22 +174,23 @@ async function main(): Promise<void> {
   }
 
   // --- Usuario administrador ---
-  const hashClave = await bcrypt.hash("admin1234", 10);
-  const admin = await prisma.usuario.upsert({
+  // Solo se crea si no existe: uno existente conserva su clave y sus roles.
+  const adminExistente = await prisma.usuario.findUnique({
     where: { empresaId_email: { empresaId: empresa.id, email: "admin@bmingenieros.pe" } },
-    update: {},
-    create: {
-      empresaId: empresa.id,
-      email: "admin@bmingenieros.pe",
-      hashClave,
-      nombre: "Administrador",
-    },
+    select: { id: true },
   });
-  await prisma.usuarioRol.upsert({
-    where: { usuarioId_rolId: { usuarioId: admin.id, rolId: rolAdmin.id } },
-    update: {},
-    create: { usuarioId: admin.id, rolId: rolAdmin.id },
-  });
+  if (!adminExistente) {
+    await prisma.usuario.create({
+      data: {
+        empresaId: empresa.id,
+        email: "admin@bmingenieros.pe",
+        hashClave: await hashearClave("admin1234"),
+        nombre: "Administrador",
+        debeCambiarClave: true,
+        roles: { create: { rolId: rolAdmin.id } },
+      },
+    });
+  }
 
   console.log("Seed completado:");
   console.log(`  Empresa: ${empresa.nombre} (RUC ${empresa.ruc})`);
@@ -197,7 +198,11 @@ async function main(): Promise<void> {
   console.log(`  Unidades: ${UNIDADES.length}`);
   console.log(`  Permisos: ${PERMISOS.length}`);
   console.log(`  Centros de costo: ${CENTROS_COSTO.length}`);
-  console.log(`  Usuario: admin@bmingenieros.pe / admin1234`);
+  console.log(
+    adminExistente
+      ? "  Usuario: admin@bmingenieros.pe (ya existia, conserva su clave)"
+      : "  Usuario: admin@bmingenieros.pe / admin1234 (temporal, debe cambiarse al ingresar)",
+  );
 }
 
 main()

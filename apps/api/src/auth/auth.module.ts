@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtModule } from "@nestjs/jwt";
+import { AuditoriaService } from "../modulos/auditoria/auditoria.service.js";
 import { AuthController } from "./auth.controller.js";
 import { AuthService } from "./auth.service.js";
 import { JwtGuard } from "./jwt.guard.js";
@@ -18,7 +19,10 @@ import { TareasAuthService } from "./tareas-auth.service.js";
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtGuard, PermisosGuard, TareasAuthService],
+  // AuditoriaService se provee aqui y no via AuditoriaModule porque ese modulo
+  // importa AuthModule (para sus guards): importarlo crearia un ciclo. Es un
+  // servicio sin estado que solo depende de PrismaService (global).
+  providers: [AuthService, AuditoriaService, JwtGuard, PermisosGuard, TareasAuthService],
   exports: [AuthService, JwtGuard, PermisosGuard, JwtModule],
 })
 export class AuthModule {}

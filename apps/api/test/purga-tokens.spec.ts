@@ -4,6 +4,7 @@ import * as bcrypt from "bcrypt";
 import { createHash, randomBytes } from "node:crypto";
 import { PrismaService } from "../src/comun/prisma/prisma.service.js";
 import { AuthService } from "../src/auth/auth.service.js";
+import { AuditoriaService } from "../src/modulos/auditoria/auditoria.service.js";
 
 /**
  * Purga de tokens de refresh obsoletos. Verifica que purgarTokensObsoletos
@@ -16,7 +17,12 @@ describe("Purga de tokens de refresh obsoletos (integracion)", () => {
     secret: "clave-jwt-test",
     signOptions: { expiresIn: "1h" },
   });
-  const auth = new AuthService(prisma, jwt, new ConfigService());
+  const auth = new AuthService(
+    prisma,
+    jwt,
+    new ConfigService(),
+    new AuditoriaService(prisma),
+  );
 
   let empresaId: bigint;
   let usuarioId: bigint;

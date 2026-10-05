@@ -1,28 +1,46 @@
-import type {
-  LoginInput,
-  RespuestaLogin,
-  RespuestaPaginada,
-  RespuestaRefresco,
+import {
+  CODIGO_CLAVE_TEMPORAL,
+  type CambiarClaveInput,
+  type LoginInput,
+  type RespuestaLogin,
+  type RespuestaPaginada,
+  type RespuestaRefresco,
 } from "@bm/contratos";
-import { guardarTokens, leerRefresh, leerToken, limpiarSesion } from "./sesion";
+import {
+  guardarTokens,
+  guardarUsuario,
+  leerRefresh,
+  leerToken,
+  limpiarSesion,
+  marcarCambioClavePendiente,
+} from "./sesion";
 
 const URL_BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4021";
 
-/** Error de API que conserva el mensaje del backend y el codigo HTTP. */
+/**
+ * Error de API que conserva el mensaje del backend, el codigo HTTP y, si el
+ * backend lo envia, un codigo estable legible por maquina (p. ej. CLAVE_TEMPORAL).
+ */
 export class ErrorApi extends Error {
   readonly estado: number;
+  readonly codigo: string | null;
 
-  constructor(mensaje: string, estado: number) {
+  constructor(mensaje: string, estado: number, codigo: string | null = null) {
     super(mensaje);
     this.name = "ErrorApi";
     this.estado = estado;
+    this.codigo = codigo;
   }
 }
 
 interface CuerpoError {
   message?: string | string[];
+  codigo?: string;
 }
+
+/** Ruta de la pantalla de cambio de clave (fuera del panel a proposito). */
+export const RUTA_CAMBIO_CLAVE = "/cambiar-clave";
 
 function extraerMensaje(cuerpo: CuerpoError | null, estado: number): string {
   if (cuerpo?.message) {
@@ -33,7 +51,10 @@ function extraerMensaje(cuerpo: CuerpoError | null, estado: number): string {
   return `Error de servidor (${estado})`;
 }
 
-/** Lanza `ErrorApi` con el mensaje del backend si la respuesta no es OK. */
+/**
+ * Lanza `ErrorApi` con el mensaje del backend si la respuesta no es OK. Si la
+ * API rechaza por clave temporal, ademas lleva al usuario a cambiarla.
+ */
 async function lanzarSiError(respuesta: Response): Promise<void> {
   if (respuesta.ok) return;
   let cuerpo: CuerpoError | null = null;
@@ -42,7 +63,17 @@ async function lanzarSiError(respuesta: Response): Promise<void> {
   } catch {
     cuerpo = null;
   }
-  throw new ErrorApi(extraerMensaje(cuerpo, respuesta.status), respuesta.status);
+  const codigo = cuerpo?.codigo ?? null;
+  if (codigo === CODIGO_CLAVE_TEMPORAL) irACambioClave();
+  throw new ErrorApi(extraerMensaje(cuerpo, respuesta.status), respuesta.status, codigo);
+}
+
+/** Navega a la pantalla de cambio de clave si no se esta ya en ella. */
+function irACambioClave(): void {
+  if (typeof window === "undefined") return;
+  marcarCambioClavePendiente();
+  if (window.location.pathname === RUTA_CAMBIO_CLAVE) return;
+  window.location.href = RUTA_CAMBIO_CLAVE;
 }
 
 // ── Renovacion silenciosa de sesion (interceptor de 401) ─────────────────────
@@ -55,32 +86,79 @@ function esRutaAuth(path: string): boolean {
 }
 
 /**
- * Promesa de refresh compartida (mutex): si varias peticiones fallan con 401 a
- * la vez, todas esperan el mismo POST /auth/refresh y luego reintentan.
+ * Nombre del Web Lock que serializa la renovacion ENTRE PESTANAS. Todas
+ * comparten el mismo refresh token (localStorage); si dos lo enviaran a la vez,
+ * la perdedora presentaria un token ya rotado, la API lo trataria como reuso y
+ * cerraria todas las sesiones del usuario.
+ */
+const BLOQUEO_REFRESH = "bm.refresh";
+
+/**
+ * Promesa de refresh compartida dentro de la pestana: si varias peticiones
+ * fallan con 401 a la vez, todas esperan la misma renovacion y luego reintentan.
  */
 let refrescoEnVuelo: Promise<boolean> | null = null;
 
-async function renovarSesion(): Promise<boolean> {
-  const refreshToken = leerRefresh();
-  if (!refreshToken) return false;
+/**
+ * Ejecuta `tarea` en exclusion mutua entre pestanas con la Web Locks API. Si el
+ * navegador no la soporta, la ejecuta directamente (queda el mutex por pestana).
+ */
+async function conBloqueoEntrePestanas(tarea: () => Promise<boolean>): Promise<boolean> {
+  if (typeof navigator === "undefined" || !("locks" in navigator)) return tarea();
+  const resultado: unknown = await navigator.locks.request(BLOQUEO_REFRESH, tarea);
+  return resultado === true;
+}
+
+/**
+ * Si el refresh guardado ya no es `enviado`, otro escribio la sesion mientras
+ * tanto: devuelve true si dejo una sesion nueva (reintentar con ella) o false si
+ * la cerro. Devuelve null si nadie la toco.
+ */
+function sesionReemplazada(enviado: string): boolean | null {
+  const actual = leerRefresh();
+  if (actual === enviado) return null;
+  return actual !== null;
+}
+
+/**
+ * Renueva la sesion si sigue vigente el refresh token con el que el llamador
+ * hizo su peticion (`refreshInicial`). Corre bajo el bloqueo entre pestanas:
+ * - Si el refresh guardado ya cambio, otra pestana (o el cambio de clave) ya
+ *   renovo: no se llama a la API y se reintenta con el access guardado.
+ * - Al recibir la respuesta solo se escribe si el refresh guardado sigue siendo
+ *   el enviado (compare-and-set): una renovacion que empezo antes de un cambio
+ *   de clave no puede pisar la sesion nueva.
+ * Devuelve true si hay una sesion utilizable para reintentar.
+ */
+async function renovarSesion(refreshInicial: string | null): Promise<boolean> {
+  const enviado = leerRefresh();
+  if (!enviado) return false;
+  if (enviado !== refreshInicial) return true;
   try {
     const respuesta = await fetch(`${URL_BASE}/auth/refresh`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken }),
+      body: JSON.stringify({ refreshToken: enviado }),
     });
+    const otra = sesionReemplazada(enviado);
+    if (otra !== null) return otra;
     if (!respuesta.ok) return false;
     const datos = (await respuesta.json()) as RespuestaRefresco;
+    const otraTrasLeer = sesionReemplazada(enviado);
+    if (otraTrasLeer !== null) return otraTrasLeer;
     guardarTokens(datos.accessToken, datos.refreshToken);
+    // El usuario del refresh es la fuente vigente: otra pestana pudo cambiar la
+    // clave (marca temporal) o un administrador los permisos.
+    guardarUsuario(datos.usuario);
     return true;
   } catch {
     return false;
   }
 }
 
-function renovarSesionCompartida(): Promise<boolean> {
+function renovarSesionCompartida(refreshInicial: string | null): Promise<boolean> {
   if (!refrescoEnVuelo) {
-    refrescoEnVuelo = renovarSesion().finally(() => {
+    refrescoEnVuelo = conBloqueoEntrePestanas(() => renovarSesion(refreshInicial)).finally(() => {
       refrescoEnVuelo = null;
     });
   }
@@ -113,10 +191,13 @@ async function fetchConAuth(
     return fetch(`${URL_BASE}${path}`, { ...opts, headers: cabeceras });
   };
 
+  // Refresh vigente al enviar la peticion: si al fallar ya es otro, alguien
+  // renovo entretanto y basta con reintentar.
+  const refreshInicial = leerRefresh();
   const respuesta = await construir();
   if (respuesta.status !== 401 || esRutaAuth(path)) return respuesta;
 
-  const renovado = await renovarSesionCompartida();
+  const renovado = await renovarSesionCompartida(refreshInicial);
   if (!renovado) {
     forzarReingreso();
     throw new ErrorApi("Tu sesión expiró, vuelve a ingresar", 401);
@@ -214,6 +295,17 @@ export async function login(datos: LoginInput): Promise<RespuestaLogin> {
 
   await lanzarSiError(respuesta);
   return (await respuesta.json()) as RespuestaLogin;
+}
+
+/**
+ * Cambia la clave del usuario autenticado. Devuelve una sesion nueva (la API
+ * revoca todas las anteriores), que el llamador debe guardar.
+ */
+export function cambiarClave(datos: CambiarClaveInput): Promise<RespuestaLogin> {
+  return apiFetch<RespuestaLogin>("/auth/cambiar-clave", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
 }
 
 /**

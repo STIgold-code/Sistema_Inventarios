@@ -62,7 +62,7 @@ describe("CierresService - cierre secuencial", () => {
         hashClave: "x",
       },
     });
-    usuario = { id: admin.id, empresaId: empresa.id, email: admin.email, nombre: admin.nombre, permisos: [] };
+    usuario = { id: admin.id, empresaId: empresa.id, email: admin.email, nombre: admin.nombre, permisos: [], debeCambiarClave: false };
 
     // Un movimiento en cada periodo (la fecha de emision rige el periodo SUNAT).
     await movimientos.recibirCompra(usuario, {

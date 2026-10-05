@@ -4,7 +4,7 @@ import { loginSchema } from "@bm/contratos";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useState, type FormEvent } from "react";
-import { ErrorApi, login } from "@/lib/api";
+import { ErrorApi, login, RUTA_CAMBIO_CLAVE } from "@/lib/api";
 import { guardarSesion } from "@/lib/sesion";
 
 type ErroresCampo = Partial<Record<"email" | "clave", string>>;
@@ -74,7 +74,7 @@ function FormularioLogin(): React.JSX.Element {
         refreshToken: respuesta.refreshToken,
         usuario: respuesta.usuario,
       });
-      router.push(destino);
+      router.push(respuesta.usuario.debeCambiarClave ? RUTA_CAMBIO_CLAVE : destino);
     } catch (error) {
       const mensaje =
         error instanceof ErrorApi

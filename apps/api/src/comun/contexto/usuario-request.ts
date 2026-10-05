@@ -7,6 +7,8 @@ export interface UsuarioRequest {
   email: string;
   nombre: string;
   permisos: string[];
+  /** true mientras la clave vigente sea temporal (fijada por un tercero). */
+  debeCambiarClave: boolean;
 }
 
 /** Request de Express con el usuario autenticado adjunto. */

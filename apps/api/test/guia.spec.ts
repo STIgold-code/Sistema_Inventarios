@@ -25,7 +25,7 @@ describe("GuiasService (integracion)", () => {
       where: { empresaId: empresa.id },
       take: 2,
     });
-    usuario = { id: admin.id, empresaId: empresa.id, email: admin.email, nombre: admin.nombre, permisos: [] };
+    usuario = { id: admin.id, empresaId: empresa.id, email: admin.email, nombre: admin.nombre, permisos: [], debeCambiarClave: false };
 
     const origen = almacenes[0]!.id;
     const destino = almacenes[1]?.id ?? origen;

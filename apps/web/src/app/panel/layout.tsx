@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
-import { cerrarSesionServidor } from "@/lib/api";
+import { cerrarSesionServidor, RUTA_CAMBIO_CLAVE } from "@/lib/api";
 import { haySesion, leerRefresh, leerUsuario, limpiarSesion } from "@/lib/sesion";
 import { INICIO, MODULOS, esActivo, moduloDeRuta } from "@/lib/modulos";
 import type { UsuarioAutenticado } from "@bm/contratos";
@@ -26,7 +26,13 @@ export default function LayoutPanel({
       router.replace("/login");
       return;
     }
-    setUsuario(leerUsuario());
+    const guardado = leerUsuario();
+    // Con clave temporal la API rechaza todo salvo el cambio de clave.
+    if (guardado?.debeCambiarClave) {
+      router.replace(RUTA_CAMBIO_CLAVE);
+      return;
+    }
+    setUsuario(guardado);
     setListo(true);
   }, [router]);
 
@@ -185,6 +191,13 @@ export default function LayoutPanel({
               </p>
             </div>
           </div>
+          <Link
+            href={RUTA_CAMBIO_CLAVE}
+            style={{ color: "var(--sidebar-texto)" }}
+            className="mt-1 flex h-8 w-full items-center justify-center rounded-md text-xs font-medium transition-colors hover:bg-white/10 hover:text-white"
+          >
+            Cambiar mi contraseña
+          </Link>
           <button
             type="button"
             onClick={cerrarSesion}
