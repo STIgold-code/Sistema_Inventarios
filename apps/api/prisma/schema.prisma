@@ -600,7 +600,9 @@ model ConsumoCapa {
 model Usuario {
   id        BigInt   @id @default(autoincrement())
   empresaId BigInt   @map("empresa_id")
-  email     String
+  /// Unico en TODAS las empresas: el login busca por correo sin empresa. Se
+  /// guarda normalizado (sin espacios, en minusculas); un CHECK en la BD lo exige.
+  email     String   @unique
   hashClave String   @map("hash_clave")
   nombre    String
   activo    Boolean  @default(true)
@@ -624,7 +626,6 @@ model Usuario {
   registrosAuditoria        RegistroAuditoria[]
   tokensRefresh             TokenRefresh[]
 
-  @@unique([empresaId, email])
   @@map("usuario")
 }
 

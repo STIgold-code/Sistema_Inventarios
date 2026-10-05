@@ -16,6 +16,7 @@ import {
   validarClaveNueva,
   verificarClave,
 } from "./clave.js";
+import { normalizarEmail } from "./email.js";
 
 /** Payload del access token. `ver` es la version de sesion del usuario. */
 export interface PayloadToken {
@@ -111,13 +112,17 @@ export class AuthService {
     private readonly auditoria: AuditoriaService,
   ) {}
 
+  /**
+   * El correo se compara en su forma canonica (la que se persiste): el usuario
+   * puede escribirlo con mayusculas o espacios. Es unico en todas las empresas.
+   */
   async login(email: string, clave: string): Promise<ResultadoLogin> {
-    const usuario = await this.prisma.usuario.findFirst({
-      where: { email, activo: true },
+    const usuario = await this.prisma.usuario.findUnique({
+      where: { email: normalizarEmail(email) },
       include: INCLUIR_PERMISOS,
     });
 
-    if (!usuario || !(await verificarClave(clave, usuario.hashClave))) {
+    if (!usuario?.activo || !(await verificarClave(clave, usuario.hashClave))) {
       throw new UnauthorizedException("Credenciales invalidas");
     }
 

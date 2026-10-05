@@ -38,6 +38,7 @@ import { FamiliasModule } from "./modulos/familias/familias.module.js";
 import { AuditoriaModule } from "./modulos/auditoria/auditoria.module.js";
 import { ExportModule } from "./modulos/comun/export/export.module.js";
 import { DashboardModule } from "./modulos/dashboard/dashboard.module.js";
+import { UsuariosModule } from "./modulos/usuarios/usuarios.module.js";
 
 @Module({
   imports: [
@@ -90,6 +91,7 @@ import { DashboardModule } from "./modulos/dashboard/dashboard.module.js";
     AuditoriaModule,
     ExportModule,
     DashboardModule,
+    UsuariosModule,
   ],
 })
 export class AppModule {}

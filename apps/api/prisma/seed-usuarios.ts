@@ -1,9 +1,9 @@
 /**
- * Crea los roles del equipo de BM con permisos acotados y un usuario por rol.
+ * Crea los roles del equipo de BM con permisos acotados y los usuarios del equipo.
  * Uso: pnpm --filter @bm/api exec dotenv -e ../../.env -- tsx prisma/seed-usuarios.ts
  */
 import { PrismaClient } from "@prisma/client";
-import * as bcrypt from "bcrypt";
+import { hashearClave } from "../src/auth/clave.js";
 
 const prisma = new PrismaClient();
 
@@ -27,7 +27,7 @@ const ROLES: Record<string, { nombre: string; permisos: string[] }> = {
   },
 };
 
-// Usuario por rol.
+// Usuarios del equipo. El rol ADMIN lo crea seed.ts.
 const USUARIOS: Array<{ email: string; clave: string; nombre: string; rol: string }> = [
   { email: "almacenero@bmingenieros.pe", clave: "almacen1234", nombre: "Almacenero", rol: "ALMACENERO" },
   { email: "compras@bmingenieros.pe", clave: "compras1234", nombre: "Encargado de Compras", rol: "COMPRAS" },
@@ -55,26 +55,41 @@ async function main(): Promise<void> {
     }
   }
 
+  const creados = new Set<string>();
   for (const u of USUARIOS) {
     const rol = await prisma.rol.findFirstOrThrow({
       where: { empresaId: empresa.id, codigo: u.rol },
     });
-    const hashClave = await bcrypt.hash(u.clave, 10);
-    const usuario = await prisma.usuario.upsert({
-      where: { empresaId_email: { empresaId: empresa.id, email: u.email } },
-      update: { nombre: u.nombre, hashClave },
-      create: { empresaId: empresa.id, email: u.email, hashClave, nombre: u.nombre },
+    const existente = await prisma.usuario.findUnique({
+      where: { email: u.email },
+      select: { id: true },
     });
-    await prisma.usuarioRol.upsert({
-      where: { usuarioId_rolId: { usuarioId: usuario.id, rolId: rol.id } },
-      update: {},
-      create: { usuarioId: usuario.id, rolId: rol.id },
+    // Un usuario existente conserva su clave y sus roles (un administrador pudo
+    // quitarle alguno): el seed solo actualiza el nombre.
+    if (existente) {
+      await prisma.usuario.update({ where: { id: existente.id }, data: { nombre: u.nombre } });
+      continue;
+    }
+    // Usuario nuevo: clave inicial temporal (debe cambiarse al ingresar) y su rol.
+    await prisma.usuario.create({
+      data: {
+        empresaId: empresa.id,
+        email: u.email,
+        hashClave: await hashearClave(u.clave),
+        nombre: u.nombre,
+        debeCambiarClave: true,
+        roles: { create: { rolId: rol.id } },
+      },
     });
+    creados.add(u.email);
   }
 
-  console.log("Usuarios del equipo creados:");
+  console.log("Usuarios del equipo (la clave solo se aplica a los creados ahora, como temporal):");
   for (const u of USUARIOS) {
-    console.log(`  ${u.rol.padEnd(11)} | ${u.email} | ${u.clave}`);
+    const estado = creados.has(u.email)
+      ? `creado, clave temporal: ${u.clave}`
+      : "ya existia, conserva su clave";
+    console.log(`  ${u.rol.padEnd(11)} | ${u.email} | ${estado}`);
   }
 }
 

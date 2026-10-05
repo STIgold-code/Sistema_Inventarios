@@ -57,6 +57,7 @@ const PERMISOS: ReadonlyArray<{ codigo: string; nombre: string }> = [
   { codigo: "cierre.reabrir", nombre: "Reabrir periodos cerrados (solo ADMIN)" },
   { codigo: "contabilidad.exportar", nombre: "Configurar cuentas y exportar asientos contables" },
   { codigo: "auditoria.ver", nombre: "Ver la bitacora de auditoria" },
+  { codigo: "usuario.administrar", nombre: "Administrar usuarios y roles" },
 ];
 
 // Centros de costo de ejemplo para la empresa BM.
@@ -176,7 +177,7 @@ async function main(): Promise<void> {
   // --- Usuario administrador ---
   // Solo se crea si no existe: uno existente conserva su clave y sus roles.
   const adminExistente = await prisma.usuario.findUnique({
-    where: { empresaId_email: { empresaId: empresa.id, email: "admin@bmingenieros.pe" } },
+    where: { email: "admin@bmingenieros.pe" },
     select: { id: true },
   });
   if (!adminExistente) {
