@@ -32,6 +32,7 @@ const ENTIDADES: readonly string[] = [
   "TRASLADO",
   "CIERRE_PERIODO",
   "USUARIO",
+  "ROL",
 ];
 
 /**
@@ -54,6 +55,11 @@ const ACCIONES: readonly string[] = [
   "CERRAR",
   "REABRIR",
   "CAMBIAR_CLAVE",
+  "ACTUALIZAR",
+  "DAR_DE_BAJA",
+  "REACTIVAR",
+  "RESTABLECER_CLAVE",
+  "ELIMINAR",
 ];
 
 /** Color de la insignia según la naturaleza de la acción. */

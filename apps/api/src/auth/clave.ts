@@ -103,7 +103,7 @@ export function validarClaveNueva(clave: string, email: string): string | null {
   }
   const parteLocal = llaveComparacion(email.split("@")[0] ?? "");
   if (parteLocal.length >= LARGO_MINIMO_PARTE_LOCAL && llave.includes(parteLocal)) {
-    return "La nueva clave no debe contener tu usuario de correo";
+    return "La clave no debe contener el usuario del correo";
   }
   return null;
 }

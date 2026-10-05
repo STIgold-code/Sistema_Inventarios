@@ -52,7 +52,8 @@ function FormularioLogin(): React.JSX.Element {
     evento.preventDefault();
     setErrorGeneral(null);
 
-    const resultado = loginSchema.safeParse({ email, clave });
+    // El correo se recorta antes de validar: la API lo compara normalizado.
+    const resultado = loginSchema.safeParse({ email: email.trim(), clave });
     if (!resultado.success) {
       const nuevosErrores: ErroresCampo = {};
       for (const incidencia of resultado.error.issues) {

@@ -43,6 +43,13 @@ export function PanelLateral({
 }: Props): React.JSX.Element | null {
   const panelRef = useRef<HTMLDivElement>(null);
   const disparadorRef = useRef<HTMLElement | null>(null);
+  // onCerrar suele ser una función nueva en cada render del padre. Si fuera
+  // dependencia del efecto de foco, cada tecla escrita en el panel volvería a
+  // ejecutarlo: el foco saltaría al disparador y luego al primer control.
+  const onCerrarRef = useRef(onCerrar);
+  useEffect(() => {
+    onCerrarRef.current = onCerrar;
+  }, [onCerrar]);
 
   useEffect(() => {
     if (!abierto) return;
@@ -52,7 +59,7 @@ export function PanelLateral({
 
     function alPresionarTecla(evento: KeyboardEvent): void {
       if (evento.key === "Escape") {
-        onCerrar();
+        onCerrarRef.current();
         return;
       }
       if (evento.key !== "Tab" || !panelRef.current) return;
@@ -93,7 +100,7 @@ export function PanelLateral({
       window.cancelAnimationFrame(id);
       disparadorRef.current?.focus?.();
     };
-  }, [abierto, onCerrar]);
+  }, [abierto]);
 
   if (!abierto) return null;
 

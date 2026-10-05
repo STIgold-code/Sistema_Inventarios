@@ -76,6 +76,13 @@ export interface CambiarClaveInput {
  */
 export const CODIGO_CLAVE_TEMPORAL = "CLAVE_TEMPORAL";
 
+/**
+ * Codigo con el que la API rechaza (400) una clave NUEVA que no cumple las
+ * reglas (cambio de clave, alta de usuario, restablecimiento). Permite marcar
+ * el error en el campo de la clave.
+ */
+export const CODIGO_CLAVE_INVALIDA = "CLAVE_INVALIDA";
+
 export interface UsuarioAutenticado {
   id: string;
   empresaId: string;

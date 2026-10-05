@@ -19,6 +19,8 @@ import { AuthService } from "../src/auth/auth.service.js";
 import { hashearClave } from "../src/auth/clave.js";
 import { CODIGO_CLAVE_TEMPORAL, JwtGuard } from "../src/auth/jwt.guard.js";
 import { AuditoriaService } from "../src/modulos/auditoria/auditoria.service.js";
+import { CODIGO_CLAVE_INVALIDA } from "../src/auth/clave-invalida.js";
+import { cuerpoDelError } from "./apoyo/cuerpo-error.js";
 
 /** Controlador ficticio: un handler normal y uno exento del bloqueo. */
 class ControladorPrueba {
@@ -166,6 +168,9 @@ describe("Cambio de clave y bloqueo por clave temporal (integracion)", () => {
       await expect(
         auth.cambiarClave(id, "no-es-la-clave", CLAVE_NUEVA),
       ).rejects.toBeInstanceOf(BadRequestException);
+      // No es una regla de la clave NUEVA: sin codigo CLAVE_INVALIDA.
+      const cuerpo = await cuerpoDelError(auth.cambiarClave(id, "no-es-la-clave", CLAVE_NUEVA));
+      expect(cuerpo).not.toHaveProperty("codigo");
 
       const fila = await prisma.usuario.findUniqueOrThrow({ where: { id } });
       expect(fila.debeCambiarClave).toBe(true);
@@ -182,6 +187,11 @@ describe("Cambio de clave y bloqueo por clave temporal (integracion)", () => {
       await expect(
         auth.cambiarClave(id, CLAVE_INICIAL, CLAVE_INICIAL),
       ).rejects.toBeInstanceOf(BadRequestException);
+      expect(await cuerpoDelError(auth.cambiarClave(id, CLAVE_INICIAL, CLAVE_INICIAL))).toMatchObject({
+        statusCode: 400,
+        message: "La nueva clave debe ser distinta de la actual",
+        codigo: CODIGO_CLAVE_INVALIDA,
+      });
 
       const fila = await prisma.usuario.findUniqueOrThrow({ where: { id } });
       expect(fila.debeCambiarClave).toBe(true);
@@ -196,7 +206,11 @@ describe("Cambio de clave y bloqueo por clave temporal (integracion)", () => {
       );
       await expect(
         auth.cambiarClave(id, CLAVE_INICIAL, `x${parteLocal.toUpperCase()}!`),
-      ).rejects.toThrow("La nueva clave no debe contener tu usuario de correo");
+      ).rejects.toThrow("La clave no debe contener el usuario del correo");
+      expect(await cuerpoDelError(auth.cambiarClave(id, CLAVE_INICIAL, "ADMIN1234"))).toMatchObject({
+        statusCode: 400,
+        codigo: CODIGO_CLAVE_INVALIDA,
+      });
       expect(await trazasCambio(id)).toBe(0);
     });
 

@@ -21,6 +21,8 @@ import {
   PERMISO_ADMINISTRAR_USUARIOS,
 } from "../src/modulos/usuarios/administracion-usuarios.js";
 import { UsuariosService } from "../src/modulos/usuarios/usuarios.service.js";
+import { CODIGO_CLAVE_INVALIDA } from "../src/auth/clave-invalida.js";
+import { cuerpoDelError } from "./apoyo/cuerpo-error.js";
 import { AuditoriaConBarrera, crearBarrera } from "./apoyo/auditoria-con-barrera.js";
 
 class ControladorPrueba {
@@ -271,15 +273,16 @@ describe("Administracion de usuarios (integracion)", () => {
     it.each([
       ["prohibida", "admin1234"],
       ["corta", "Ab3$xyz"],
-    ])("rechaza una clave %s con 400", async (_caso, clave) => {
-      await expect(
+    ])("rechaza una clave %s con 400 y codigo CLAVE_INVALIDA", async (_caso, clave) => {
+      const cuerpo = await cuerpoDelError(
         servicio.crear(adminA.actor, {
           email: `clave-mala-${RUN}@test.pe`,
           nombre: "Clave mala",
           clave,
           rolIds: [a.rolBasico],
         }),
-      ).rejects.toBeInstanceOf(BadRequestException);
+      );
+      expect(cuerpo).toMatchObject({ statusCode: 400, codigo: CODIGO_CLAVE_INVALIDA });
       expect(await prisma.usuario.count({ where: { email: `clave-mala-${RUN}@test.pe` } })).toBe(0);
     });
 
@@ -403,9 +406,9 @@ describe("Administracion de usuarios (integracion)", () => {
       await expect(
         servicio.restablecerClave(adminA.actor, adminA.id, CLAVE_NUEVA),
       ).rejects.toBeInstanceOf(BadRequestException);
-      await expect(
-        servicio.restablecerClave(adminA.actor, objetivo.id, "Password123"),
-      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(
+        await cuerpoDelError(servicio.restablecerClave(adminA.actor, objetivo.id, "Password123")),
+      ).toMatchObject({ statusCode: 400, codigo: CODIGO_CLAVE_INVALIDA });
       await expect(auth.login(objetivo.email, CLAVE)).resolves.toBeDefined();
     });
   });

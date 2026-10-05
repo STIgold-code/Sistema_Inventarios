@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { cerrarSesionServidor, cambiarClave, ErrorApi } from "@/lib/api";
+import { cerrarSesionServidor, cambiarClave, ErrorApi, esClaveInvalida } from "@/lib/api";
 import { guardarSesion, haySesion, leerRefresh, leerUsuario, limpiarSesion } from "@/lib/sesion";
 
 type Campo = keyof CambiarClaveFormulario;
@@ -121,10 +121,16 @@ export default function PaginaCambiarClave(): React.JSX.Element | null {
       });
       router.replace("/panel");
     } catch (error) {
-      setErrorGeneral(mensajeDeError(error));
       setCargando(false);
-      // El error del servidor casi siempre es la contraseña actual o una regla
-      // de la nueva: se vuelve al primer campo para corregir.
+      // Una regla de la contraseña nueva (codigo CLAVE_INVALIDA) se marca en
+      // su campo; cualquier otro error (p. ej. la actual es incorrecta) va al
+      // aviso general y el foco vuelve al primer campo.
+      if (esClaveInvalida(error)) {
+        setErrores({ claveNueva: error.message });
+        setFocoPendiente("claveNueva");
+        return;
+      }
+      setErrorGeneral(mensajeDeError(error));
       setFocoPendiente("claveActual");
     }
   }

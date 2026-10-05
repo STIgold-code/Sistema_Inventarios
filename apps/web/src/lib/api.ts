@@ -1,4 +1,5 @@
 import {
+  CODIGO_CLAVE_INVALIDA,
   CODIGO_CLAVE_TEMPORAL,
   type CambiarClaveInput,
   type LoginInput,
@@ -37,6 +38,23 @@ export class ErrorApi extends Error {
 interface CuerpoError {
   message?: string | string[];
   codigo?: string;
+}
+
+/**
+ * 403 por falta de permiso. El 403 de contraseña temporal no cuenta: este
+ * modulo ya redirige a /cambiar-clave en ese caso.
+ */
+export function esSinPermiso(error: unknown): boolean {
+  return (
+    error instanceof ErrorApi &&
+    error.estado === 403 &&
+    error.codigo !== CODIGO_CLAVE_TEMPORAL
+  );
+}
+
+/** 400 de una clave nueva que no cumple las reglas (el mensaje es la regla). */
+export function esClaveInvalida(error: unknown): error is ErrorApi {
+  return error instanceof ErrorApi && error.codigo === CODIGO_CLAVE_INVALIDA;
 }
 
 /** Ruta de la pantalla de cambio de clave (fuera del panel a proposito). */
@@ -3262,4 +3280,147 @@ export interface Dashboard {
 /** Resumen gerencial del panel principal en una sola llamada. */
 export function obtenerDashboard(): Promise<Dashboard> {
   return apiFetch<Dashboard>("/dashboard");
+}
+
+// ── Administracion de usuarios y roles: tipos ───────────────────────────────
+
+/** Rol asignado a un usuario (resumen). */
+export interface RolResumen {
+  id: string;
+  codigo: string;
+  nombre: string;
+}
+
+/** Usuario en la administracion (GET/POST/PATCH /usuarios y acciones). */
+export interface UsuarioGestion {
+  id: string;
+  /** Siempre en minusculas y sin espacios (lo normaliza la API). */
+  email: string;
+  nombre: string;
+  activo: boolean;
+  /** true mientras su contraseña sea temporal (debe cambiarla al ingresar). */
+  debeCambiarClave: boolean;
+  /** Fecha de alta en ISO 8601. */
+  creadoEn: string;
+  /** Ordenados por codigo. */
+  roles: RolResumen[];
+}
+
+export interface CrearUsuarioInput {
+  email: string;
+  nombre: string;
+  clave: string;
+  rolIds: number[];
+}
+
+/** Todos opcionales; `rolIds`, si se envia, reemplaza los roles (al menos uno). */
+export interface ActualizarUsuarioInput {
+  email?: string;
+  nombre?: string;
+  rolIds?: number[];
+}
+
+/** Permiso del catalogo global. */
+export interface PermisoCatalogo {
+  id: string;
+  codigo: string;
+  nombre: string;
+}
+
+/** Rol de la empresa (GET/POST/PATCH /roles). */
+export interface RolGestion {
+  id: string;
+  codigo: string;
+  nombre: string;
+  /** true para el rol del sistema (ADMIN): no se edita ni se elimina. */
+  soloLectura: boolean;
+  /** Usuarios asignados, activos o dados de baja. */
+  cantidadUsuarios: number;
+  /** Ordenados por codigo. */
+  permisos: PermisoCatalogo[];
+}
+
+export interface CrearRolInput {
+  codigo: string;
+  nombre: string;
+  permisoIds: number[];
+}
+
+/** El codigo es inmutable; `permisoIds`, si se envia, reemplaza el conjunto. */
+export interface ActualizarRolInput {
+  nombre?: string;
+  permisoIds?: number[];
+}
+
+// ── Administracion de usuarios y roles: funciones de dominio ────────────────
+
+export function obtenerUsuariosGestion(
+  incluirInactivos = false,
+): Promise<UsuarioGestion[]> {
+  const cadena = incluirInactivos ? "?incluirInactivos=true" : "";
+  return apiFetch<UsuarioGestion[]>(`/usuarios${cadena}`);
+}
+
+export function crearUsuario(datos: CrearUsuarioInput): Promise<UsuarioGestion> {
+  return apiFetch<UsuarioGestion>("/usuarios", {
+    method: "POST",
+    body: JSON.stringify({ ...datos, email: datos.email.trim() }),
+  });
+}
+
+export function actualizarUsuario(
+  id: string,
+  datos: ActualizarUsuarioInput,
+): Promise<UsuarioGestion> {
+  const cuerpo =
+    datos.email === undefined ? datos : { ...datos, email: datos.email.trim() };
+  return apiFetch<UsuarioGestion>(`/usuarios/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(cuerpo),
+  });
+}
+
+export function darDeBajaUsuario(id: string): Promise<UsuarioGestion> {
+  return apiFetch<UsuarioGestion>(`/usuarios/${id}/baja`, { method: "POST" });
+}
+
+export function reactivarUsuario(id: string): Promise<UsuarioGestion> {
+  return apiFetch<UsuarioGestion>(`/usuarios/${id}/reactivar`, { method: "POST" });
+}
+
+/** Fija una contraseña temporal para otro usuario y cierra todas sus sesiones. */
+export function restablecerClaveUsuario(
+  id: string,
+  clave: string,
+): Promise<UsuarioGestion> {
+  return apiFetch<UsuarioGestion>(`/usuarios/${id}/restablecer-clave`, {
+    method: "POST",
+    body: JSON.stringify({ clave }),
+  });
+}
+
+export function obtenerPermisosCatalogo(): Promise<PermisoCatalogo[]> {
+  return apiFetch<PermisoCatalogo[]>("/permisos");
+}
+
+export function obtenerRolesGestion(): Promise<RolGestion[]> {
+  return apiFetch<RolGestion[]>("/roles");
+}
+
+export function crearRol(datos: CrearRolInput): Promise<RolGestion> {
+  return apiFetch<RolGestion>("/roles", {
+    method: "POST",
+    body: JSON.stringify({ ...datos, codigo: datos.codigo.trim() }),
+  });
+}
+
+export function actualizarRol(id: string, datos: ActualizarRolInput): Promise<RolGestion> {
+  return apiFetch<RolGestion>(`/roles/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function eliminarRol(id: string): Promise<{ id: string; eliminado: true }> {
+  return apiFetch<{ id: string; eliminado: true }>(`/roles/${id}`, { method: "DELETE" });
 }

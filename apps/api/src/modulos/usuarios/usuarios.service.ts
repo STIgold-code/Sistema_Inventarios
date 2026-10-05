@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { AuthService } from "../../auth/auth.service.js";
+import { excepcionClaveInvalida } from "../../auth/clave-invalida.js";
 import { hashearClave, validarClaveNueva } from "../../auth/clave.js";
 import { normalizarEmail } from "../../auth/email.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
@@ -371,5 +372,5 @@ function exigirRoles(rolIds: bigint[]): void {
 
 function exigirClaveValida(clave: string, email: string): void {
   const error = validarClaveNueva(clave, email);
-  if (error) throw new BadRequestException(error);
+  if (error) throw excepcionClaveInvalida(error);
 }

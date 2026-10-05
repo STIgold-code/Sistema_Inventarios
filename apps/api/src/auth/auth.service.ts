@@ -16,6 +16,7 @@ import {
   validarClaveNueva,
   verificarClave,
 } from "./clave.js";
+import { excepcionClaveInvalida } from "./clave-invalida.js";
 import { normalizarEmail } from "./email.js";
 
 /** Payload del access token. `ver` es la version de sesion del usuario. */
@@ -203,10 +204,10 @@ export class AuthService {
     }
     const errorRegla = validarClaveNueva(claveNueva, usuario.email);
     if (errorRegla) {
-      throw new BadRequestException(errorRegla);
+      throw excepcionClaveInvalida(errorRegla);
     }
     if (claveNueva === claveActual) {
-      throw new BadRequestException("La nueva clave debe ser distinta de la actual");
+      throw excepcionClaveInvalida("La nueva clave debe ser distinta de la actual");
     }
 
     const hashClave = await hashearClave(claveNueva);

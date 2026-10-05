@@ -35,7 +35,7 @@ describe("Reglas de clave nueva", () => {
 
   it("rechaza una clave que contiene la parte local del correo, sin distinguir mayusculas", () => {
     expect(validarClaveNueva("MiClave-ROCIO-2026", EMAIL)).toBe(
-      "La nueva clave no debe contener tu usuario de correo",
+      "La clave no debe contener el usuario del correo",
     );
   });
 
@@ -53,7 +53,7 @@ describe("Reglas de clave nueva", () => {
   });
 
   it("normaliza la regla del correo: tildes en la clave o en el correo", () => {
-    const MENSAJE = "La nueva clave no debe contener tu usuario de correo";
+    const MENSAJE = "La clave no debe contener el usuario del correo";
     expect(validarClaveNueva("Rocío2026", EMAIL)).toBe(MENSAJE);
     expect(validarClaveNueva("raul-2026-x", "raúl@bm.com")).toBe(MENSAJE);
     expect(validarClaveNueva("Roci\u0301o-2026" /* i + acento combinante */, EMAIL)).toBe(MENSAJE);
