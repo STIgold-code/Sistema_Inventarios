@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { hashearClave } from "../src/auth/clave.js";
+import { CODIGO_ROL_SISTEMA } from "../src/modulos/roles/reglas-rol.js";
 
 const prisma = new PrismaClient();
 const aqui = dirname(fileURLToPath(import.meta.url));
@@ -139,9 +140,9 @@ async function main(): Promise<void> {
 
   // --- Rol ADMIN con todos los permisos ---
   const rolAdmin = await prisma.rol.upsert({
-    where: { empresaId_codigo: { empresaId: empresa.id, codigo: "ADMIN" } },
+    where: { empresaId_codigo: { empresaId: empresa.id, codigo: CODIGO_ROL_SISTEMA } },
     update: {},
-    create: { empresaId: empresa.id, codigo: "ADMIN", nombre: "Administrador" },
+    create: { empresaId: empresa.id, codigo: CODIGO_ROL_SISTEMA, nombre: "Administrador" },
   });
   const permisos = await prisma.permiso.findMany();
   for (const per of permisos) {

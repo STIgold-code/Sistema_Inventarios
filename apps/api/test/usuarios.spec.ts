@@ -9,75 +9,26 @@ import { ConfigService } from "@nestjs/config";
 import { Reflector } from "@nestjs/core";
 import { ExecutionContextHost } from "@nestjs/core/helpers/execution-context-host.js";
 import { JwtService } from "@nestjs/jwt";
-import type { Prisma } from "@prisma/client";
 import { AuthService } from "../src/auth/auth.service.js";
 import { hashearClave } from "../src/auth/clave.js";
 import { JwtGuard } from "../src/auth/jwt.guard.js";
 import type { UsuarioRequest } from "../src/comun/contexto/usuario-request.js";
 import { PrismaService } from "../src/comun/prisma/prisma.service.js";
-import {
-  AuditoriaService,
-  type DatosAuditoria,
-} from "../src/modulos/auditoria/auditoria.service.js";
+import { AuditoriaService } from "../src/modulos/auditoria/auditoria.service.js";
 import {
   contarAdministradoresActivos,
   exigirAdministradorActivo,
   PERMISO_ADMINISTRAR_USUARIOS,
 } from "../src/modulos/usuarios/administracion-usuarios.js";
 import { UsuariosService } from "../src/modulos/usuarios/usuarios.service.js";
+import { AuditoriaConBarrera, crearBarrera } from "./apoyo/auditoria-con-barrera.js";
 
 class ControladorPrueba {
   normal(): void {}
 }
 
-/** Espera maxima de la barrera: si no llegan todos, el que espera sigue solo. */
-const ESPERA_BARRERA_MS = 500;
-
 /** Repeticiones de cada carrera (cada una en una empresa nueva). */
 const INTENTOS_CARRERA = 3;
-
-/**
- * Barrera para forzar el solapamiento de dos transacciones: cada una espera a
- * que la otra llegue al mismo punto (o a que venza la espera). Sin el bloqueo
- * de administracion, ambas llegan y se verifican viendo al otro aun activo;
- * con el bloqueo, la segunda no puede llegar hasta que la primera termine.
- */
-function crearBarrera(participantes: number): () => Promise<void> {
-  let llegados = 0;
-  let abrir: () => void = () => undefined;
-  const abierta = new Promise<void>((resolver) => {
-    abrir = resolver;
-  });
-  return async () => {
-    llegados++;
-    if (llegados >= participantes) abrir();
-    let temporizador: NodeJS.Timeout | undefined;
-    const vencida = new Promise<void>((resolver) => {
-      temporizador = setTimeout(resolver, ESPERA_BARRERA_MS);
-    });
-    await Promise.race([abierta, vencida]);
-    clearTimeout(temporizador);
-  };
-}
-
-/**
- * Auditoria que se detiene en la barrera antes de escribir. El registro ocurre
- * dentro de la transaccion, despues de la escritura y antes de la invariante:
- * justo la ventana que el bloqueo debe cerrar.
- */
-class AuditoriaConBarrera extends AuditoriaService {
-  constructor(
-    prisma: PrismaService,
-    private readonly esperar: () => Promise<void>,
-  ) {
-    super(prisma);
-  }
-
-  override async registrar(datos: DatosAuditoria, tx?: Prisma.TransactionClient): Promise<void> {
-    await this.esperar();
-    return super.registrar(datos, tx);
-  }
-}
 
 interface EmpresaPrueba {
   id: bigint;

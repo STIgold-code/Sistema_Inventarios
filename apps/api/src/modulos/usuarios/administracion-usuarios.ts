@@ -1,11 +1,13 @@
 import { ConflictException, ForbiddenException } from "@nestjs/common";
 import type { Prisma } from "@prisma/client";
+import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
+import type { PrismaService } from "../../comun/prisma/prisma.service.js";
 
 /**
- * Reglas compartidas de la administracion de usuarios. Hoy las usa
- * UsuariosService; cualquier otra escritura que pueda quitarle a alguien el
- * permiso de administracion (por ejemplo, editar los permisos de un rol o
- * eliminarlo) debe seguir el mismo patron dentro de su transaccion:
+ * Reglas compartidas de la administracion de usuarios y roles (UsuariosService
+ * y RolesService). Toda escritura que pueda quitarle a alguien el permiso de
+ * administracion corre en {@link ejecutarMutacionAdministrativa}, que aplica
+ * en una sola transaccion:
  *   1. {@link bloquearAdministracionEmpresa}
  *   2. {@link exigirAdministradorVigente} sobre el actor
  *   3. la escritura
@@ -95,4 +97,23 @@ export async function exigirAdministradorActivo(
   throw new ConflictException(
     "La operacion dejaria a la empresa sin ningun usuario activo que pueda administrar usuarios",
   );
+}
+
+/**
+ * Ejecuta una mutacion de administracion con los cuatro pasos documentados
+ * arriba. Es la unica puerta de entrada: asi ningun servicio puede omitir el
+ * bloqueo, la re-verificacion del actor ni la invariante.
+ */
+export function ejecutarMutacionAdministrativa<T>(
+  prisma: PrismaService,
+  actor: UsuarioRequest,
+  operacion: (tx: Prisma.TransactionClient) => Promise<T>,
+): Promise<T> {
+  return prisma.$transaction(async (tx) => {
+    await bloquearAdministracionEmpresa(tx, actor.empresaId);
+    await exigirAdministradorVigente(tx, actor.empresaId, actor.id);
+    const resultado = await operacion(tx);
+    await exigirAdministradorActivo(tx, actor.empresaId);
+    return resultado;
+  });
 }

@@ -11,11 +11,7 @@ import { normalizarEmail } from "../../auth/email.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import { AuditoriaService } from "../auditoria/auditoria.service.js";
-import {
-  bloquearAdministracionEmpresa,
-  exigirAdministradorActivo,
-  exigirAdministradorVigente,
-} from "./administracion-usuarios.js";
+import { ejecutarMutacionAdministrativa } from "./administracion-usuarios.js";
 
 type Tx = Prisma.TransactionClient;
 
@@ -102,7 +98,7 @@ export class UsuariosService {
     exigirClaveValida(datos.clave, email);
     const hashClave = await hashearClave(datos.clave);
 
-    return this.mutar(actor, async (tx) => {
+    return ejecutarMutacionAdministrativa(this.prisma, actor, async (tx) => {
       const roles = await this.resolverRoles(tx, actor.empresaId, datos.rolIds);
       const creado = await conCorreoUnico(
         tx.usuario.create({
@@ -145,7 +141,7 @@ export class UsuariosService {
     const email = datos.email === undefined ? undefined : normalizarEmail(datos.email);
     if (datos.rolIds !== undefined) exigirRoles(datos.rolIds);
 
-    return this.mutar(actor, async (tx) => {
+    return ejecutarMutacionAdministrativa(this.prisma, actor, async (tx) => {
       const actual = await this.buscar(tx, actor.empresaId, usuarioId);
       const cambios: string[] = [];
       const data: Prisma.UsuarioUpdateInput = {};
@@ -190,7 +186,7 @@ export class UsuariosService {
     if (usuarioId === actor.id) {
       throw new BadRequestException("No puedes darte de baja a ti mismo");
     }
-    return this.mutar(actor, async (tx) => {
+    return ejecutarMutacionAdministrativa(this.prisma, actor, async (tx) => {
       const actual = await this.buscar(tx, actor.empresaId, usuarioId);
       if (!actual.activo) throw new ConflictException("El usuario ya esta dado de baja");
       const actualizado = await tx.usuario.update({
@@ -212,7 +208,7 @@ export class UsuariosService {
 
   /** Reactiva un usuario dado de baja. Vuelve a ingresar con su clave vigente. */
   async reactivar(actor: UsuarioRequest, usuarioId: bigint): Promise<UsuarioGestion> {
-    return this.mutar(actor, async (tx) => {
+    return ejecutarMutacionAdministrativa(this.prisma, actor, async (tx) => {
       const actual = await this.buscar(tx, actor.empresaId, usuarioId);
       if (actual.activo) throw new ConflictException("El usuario ya esta activo");
       const actualizado = await tx.usuario.update({
@@ -254,7 +250,7 @@ export class UsuariosService {
     exigirClaveValida(clave, destino.email);
     const hashClave = await hashearClave(clave);
 
-    return this.mutar(actor, async (tx) => {
+    return ejecutarMutacionAdministrativa(this.prisma, actor, async (tx) => {
       const actual = await this.buscar(tx, actor.empresaId, usuarioId);
       if (actual.email !== destino.email) exigirClaveValida(clave, actual.email);
       const actualizado = await tx.usuario.update({
@@ -271,21 +267,6 @@ export class UsuariosService {
         `Clave restablecida para el usuario ${actual.email}`,
       );
       return aGestion(actualizado);
-    });
-  }
-
-  /**
-   * Ejecuta una mutacion de administracion: bloqueo por empresa, re-verificacion
-   * del actor (pudo perder el permiso mientras esperaba el bloqueo), escritura
-   * y, al final, la invariante de al menos un administrador activo.
-   */
-  private mutar<T>(actor: UsuarioRequest, operacion: (tx: Tx) => Promise<T>): Promise<T> {
-    return this.prisma.$transaction(async (tx) => {
-      await bloquearAdministracionEmpresa(tx, actor.empresaId);
-      await exigirAdministradorVigente(tx, actor.empresaId, actor.id);
-      const resultado = await operacion(tx);
-      await exigirAdministradorActivo(tx, actor.empresaId);
-      return resultado;
     });
   }
 

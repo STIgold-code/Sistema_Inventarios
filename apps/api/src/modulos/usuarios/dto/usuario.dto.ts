@@ -6,21 +6,15 @@ import {
   IsInt,
   IsNotEmpty,
   IsString,
+  Max,
   MaxLength,
   Min,
-  ValidateIf,
 } from "class-validator";
 import { Recortar } from "../../../comun/decoradores/recortar.decorator.js";
+import { SiSeEnvia } from "../../../comun/decoradores/si-se-envia.decorator.js";
 
 /** Tope defensivo de roles por usuario en una sola peticion. */
 const MAXIMO_ROLES = 50;
-
-/**
- * Opcional SOLO si se omite. A diferencia de @IsOptional(), un `null`
- * explicito sigue validandose y se rechaza con 400.
- */
-const SiSeEnvia = (): PropertyDecorator =>
-  ValidateIf((_objeto: object, valor: unknown) => valor !== undefined);
 
 /**
  * Las claves solo se validan en forma aqui: sus reglas (largo en bytes, lista
@@ -47,6 +41,8 @@ export class CrearUsuarioDto {
   @ArrayMaxSize(MAXIMO_ROLES)
   @IsInt({ each: true })
   @Min(1, { each: true })
+  // Sin tope, un id mayor pierde precision al parsear el JSON o desborda int8.
+  @Max(Number.MAX_SAFE_INTEGER, { each: true })
   rolIds!: number[];
 }
 
@@ -70,6 +66,7 @@ export class ActualizarUsuarioDto {
   @ArrayMaxSize(MAXIMO_ROLES)
   @IsInt({ each: true })
   @Min(1, { each: true })
+  @Max(Number.MAX_SAFE_INTEGER, { each: true })
   rolIds?: number[];
 }
 

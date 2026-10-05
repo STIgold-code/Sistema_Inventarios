@@ -5,6 +5,7 @@ import type { NestExpressApplication } from "@nestjs/platform-express";
 import { json, urlencoded } from "express";
 import { AppModule } from "./app.module.js";
 import { FiltroExcepcionesPrisma } from "./comun/filtros/prisma-exception.filter.js";
+import { OPCIONES_VALIDACION } from "./comun/pipes/opciones-validacion.js";
 
 /** Límite del cuerpo de la petición; las cargas masivas se envían por lotes. */
 const LIMITE_CUERPO = "5mb";
@@ -33,13 +34,7 @@ async function bootstrap(): Promise<void> {
   app.use(urlencoded({ extended: true, limit: LIMITE_CUERPO }));
 
   app.enableCors();
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      transform: true,
-      transformOptions: { enableImplicitConversion: true },
-    }),
-  );
+  app.useGlobalPipes(new ValidationPipe(OPCIONES_VALIDACION));
   // Traduce errores conocidos de Prisma (duplicados, etc.) a HTTP limpio.
   app.useGlobalFilters(new FiltroExcepcionesPrisma());
 
