@@ -19,6 +19,8 @@ interface NuevoValeSalida {
   ordenTrabajoId?: bigint;
   destino: string;
   observaciones?: string;
+  comprobanteFisico?: string;
+  entregadoA?: string;
   lineas: Array<{
     skuId: bigint;
     cantidad: string;
@@ -108,6 +110,8 @@ export class ValesService {
       autorizadoPorId: v.autorizadoPorId ? v.autorizadoPorId.toString() : null,
       autorizadoPor: v.autorizadoPor ? v.autorizadoPor.nombre : null,
       observaciones: v.observaciones,
+      comprobanteFisico: v.comprobanteFisico,
+      entregadoA: v.entregadoA,
       lineas: v.lineas.map((l) => ({
         id: l.id.toString(),
         skuId: l.skuId.toString(),
@@ -218,6 +222,9 @@ export class ValesService {
           destino: dto.destino,
           estado: "BORRADOR",
           observaciones: dto.observaciones ?? null,
+          // Textos ya recortados: vacio equivale a no informado.
+          comprobanteFisico: dto.comprobanteFisico || null,
+          entregadoA: dto.entregadoA || null,
           lineas: {
             create: lineasControl.map((l) => ({
               empresaId: usuario.empresaId,
@@ -235,7 +242,9 @@ export class ValesService {
           accion: "CREAR",
           entidad: "VALE_SALIDA",
           entidadId: vale.id,
-          detalle: `Vale de salida N° ${vale.numero} creado`,
+          detalle: vale.comprobanteFisico
+            ? `Vale de salida N° ${vale.numero} creado (comprobante fisico ${vale.comprobanteFisico})`
+            : `Vale de salida N° ${vale.numero} creado`,
         },
         tx,
       );
@@ -287,11 +296,13 @@ export class ValesService {
    * AUTORIZADO -> DESPACHADO. Por cada linea genera la salida REAL en el ledger
    * (consumo FIFO, valida stock). Todo dentro de una transaccion: si falta
    * stock en cualquier linea, la operacion completa revierte.
+   * `entregadoA`, si se informa, reemplaza al registrado al crear el vale.
    */
   async despachar(
     usuario: UsuarioRequest,
     id: bigint,
     seriesPorSku: Map<string, string[]> = new Map(),
+    entregadoA?: string,
   ) {
     const vale = await this.cargar(usuario.empresaId, id);
     if (vale.estado !== "AUTORIZADO") {
@@ -306,6 +317,7 @@ export class ValesService {
       );
     }
 
+    const receptor = entregadoA || vale.entregadoA;
     await this.prisma.$transaction(async (tx) => {
       // CAS sobre el estado al inicio de la transaccion: marca DESPACHADO solo si
       // SIGUE AUTORIZADO. Si otra peticion despacho/anulo el vale entre el read y
@@ -314,7 +326,7 @@ export class ValesService {
       // primero (no al final) para cerrar la ventana de carrera.
       const tomado = await tx.valeSalida.updateMany({
         where: { id: vale.id, estado: "AUTORIZADO" },
-        data: { estado: "DESPACHADO" },
+        data: { estado: "DESPACHADO", ...(entregadoA ? { entregadoA } : {}) },
       });
       if (tomado.count === 0) {
         throw new ConflictException("El vale ya no esta AUTORIZADO para despachar");
@@ -341,7 +353,9 @@ export class ValesService {
           accion: "DESPACHAR",
           entidad: "VALE_SALIDA",
           entidadId: vale.id,
-          detalle: `Vale de salida N° ${vale.numero} despachado`,
+          detalle: receptor
+            ? `Vale de salida N° ${vale.numero} despachado, entregado a ${receptor}`
+            : `Vale de salida N° ${vale.numero} despachado`,
         },
         tx,
       );

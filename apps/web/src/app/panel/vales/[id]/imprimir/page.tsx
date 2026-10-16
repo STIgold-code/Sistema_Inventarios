@@ -121,6 +121,12 @@ export default function PaginaImprimirVale(): React.JSX.Element {
                     <th>Estado</th>
                     <td>{ETIQUETA_ESTADO[vale.estado]}</td>
                   </tr>
+                  {vale.comprobanteFisico && (
+                    <tr>
+                      <th>Comprobante físico Nº</th>
+                      <td className="font-mono">{vale.comprobanteFisico}</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -147,6 +153,12 @@ export default function PaginaImprimirVale(): React.JSX.Element {
               <div>
                 <span className="hoja-rotulo">Orden de trabajo</span>
                 <span className="hoja-valor">{vale.ordenTrabajo}</span>
+              </div>
+            )}
+            {vale.entregadoA && (
+              <div>
+                <span className="hoja-rotulo">Entregado a</span>
+                <span className="hoja-valor">{vale.entregadoA}</span>
               </div>
             )}
             {vale.observaciones && (
@@ -198,8 +210,8 @@ export default function PaginaImprimirVale(): React.JSX.Element {
             </div>
             <div className="hoja-firma">
               <div className="hoja-firma-linea" />
-              <p className="hoja-firma-rol">Recibe</p>
-              <p className="hoja-firma-nombre"> </p>
+              <p className="hoja-firma-rol">Entregado a</p>
+              <p className="hoja-firma-nombre">{vale.entregadoA ?? " "}</p>
             </div>
           </section>
 

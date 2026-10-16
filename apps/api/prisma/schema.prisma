@@ -721,6 +721,7 @@ model RequerimientoCompra {
   numero        String // correlativo interno (tipo REQUERIMIENTO)
   fecha         DateTime            @default(now())
   centroCostoId BigInt              @map("centro_costo_id")
+  ordenTrabajoId BigInt?            @map("orden_trabajo_id") // OT para la que se pide el material (opcional)
   solicitanteId BigInt              @map("solicitante_id")
   estado        EstadoRequerimiento @default(BORRADOR)
   aprobadoPorId BigInt?             @map("aprobado_por_id")
@@ -729,6 +730,7 @@ model RequerimientoCompra {
   actualizadoEn DateTime            @updatedAt @map("actualizado_en")
 
   centroCosto CentroCosto                  @relation(fields: [centroCostoId], references: [id])
+  ordenTrabajo OrdenTrabajo?               @relation(fields: [ordenTrabajoId], references: [id])
   solicitante Usuario                      @relation("RequerimientoSolicitante", fields: [solicitanteId], references: [id])
   aprobadoPor Usuario?                     @relation("RequerimientoAprobador", fields: [aprobadoPorId], references: [id])
   lineas      RequerimientoCompraLinea[]
@@ -736,6 +738,7 @@ model RequerimientoCompra {
 
   @@unique([empresaId, numero])
   @@index([empresaId, estado])
+  @@index([empresaId, ordenTrabajoId])
   @@map("requerimiento_compra")
 }
 
@@ -746,11 +749,15 @@ model RequerimientoCompraLinea {
   skuId            BigInt  @map("sku_id")
   cantidad         Decimal @db.Decimal(20, 8)
   justificacion    String?
+  referencia       String? // marca, modelo o referencia indicada por el solicitante
+  proveedorSugeridoId BigInt? @map("proveedor_sugerido_id") // proveedor que sugiere el solicitante (opcional)
 
-  requerimiento RequerimientoCompra @relation(fields: [requerimientoId], references: [id])
+  requerimiento     RequerimientoCompra @relation(fields: [requerimientoId], references: [id])
+  proveedorSugerido Proveedor?          @relation(fields: [proveedorSugeridoId], references: [id])
 
   @@index([requerimientoId])
   @@index([empresaId, skuId])
+  @@index([empresaId, proveedorSugeridoId])
   @@map("requerimiento_compra_linea")
 }
 
@@ -772,6 +779,8 @@ model ValeSalida {
   destino         String // area / obra / proyecto destino del consumo
   estado          EstadoValeSalida @default(BORRADOR)
   observaciones   String?
+  comprobanteFisico String? @map("comprobante_fisico") // numero del comprobante en papel, p. ej. 001-036488
+  entregadoA      String?          @map("entregado_a") // persona que recibe el material cuando no es usuario del sistema
   creadoEn        DateTime         @default(now()) @map("creado_en")
   actualizadoEn   DateTime         @updatedAt @map("actualizado_en")
 
@@ -824,8 +833,9 @@ model OrdenTrabajo {
   creadoEn      DateTime           @default(now()) @map("creado_en")
   actualizadoEn DateTime           @updatedAt @map("actualizado_en")
 
-  centroCosto CentroCosto  @relation(fields: [centroCostoId], references: [id])
-  valesSalida ValeSalida[]
+  centroCosto    CentroCosto           @relation(fields: [centroCostoId], references: [id])
+  valesSalida    ValeSalida[]
+  requerimientos RequerimientoCompra[]
 
   @@unique([empresaId, numero])
   @@index([empresaId, estado])
@@ -851,6 +861,7 @@ model Proveedor {
 
   ordenes     OrdenCompra[]
   cotizaciones CotizacionProveedor[]
+  lineasRequerimientoSugeridas RequerimientoCompraLinea[]
 
   @@unique([empresaId, ruc])
   @@index([empresaId])

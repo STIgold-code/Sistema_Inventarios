@@ -1368,6 +1368,18 @@ export type EstadoRequerimiento =
   | "RECHAZADO"
   | "CONVERTIDO";
 
+/** Orden de trabajo para la que se pide el material ("O/T" del pedido en papel). */
+export interface OrdenTrabajoRequerimiento {
+  id: string;
+  numero: string;
+  descripcion: string;
+}
+
+export interface ProveedorSugerido {
+  id: string;
+  razonSocial: string;
+}
+
 export interface LineaRequerimiento {
   id: number;
   skuId: number;
@@ -1375,6 +1387,9 @@ export interface LineaRequerimiento {
   skuNombre: string | null;
   cantidad: string;
   justificacion: string | null;
+  /** Marca, modelo o referencia indicada por el solicitante. */
+  referencia: string | null;
+  proveedorSugerido: ProveedorSugerido | null;
 }
 
 export interface Requerimiento {
@@ -1384,6 +1399,7 @@ export interface Requerimiento {
   estado: EstadoRequerimiento;
   centroCostoId: number;
   centroCosto: string;
+  ordenTrabajo: OrdenTrabajoRequerimiento | null;
   solicitanteId: number;
   solicitante: string;
   aprobadoPorId: number | null;
@@ -1399,6 +1415,8 @@ export interface LineaRequerimientoDetalle {
   skuNombre: string | null;
   cantidad: string;
   justificacion: string | null;
+  referencia: string | null;
+  proveedorSugerido: ProveedorSugerido | null;
 }
 
 /** Detalle completo de un requerimiento (GET /requerimientos/:id) para impresion. */
@@ -1409,6 +1427,7 @@ export interface RequerimientoDetalle {
   estado: EstadoRequerimiento;
   centroCostoId: string;
   centroCosto: string;
+  ordenTrabajo: OrdenTrabajoRequerimiento | null;
   solicitanteId: string;
   solicitante: string;
   aprobadoPorId: string | null;
@@ -1421,10 +1440,13 @@ export interface CrearRequerimientoLineaInput {
   skuId: number;
   cantidad: string;
   justificacion?: string;
+  referencia?: string;
+  proveedorSugeridoId?: number;
 }
 
 export interface CrearRequerimientoInput {
   centroCostoId: number;
+  ordenTrabajoId?: number;
   observaciones?: string;
   lineas: CrearRequerimientoLineaInput[];
 }
@@ -1506,6 +1528,10 @@ export interface ValeSalida {
   ordenTrabajoId: string | null;
   ordenTrabajo: string | null;
   observaciones: string | null;
+  /** Numero del comprobante de almacen en papel, p. ej. 001-036488. */
+  comprobanteFisico: string | null;
+  /** Persona que recibe el material cuando no es usuario del sistema. */
+  entregadoA: string | null;
   lineas: LineaValeSalida[];
 }
 
@@ -1523,6 +1549,8 @@ export interface CrearValeInput {
   destino: string;
   ordenTrabajoId?: number;
   observaciones?: string;
+  comprobanteFisico?: string;
+  entregadoA?: string;
   lineas: CrearValeLineaInput[];
 }
 
@@ -1558,12 +1586,21 @@ export interface SeriesPorSku {
   numerosSerie: string[];
 }
 
+export interface DespacharValeInput {
+  series?: SeriesPorSku[];
+  /** Si se informa, reemplaza a la persona registrada al crear el vale. */
+  entregadoA?: string;
+}
+
 export function despacharVale(
   id: number,
-  series?: SeriesPorSku[],
+  { series, entregadoA }: DespacharValeInput = {},
 ): Promise<{ id: number; estado: EstadoValeSalida }> {
-  const body =
-    series && series.length > 0 ? JSON.stringify({ series }) : undefined;
+  const datos = {
+    ...(series && series.length > 0 ? { series } : {}),
+    ...(entregadoA ? { entregadoA } : {}),
+  };
+  const body = Object.keys(datos).length > 0 ? JSON.stringify(datos) : undefined;
   return apiFetch<{ id: number; estado: EstadoValeSalida }>(
     `/vales/${id}/despachar`,
     { method: "POST", body },

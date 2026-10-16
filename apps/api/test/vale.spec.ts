@@ -6,6 +6,8 @@ import { CorrelativoService } from "../src/modulos/comun/correlativo/correlativo
 import { AuditoriaService } from "../src/modulos/auditoria/auditoria.service.js";
 import { ValesService } from "../src/modulos/vales/vales.service.js";
 import type { UsuarioRequest } from "../src/comun/contexto/usuario-request.js";
+import { CrearValeSalidaDto, DespacharValeDto } from "../src/modulos/vales/dto/vales.dto.js";
+import { validarCuerpo } from "./apoyo/validar-cuerpo.js";
 
 /**
  * Integracion del vale de salida (hoja de cargo): crear -> autorizar ->
@@ -32,6 +34,9 @@ describe("ValesService (integracion)", () => {
   let centroCostoId: bigint;
   let skuId: bigint;
   const RUN = Date.now().toString().slice(-9);
+  // Vales que NO llegan al ledger: se pueden borrar al final. Los despachados
+  // quedan, porque el ledger (inmutable) apunta a ellos.
+  const valesSinDespacho: bigint[] = [];
 
   beforeAll(async () => {
     await prisma.$connect();
@@ -78,6 +83,10 @@ describe("ValesService (integracion)", () => {
   });
 
   afterAll(async () => {
+    await prisma.registroAuditoria.deleteMany({
+      where: { entidad: "VALE_SALIDA", entidadId: { in: valesSinDespacho } },
+    });
+    await prisma.valeSalida.deleteMany({ where: { id: { in: valesSinDespacho } } });
     await prisma.$disconnect();
   });
 
@@ -132,5 +141,99 @@ describe("ValesService (integracion)", () => {
     // El stock no se toco y el vale sigue en BORRADOR.
     const guardado = await prisma.valeSalida.findUniqueOrThrow({ where: { id: BigInt(vale.id) } });
     expect(guardado.estado).toBe("BORRADOR");
+  });
+
+  describe("comprobante fisico y persona que recibe", () => {
+    function cuerpoVale(extra: object = {}): object {
+      return {
+        almacenId: Number(almacenId),
+        centroCostoId: Number(centroCostoId),
+        destino: "Frente papel",
+        lineas: [{ skuId: Number(skuId), cantidad: "2" }],
+        ...extra,
+      };
+    }
+
+    it("guarda y devuelve el comprobante fisico y la persona que recibe", async () => {
+      const { id } = await vales.crear(usuario, {
+        almacenId,
+        centroCostoId,
+        destino: "Frente papel",
+        comprobanteFisico: "001-036488",
+        entregadoA: "Juan Quispe",
+        lineas: [{ skuId, cantidad: "2" }],
+      });
+      valesSinDespacho.push(BigInt(id));
+
+      const detalle = await vales.obtener(usuario.empresaId, BigInt(id));
+      expect(detalle.comprobanteFisico).toBe("001-036488");
+      expect(detalle.entregadoA).toBe("Juan Quispe");
+      const enLista = (await vales.listar(usuario.empresaId)).find((v) => v.id === id)!;
+      expect(enLista.comprobanteFisico).toBe("001-036488");
+      expect(enLista.entregadoA).toBe("Juan Quispe");
+
+      const traza = await prisma.registroAuditoria.findFirstOrThrow({
+        where: { entidad: "VALE_SALIDA", entidadId: BigInt(id), accion: "CREAR" },
+      });
+      expect(traza.detalle).toContain("001-036488");
+    });
+
+    it("registra en el despacho a quien recibe el material", async () => {
+      const { id } = await vales.crear(usuario, {
+        almacenId,
+        centroCostoId,
+        destino: "Frente papel",
+        lineas: [{ skuId, cantidad: "3" }],
+      });
+      expect((await vales.obtener(usuario.empresaId, BigInt(id))).entregadoA).toBeNull();
+
+      await vales.autorizar(autorizador, BigInt(id));
+      await vales.despachar(autorizador, BigInt(id), new Map(), "Rosa Mamani");
+
+      const detalle = await vales.obtener(usuario.empresaId, BigInt(id));
+      expect(detalle.estado).toBe("DESPACHADO");
+      expect(detalle.entregadoA).toBe("Rosa Mamani");
+      const traza = await prisma.registroAuditoria.findFirstOrThrow({
+        where: { entidad: "VALE_SALIDA", entidadId: BigInt(id), accion: "DESPACHAR" },
+      });
+      expect(traza.detalle).toContain("Rosa Mamani");
+    });
+
+    it("despachar sin indicar quien recibe conserva el dato registrado al crear", async () => {
+      const { id } = await vales.crear(usuario, {
+        almacenId,
+        centroCostoId,
+        destino: "Frente papel",
+        entregadoA: "Carlos Huaman",
+        lineas: [{ skuId, cantidad: "1" }],
+      });
+      await vales.autorizar(autorizador, BigInt(id));
+      await vales.despachar(autorizador, BigInt(id));
+
+      expect((await vales.obtener(usuario.empresaId, BigInt(id))).entregadoA).toBe("Carlos Huaman");
+    });
+
+    it("el DTO recorta los textos y rechaza null o mas de 120 caracteres", async () => {
+      const recortado = await validarCuerpo(
+        CrearValeSalidaDto,
+        cuerpoVale({ comprobanteFisico: " 001-036489 ", entregadoA: "  Ana Flores " }),
+      );
+      if (!recortado.valido) throw new Error(recortado.mensajes.join("; "));
+      expect(recortado.valor.comprobanteFisico).toBe("001-036489");
+      expect(recortado.valor.entregadoA).toBe("Ana Flores");
+
+      const LARGO = "x".repeat(121);
+      expect((await validarCuerpo(CrearValeSalidaDto, cuerpoVale({ comprobanteFisico: LARGO }))).valido).toBe(false);
+      expect((await validarCuerpo(CrearValeSalidaDto, cuerpoVale({ entregadoA: LARGO }))).valido).toBe(false);
+      expect((await validarCuerpo(CrearValeSalidaDto, cuerpoVale({ comprobanteFisico: null }))).valido).toBe(false);
+      expect((await validarCuerpo(CrearValeSalidaDto, cuerpoVale({ entregadoA: null }))).valido).toBe(false);
+      expect((await validarCuerpo(DespacharValeDto, { entregadoA: LARGO })).valido).toBe(false);
+      expect((await validarCuerpo(DespacharValeDto, { entregadoA: null })).valido).toBe(false);
+
+      const despacho = await validarCuerpo(DespacharValeDto, { entregadoA: " Luis Rojas " });
+      if (!despacho.valido) throw new Error(despacho.mensajes.join("; "));
+      expect(despacho.valor.entregadoA).toBe("Luis Rojas");
+      expect((await validarCuerpo(DespacharValeDto, {})).valido).toBe(true);
+    });
   });
 });

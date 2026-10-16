@@ -11,10 +11,14 @@ import {
   aprobarRequerimiento,
   crearRequerimiento,
   obtenerCentrosCosto,
+  obtenerOrdenesTrabajo,
+  obtenerProveedores,
   obtenerRequerimientos,
   rechazarRequerimiento,
   type CentroCosto,
   type EstadoRequerimiento,
+  type OrdenTrabajo,
+  type Proveedor,
   type Requerimiento,
   type Sku,
 } from "@/lib/api";
@@ -28,6 +32,8 @@ interface LineaBorrador {
   sku: Sku | null;
   cantidad: string;
   justificacion: string;
+  referencia: string;
+  proveedorSugeridoId: string;
 }
 
 interface AccionPendiente {
@@ -50,8 +56,11 @@ const ETIQUETA_ESTADO: Record<EstadoRequerimiento, string> = {
   CONVERTIDO: "Convertido",
 };
 
+/** Mismo tope que valida la API para la marca o referencia de cada línea. */
+const MAXIMO_REFERENCIA = 200;
+
 function lineaVacia(): LineaBorrador {
-  return { sku: null, cantidad: "", justificacion: "" };
+  return { sku: null, cantidad: "", justificacion: "", referencia: "", proveedorSugeridoId: "" };
 }
 
 function mensajeError(error: unknown, porDefecto: string): string {
@@ -62,8 +71,13 @@ export default function PaginaRequerimientos(): React.JSX.Element {
   const [requerimientos, setRequerimientos] = useState<Requerimiento[]>([]);
   const [centrosCosto, setCentrosCosto] = useState<CentroCosto[]>([]);
   const [cargandoBase, setCargandoBase] = useState<boolean>(true);
+  // Catálogos opcionales: requieren otros permisos (OT y compras). Si no se
+  // pueden leer, el requerimiento se registra igual, sin OT ni proveedor.
+  const [ordenesTrabajo, setOrdenesTrabajo] = useState<OrdenTrabajo[] | null>(null);
+  const [proveedores, setProveedores] = useState<Proveedor[] | null>(null);
 
   const [centroCostoId, setCentroCostoId] = useState<string>("");
+  const [ordenTrabajoId, setOrdenTrabajoId] = useState<string>("");
   const [observaciones, setObservaciones] = useState<string>("");
   const [lineas, setLineas] = useState<LineaBorrador[]>([lineaVacia()]);
   const [guardando, setGuardando] = useState<boolean>(false);
@@ -126,6 +140,16 @@ export default function PaginaRequerimientos(): React.JSX.Element {
         setCargandoBase(false);
       }
     })();
+    void (async (): Promise<void> => {
+      const [ots, provs] = await Promise.allSettled([
+        obtenerOrdenesTrabajo(),
+        obtenerProveedores(),
+      ]);
+      setOrdenesTrabajo(
+        ots.status === "fulfilled" ? ots.value.filter((o) => o.estado === "ABIERTA") : [],
+      );
+      setProveedores(provs.status === "fulfilled" ? provs.value : []);
+    })();
   }, []);
 
   async function refrescar(): Promise<void> {
@@ -152,6 +176,33 @@ export default function PaginaRequerimientos(): React.JSX.Element {
     );
   }
 
+  // La OT pertenece a un centro de costo (igual que en vales): solo se ofrecen
+  // las órdenes abiertas del centro elegido.
+  const ordenesDisponibles = centroCostoId
+    ? (ordenesTrabajo ?? []).filter((o) => String(o.centroCostoId) === centroCostoId)
+    : [];
+
+  function cambiarCentroCosto(valor: string): void {
+    setCentroCostoId(valor);
+    // Si la OT seleccionada ya no pertenece al nuevo centro, se limpia.
+    const sigueValida = (ordenesTrabajo ?? []).some(
+      (o) => String(o.id) === ordenTrabajoId && String(o.centroCostoId) === valor,
+    );
+    if (ordenTrabajoId && !sigueValida) setOrdenTrabajoId("");
+  }
+
+  function placeholderOrdenTrabajo(): string {
+    if (ordenesTrabajo === null) return "Cargando…";
+    if (!centroCostoId) return "Selecciona primero un centro de costo";
+    if (ordenesDisponibles.length === 0) return "Sin órdenes abiertas para este centro";
+    return "Sin orden de trabajo";
+  }
+
+  const opcionesProveedor = (proveedores ?? []).map((p) => ({
+    valor: String(p.id),
+    etiqueta: `${p.ruc} — ${p.razonSocial}`,
+  }));
+
   async function manejarCreacion(evento: FormEvent<HTMLFormElement>): Promise<void> {
     evento.preventDefault();
     setAvisoForm(null);
@@ -169,11 +220,16 @@ export default function PaginaRequerimientos(): React.JSX.Element {
     try {
       const respuesta = await crearRequerimiento({
         centroCostoId: Number(centroCostoId),
+        ordenTrabajoId: ordenTrabajoId ? Number(ordenTrabajoId) : undefined,
         observaciones: observaciones.trim() || undefined,
         lineas: validas.map((l) => ({
           skuId: l.sku.id,
           cantidad: l.cantidad,
           justificacion: l.justificacion.trim() || undefined,
+          referencia: l.referencia.trim() || undefined,
+          proveedorSugeridoId: l.proveedorSugeridoId
+            ? Number(l.proveedorSugeridoId)
+            : undefined,
         })),
       });
       setAvisoForm({
@@ -181,6 +237,7 @@ export default function PaginaRequerimientos(): React.JSX.Element {
         tono: "exito",
       });
       setCentroCostoId("");
+      setOrdenTrabajoId("");
       setObservaciones("");
       setLineas([lineaVacia()]);
       setTocado({});
@@ -253,7 +310,7 @@ export default function PaginaRequerimientos(): React.JSX.Element {
                   id="centro-costo"
                   valor={centroCostoId}
                   onCambio={(v) => {
-                    setCentroCostoId(v);
+                    cambiarCentroCosto(v);
                     marcarTocado("centroCostoId");
                   }}
                   disabled={cargandoBase}
@@ -267,6 +324,22 @@ export default function PaginaRequerimientos(): React.JSX.Element {
                 {(tocado.centroCostoId || intentoEnvio) && errores.centroCostoId && (
                   <p className="mt-1.5 text-xs text-peligro">{errores.centroCostoId}</p>
                 )}
+              </div>
+              <div>
+                <label htmlFor="req-orden-trabajo" className="etiqueta-campo">
+                  Orden de trabajo <span className="text-texto-ter">(opcional)</span>
+                </label>
+                <SelectorBusqueda
+                  id="req-orden-trabajo"
+                  valor={ordenTrabajoId}
+                  onCambio={setOrdenTrabajoId}
+                  disabled={ordenesTrabajo === null || !centroCostoId}
+                  placeholder={placeholderOrdenTrabajo()}
+                  opciones={ordenesDisponibles.map((ot) => ({
+                    valor: String(ot.id),
+                    etiqueta: `${ot.numero} — ${ot.descripcion}`,
+                  }))}
+                />
               </div>
               <div>
                 <label htmlFor="observaciones-req" className="etiqueta-campo">
@@ -365,6 +438,42 @@ export default function PaginaRequerimientos(): React.JSX.Element {
                       Quitar
                     </button>
                   </div>
+                  <div className="grid gap-3 sm:col-span-4 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor={`req-referencia-${indice}`} className="etiqueta-campo">
+                        Marca o referencia <span className="text-texto-ter">(opcional)</span>
+                      </label>
+                      <input
+                        id={`req-referencia-${indice}`}
+                        value={linea.referencia}
+                        onChange={(e) =>
+                          actualizarLinea(indice, { referencia: e.target.value })
+                        }
+                        maxLength={MAXIMO_REFERENCIA}
+                        placeholder="Marca, modelo o código del fabricante"
+                        className="campo"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor={`req-proveedor-${indice}`} className="etiqueta-campo">
+                        Proveedor sugerido <span className="text-texto-ter">(opcional)</span>
+                      </label>
+                      <SelectorBusqueda
+                        id={`req-proveedor-${indice}`}
+                        valor={linea.proveedorSugeridoId}
+                        onCambio={(v) => actualizarLinea(indice, { proveedorSugeridoId: v })}
+                        disabled={proveedores === null || opcionesProveedor.length === 0}
+                        placeholder={
+                          proveedores === null
+                            ? "Cargando…"
+                            : opcionesProveedor.length === 0
+                              ? "Sin proveedores disponibles"
+                              : "Sin proveedor sugerido"
+                        }
+                        opciones={opcionesProveedor}
+                      />
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
@@ -407,6 +516,12 @@ export default function PaginaRequerimientos(): React.JSX.Element {
                       <p className="text-xs text-texto-sec">
                         {req.centroCosto} · {req.solicitante}
                       </p>
+                      {req.ordenTrabajo && (
+                        <p className="text-xs text-texto-ter">
+                          Orden de trabajo: {req.ordenTrabajo.numero} —{" "}
+                          {req.ordenTrabajo.descripcion}
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-3">
                       <span className={INSIGNIA_ESTADO[req.estado]}>
@@ -453,6 +568,8 @@ export default function PaginaRequerimientos(): React.JSX.Element {
                         <tr>
                           <th>Artículo</th>
                           <th>Cantidad</th>
+                          <th>Marca o ref.</th>
+                          <th>Proveedor sugerido</th>
                           <th>Justificación</th>
                         </tr>
                       </thead>
@@ -466,6 +583,10 @@ export default function PaginaRequerimientos(): React.JSX.Element {
                               <span className="text-texto">{linea.skuNombre ?? ""}</span>
                             </td>
                             <td className="num">{linea.cantidad}</td>
+                            <td className="text-texto-sec">{linea.referencia ?? "—"}</td>
+                            <td className="text-texto-sec">
+                              {linea.proveedorSugerido?.razonSocial ?? "—"}
+                            </td>
                             <td className="text-texto-sec">{linea.justificacion ?? "—"}</td>
                           </tr>
                         ))}

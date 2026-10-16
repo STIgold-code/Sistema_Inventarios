@@ -74,6 +74,45 @@ const TEXTO_CONFIRMAR: Record<TipoAccion, string> = {
   anular: "Anular",
 };
 
+/** Mismo tope que valida la API para el comprobante físico y "Entregado a". */
+const MAXIMO_TEXTO_COMPROBANTE = 120;
+
+interface CampoEntregadoAProps {
+  id: string;
+  valor: string;
+  onCambio: (valor: string) => void;
+  disabled?: boolean;
+}
+
+/** Persona que recibe el material ("Destinatario" del comprobante en papel). */
+function CampoEntregadoA({
+  id,
+  valor,
+  onCambio,
+  disabled = false,
+}: CampoEntregadoAProps): React.JSX.Element {
+  return (
+    <div>
+      <label htmlFor={id} className="etiqueta-campo">
+        Entregado a <span className="text-texto-ter">(opcional)</span>
+      </label>
+      <input
+        id={id}
+        value={valor}
+        onChange={(e) => onCambio(e.target.value)}
+        maxLength={MAXIMO_TEXTO_COMPROBANTE}
+        disabled={disabled}
+        aria-describedby={`${id}-ayuda`}
+        placeholder="Nombre de quien recibe el material"
+        className="campo"
+      />
+      <p id={`${id}-ayuda`} className="mt-1.5 text-xs text-texto-ter">
+        Úsalo cuando quien recibe no es usuario del sistema.
+      </p>
+    </div>
+  );
+}
+
 function lineaVacia(): LineaBorrador {
   return { sku: null, cantidad: "", observacion: "", enUnidadReferencia: false };
 }
@@ -105,6 +144,8 @@ export default function PaginaVales(): React.JSX.Element {
   const [ordenTrabajoId, setOrdenTrabajoId] = useState<string>("");
   const [destino, setDestino] = useState<string>("");
   const [observaciones, setObservaciones] = useState<string>("");
+  const [comprobanteFisico, setComprobanteFisico] = useState<string>("");
+  const [entregadoA, setEntregadoA] = useState<string>("");
   const [lineas, setLineas] = useState<LineaBorrador[]>([lineaVacia()]);
   const [guardando, setGuardando] = useState<boolean>(false);
   const [avisoForm, setAvisoForm] = useState<Aviso | null>(null);
@@ -115,6 +156,8 @@ export default function PaginaVales(): React.JSX.Element {
   const [avisoLista, setAvisoLista] = useState<Aviso | null>(null);
   const [accion, setAccion] = useState<AccionPendiente | null>(null);
   const [procesandoAccion, setProcesandoAccion] = useState<boolean>(false);
+  // "Entregado a" que se envía al despachar (con o sin captura de series).
+  const [entregadoADespacho, setEntregadoADespacho] = useState<string>("");
 
   // Despacho con captura de series (solo vales con SKUs serializados).
   const [valeSeries, setValeSeries] = useState<ValeSalida | null>(null);
@@ -242,6 +285,8 @@ export default function PaginaVales(): React.JSX.Element {
         destino: destino.trim(),
         ordenTrabajoId: ordenTrabajoId ? Number(ordenTrabajoId) : undefined,
         observaciones: observaciones.trim() || undefined,
+        comprobanteFisico: comprobanteFisico.trim() || undefined,
+        entregadoA: entregadoA.trim() || undefined,
         lineas: validas.map((l) => ({
           skuId: l.sku.id,
           cantidad: l.cantidad,
@@ -258,6 +303,8 @@ export default function PaginaVales(): React.JSX.Element {
       setOrdenTrabajoId("");
       setDestino("");
       setObservaciones("");
+      setComprobanteFisico("");
+      setEntregadoA("");
       setLineas([lineaVacia()]);
       setTocado({});
       setIntentoEnvio(false);
@@ -281,7 +328,9 @@ export default function PaginaVales(): React.JSX.Element {
         await autorizarVale(accion.id);
         setAvisoLista({ texto: `Vale ${accion.numero} autorizado.`, tono: "exito" });
       } else if (accion.tipo === "despachar") {
-        await despacharVale(accion.id);
+        await despacharVale(accion.id, {
+          entregadoA: entregadoADespacho.trim() || undefined,
+        });
         setAvisoLista({
           texto: `Vale ${accion.numero} despachado. Se descontó el stock del almacén.`,
           tono: "exito",
@@ -308,6 +357,7 @@ export default function PaginaVales(): React.JSX.Element {
     const tieneSeries = vale.lineas.some(
       (l) => l.controlaSerie && Number(l.cantidad) - Number(l.cantidadDespachada) > 0,
     );
+    setEntregadoADespacho(vale.entregadoA ?? "");
     if (tieneSeries) {
       setSeriesPorLinea({});
       setAvisoSeries(null);
@@ -344,7 +394,10 @@ export default function PaginaVales(): React.JSX.Element {
     setDespachandoSeries(true);
     setAvisoLista(null);
     try {
-      await despacharVale(valeSeries.id, series);
+      await despacharVale(valeSeries.id, {
+        series,
+        entregadoA: entregadoADespacho.trim() || undefined,
+      });
       setAvisoLista({
         texto: `Vale ${valeSeries.numero} despachado. Se descontó el stock del almacén.`,
         tono: "exito",
@@ -502,6 +555,24 @@ export default function PaginaVales(): React.JSX.Element {
                   className="campo"
                 />
               </div>
+              <div>
+                <label htmlFor="vale-comprobante" className="etiqueta-campo">
+                  Comprobante físico Nº <span className="text-texto-ter">(opcional)</span>
+                </label>
+                <input
+                  id="vale-comprobante"
+                  value={comprobanteFisico}
+                  onChange={(e) => setComprobanteFisico(e.target.value)}
+                  maxLength={MAXIMO_TEXTO_COMPROBANTE}
+                  aria-describedby="vale-comprobante-ayuda"
+                  placeholder="001-036488"
+                  className="campo font-mono"
+                />
+                <p id="vale-comprobante-ayuda" className="mt-1.5 text-xs text-texto-ter">
+                  Número del comprobante de almacén en papel, si existe.
+                </p>
+              </div>
+              <CampoEntregadoA id="vale-entregado-a" valor={entregadoA} onCambio={setEntregadoA} />
             </div>
 
             <div className="space-y-3">
@@ -630,6 +701,15 @@ export default function PaginaVales(): React.JSX.Element {
                         <p className="text-xs text-texto-ter">
                           Autorizado por {vale.autorizadoPor}
                         </p>
+                      )}
+                      {vale.comprobanteFisico && (
+                        <p className="text-xs text-texto-ter">
+                          Comprobante físico Nº{" "}
+                          <span className="font-mono">{vale.comprobanteFisico}</span>
+                        </p>
+                      )}
+                      {vale.entregadoA && (
+                        <p className="text-xs text-texto-ter">Entregado a {vale.entregadoA}</p>
                       )}
                     </div>
                     <div className="flex items-center gap-3">
@@ -810,6 +890,12 @@ export default function PaginaVales(): React.JSX.Element {
                     </div>
                   );
                 })}
+              <CampoEntregadoA
+                id="despacho-series-entregado-a"
+                valor={entregadoADespacho}
+                onCambio={setEntregadoADespacho}
+                disabled={despachandoSeries}
+              />
               <div className="flex justify-end gap-3 border-t border-borde pt-4">
                 <button
                   type="button"
@@ -842,7 +928,16 @@ export default function PaginaVales(): React.JSX.Element {
         procesando={procesandoAccion}
         onConfirmar={() => void confirmarAccion()}
         onCancelar={() => !procesandoAccion && setAccion(null)}
-      />
+      >
+        {accion?.tipo === "despachar" && (
+          <CampoEntregadoA
+            id="despacho-entregado-a"
+            valor={entregadoADespacho}
+            onCambio={setEntregadoADespacho}
+            disabled={procesandoAccion}
+          />
+        )}
+      </ModalConfirmacion>
     </div>
   );
 }

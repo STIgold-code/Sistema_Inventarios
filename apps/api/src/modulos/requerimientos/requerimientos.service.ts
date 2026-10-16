@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import type { Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import { AuditoriaService } from "../auditoria/auditoria.service.js";
 import { CorrelativoService } from "../comun/correlativo/correlativo.service.js";
@@ -11,8 +12,54 @@ import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 
 interface NuevoRequerimiento {
   centroCostoId: bigint;
+  ordenTrabajoId?: bigint;
   observaciones?: string;
-  lineas: Array<{ skuId: bigint; cantidad: string; justificacion?: string }>;
+  lineas: Array<{
+    skuId: bigint;
+    cantidad: string;
+    justificacion?: string;
+    referencia?: string;
+    proveedorSugeridoId?: bigint;
+  }>;
+}
+
+/** Relaciones que se leen para dar forma a la OT y a las lineas en la respuesta. */
+const INCLUIR_OT_Y_LINEAS = {
+  ordenTrabajo: true,
+  lineas: { include: { proveedorSugerido: true } },
+} satisfies Prisma.RequerimientoCompraInclude;
+
+type LineaConProveedor = Prisma.RequerimientoCompraLineaGetPayload<{
+  include: { proveedorSugerido: true };
+}>;
+
+interface SkuResumen {
+  codigoParlante: string;
+  nombre: string | null;
+}
+
+/** OT del requerimiento como `{ id, numero, descripcion }`, o null si no tiene. */
+function mapearOrdenTrabajo(
+  ot: { id: bigint; numero: string; descripcion: string } | null,
+) {
+  if (!ot) return null;
+  return { id: ot.id.toString(), numero: ot.numero, descripcion: ot.descripcion };
+}
+
+function mapearLinea(l: LineaConProveedor, skuPorId: Map<string, SkuResumen>) {
+  const sku = skuPorId.get(l.skuId.toString());
+  return {
+    id: l.id.toString(),
+    skuId: l.skuId.toString(),
+    skuCodigo: sku ? sku.codigoParlante : null,
+    skuNombre: sku ? sku.nombre : null,
+    cantidad: l.cantidad.toString(),
+    justificacion: l.justificacion,
+    referencia: l.referencia,
+    proveedorSugerido: l.proveedorSugerido
+      ? { id: l.proveedorSugerido.id.toString(), razonSocial: l.proveedorSugerido.razonSocial }
+      : null,
+  };
 }
 
 @Injectable()
@@ -26,7 +73,7 @@ export class RequerimientosService {
   async listar(empresaId: bigint) {
     const filas = await this.prisma.requerimientoCompra.findMany({
       where: { empresaId },
-      include: { centroCosto: true, solicitante: true, lineas: true },
+      include: { centroCosto: true, solicitante: true, ...INCLUIR_OT_Y_LINEAS },
       orderBy: { fecha: "desc" },
     });
     const skuIds = [...new Set(filas.flatMap((r) => r.lineas.map((l) => l.skuId)))];
@@ -42,21 +89,12 @@ export class RequerimientosService {
       estado: r.estado,
       centroCostoId: r.centroCostoId.toString(),
       centroCosto: r.centroCosto.nombre,
+      ordenTrabajo: mapearOrdenTrabajo(r.ordenTrabajo),
       solicitanteId: r.solicitanteId.toString(),
       solicitante: r.solicitante.nombre,
       aprobadoPorId: r.aprobadoPorId ? r.aprobadoPorId.toString() : null,
       observaciones: r.observaciones,
-      lineas: r.lineas.map((l) => {
-        const sku = skuPorId.get(l.skuId.toString());
-        return {
-          id: l.id.toString(),
-          skuId: l.skuId.toString(),
-          skuCodigo: sku ? sku.codigoParlante : null,
-          skuNombre: sku ? sku.nombre : null,
-          cantidad: l.cantidad.toString(),
-          justificacion: l.justificacion,
-        };
-      }),
+      lineas: r.lineas.map((l) => mapearLinea(l, skuPorId)),
     }));
   }
 
@@ -68,7 +106,7 @@ export class RequerimientosService {
         centroCosto: true,
         solicitante: true,
         aprobadoPor: true,
-        lineas: true,
+        ...INCLUIR_OT_Y_LINEAS,
       },
     });
     if (!r) throw new NotFoundException("Requerimiento no encontrado");
@@ -87,31 +125,28 @@ export class RequerimientosService {
       estado: r.estado,
       centroCostoId: r.centroCostoId.toString(),
       centroCosto: r.centroCosto.nombre,
+      ordenTrabajo: mapearOrdenTrabajo(r.ordenTrabajo),
       solicitanteId: r.solicitanteId.toString(),
       solicitante: r.solicitante.nombre,
       aprobadoPorId: r.aprobadoPorId ? r.aprobadoPorId.toString() : null,
       aprobadoPor: r.aprobadoPor ? r.aprobadoPor.nombre : null,
       observaciones: r.observaciones,
-      lineas: r.lineas.map((l) => {
-        const sku = skuPorId.get(l.skuId.toString());
-        return {
-          id: l.id.toString(),
-          skuId: l.skuId.toString(),
-          skuCodigo: sku ? sku.codigoParlante : null,
-          skuNombre: sku ? sku.nombre : null,
-          cantidad: l.cantidad.toString(),
-          justificacion: l.justificacion,
-        };
-      }),
+      lineas: r.lineas.map((l) => mapearLinea(l, skuPorId)),
     };
   }
 
-  /** Crea el requerimiento en BORRADOR. Valida que centro y skus sean de la empresa. */
+  /**
+   * Crea el requerimiento en BORRADOR. Valida que centro, OT, skus y proveedores
+   * sugeridos sean de la empresa (anti-IDOR) y que la OT siga ABIERTA.
+   */
   async crear(usuario: UsuarioRequest, dto: NuevoRequerimiento) {
     const centro = await this.prisma.centroCosto.findFirst({
       where: { id: dto.centroCostoId, empresaId: usuario.empresaId },
     });
     if (!centro) throw new NotFoundException("Centro de costo no encontrado");
+
+    const orden = await this.validarOrdenTrabajo(usuario.empresaId, dto.ordenTrabajoId);
+    await this.validarProveedoresSugeridos(usuario.empresaId, dto.lineas);
 
     const skuIds = [...new Set(dto.lineas.map((l) => l.skuId))];
     const skus = await this.prisma.sku.findMany({
@@ -133,6 +168,7 @@ export class RequerimientosService {
           empresaId: usuario.empresaId,
           numero: correlativo.formateado,
           centroCostoId: dto.centroCostoId,
+          ordenTrabajoId: dto.ordenTrabajoId ?? null,
           solicitanteId: usuario.id,
           estado: "BORRADOR",
           observaciones: dto.observaciones ?? null,
@@ -142,6 +178,9 @@ export class RequerimientosService {
               skuId: l.skuId,
               cantidad: l.cantidad,
               justificacion: l.justificacion ?? null,
+              // Una referencia vacia (solo espacios, ya recortada) no aporta nada.
+              referencia: l.referencia || null,
+              proveedorSugeridoId: l.proveedorSugeridoId ?? null,
             })),
           },
         },
@@ -153,7 +192,9 @@ export class RequerimientosService {
           accion: "CREAR",
           entidad: "REQUERIMIENTO",
           entidadId: req.id,
-          detalle: `Requerimiento N° ${req.numero} creado`,
+          detalle: orden
+            ? `Requerimiento N° ${req.numero} creado para la OT ${orden.numero}`
+            : `Requerimiento N° ${req.numero} creado`,
         },
         tx,
       );
@@ -219,6 +260,40 @@ export class RequerimientosService {
       );
     });
     return { id: id.toString(), estado: "RECHAZADO" };
+  }
+
+  /** OT opcional: debe ser de la empresa (404) y estar ABIERTA (409). */
+  private async validarOrdenTrabajo(empresaId: bigint, ordenTrabajoId?: bigint) {
+    if (ordenTrabajoId === undefined) return null;
+    const orden = await this.prisma.ordenTrabajo.findFirst({
+      where: { id: ordenTrabajoId, empresaId },
+    });
+    if (!orden) throw new NotFoundException("Orden de trabajo no encontrada");
+    if (orden.estado !== "ABIERTA") {
+      throw new BadRequestException(
+        `La orden de trabajo ${orden.numero} esta cerrada; no se le pueden asociar requerimientos`,
+      );
+    }
+    return orden;
+  }
+
+  /** Todos los proveedores sugeridos deben ser de la empresa (404 si alguno no lo es). */
+  private async validarProveedoresSugeridos(
+    empresaId: bigint,
+    lineas: NuevoRequerimiento["lineas"],
+  ) {
+    const ids = [
+      ...new Set(
+        lineas.flatMap((l) =>
+          l.proveedorSugeridoId === undefined ? [] : [l.proveedorSugeridoId],
+        ),
+      ),
+    ];
+    if (ids.length === 0) return;
+    const encontrados = await this.prisma.proveedor.count({
+      where: { id: { in: ids }, empresaId },
+    });
+    if (encontrados !== ids.length) throw new NotFoundException("Proveedor no encontrado");
   }
 
   private async cargarBorrador(empresaId: bigint, id: bigint) {

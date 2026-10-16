@@ -37,6 +37,8 @@ export class ValesController {
         dto.ordenTrabajoId !== undefined ? BigInt(dto.ordenTrabajoId) : undefined,
       destino: dto.destino,
       observaciones: dto.observaciones,
+      comprobanteFisico: dto.comprobanteFisico,
+      entregadoA: dto.entregadoA,
       lineas: dto.lineas.map((l) => ({
         skuId: BigInt(l.skuId),
         cantidad: l.cantidad,
@@ -62,7 +64,7 @@ export class ValesController {
     const seriesPorSku = new Map<string, string[]>(
       (dto.series ?? []).map((s) => [BigInt(s.skuId).toString(), s.numerosSerie]),
     );
-    return this.vales.despachar(usuario, BigInt(id), seriesPorSku);
+    return this.vales.despachar(usuario, BigInt(id), seriesPorSku, dto.entregadoA);
   }
 
   @Post(":id/anular")

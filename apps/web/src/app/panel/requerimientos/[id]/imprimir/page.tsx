@@ -137,6 +137,15 @@ export default function PaginaImprimirRequerimiento(): React.JSX.Element {
               <span className="hoja-rotulo">Solicitante</span>
               <span className="hoja-valor">{requerimiento.solicitante}</span>
             </div>
+            {requerimiento.ordenTrabajo && (
+              <div className="hoja-datos-completo">
+                <span className="hoja-rotulo">Orden de trabajo</span>
+                <span className="hoja-valor">
+                  <span className="font-mono">{requerimiento.ordenTrabajo.numero}</span> —{" "}
+                  {requerimiento.ordenTrabajo.descripcion}
+                </span>
+              </div>
+            )}
             {requerimiento.observaciones && (
               <div className="hoja-datos-completo">
                 <span className="hoja-rotulo">Observaciones</span>
@@ -152,6 +161,8 @@ export default function PaginaImprimirRequerimiento(): React.JSX.Element {
                 <th>Código</th>
                 <th>Descripción</th>
                 <th className="col-cant">Cantidad</th>
+                <th>Marca o ref.</th>
+                <th>Proveedor sugerido</th>
                 <th>Justificación</th>
               </tr>
             </thead>
@@ -162,6 +173,8 @@ export default function PaginaImprimirRequerimiento(): React.JSX.Element {
                   <td className="font-mono">{linea.skuCodigo ?? "—"}</td>
                   <td>{linea.skuNombre ?? "—"}</td>
                   <td className="col-cant">{formatearNumero(linea.cantidad)}</td>
+                  <td>{linea.referencia ?? "—"}</td>
+                  <td>{linea.proveedorSugerido?.razonSocial ?? "—"}</td>
                   <td>{linea.justificacion ?? "—"}</td>
                 </tr>
               ))}

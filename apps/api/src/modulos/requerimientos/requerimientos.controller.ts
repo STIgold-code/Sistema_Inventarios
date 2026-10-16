@@ -32,11 +32,16 @@ export class RequerimientosController {
   ) {
     return this.requerimientos.crear(usuario, {
       centroCostoId: BigInt(dto.centroCostoId),
+      ordenTrabajoId:
+        dto.ordenTrabajoId !== undefined ? BigInt(dto.ordenTrabajoId) : undefined,
       observaciones: dto.observaciones,
       lineas: dto.lineas.map((l) => ({
         skuId: BigInt(l.skuId),
         cantidad: l.cantidad,
         justificacion: l.justificacion,
+        referencia: l.referencia,
+        proveedorSugeridoId:
+          l.proveedorSugeridoId !== undefined ? BigInt(l.proveedorSugeridoId) : undefined,
       })),
     });
   }

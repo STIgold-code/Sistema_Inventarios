@@ -12,10 +12,13 @@ interface ModalConfirmacionProps {
   procesando?: boolean;
   onConfirmar: () => void;
   onCancelar: () => void;
+  /** Contenido opcional (p. ej. un campo) entre el mensaje y las acciones. */
+  children?: React.ReactNode;
 }
 
 /** Elementos enfocables dentro del modal, para el foco atrapado. */
-const ENFOCABLES = 'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+const ENFOCABLES =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /**
  * Modal de confirmación accesible para acciones que requieren aprobación
@@ -34,6 +37,7 @@ export function ModalConfirmacion({
   procesando = false,
   onConfirmar,
   onCancelar,
+  children,
 }: ModalConfirmacionProps): React.JSX.Element | null {
   const botonConfirmar = useRef<HTMLButtonElement>(null);
   const dialogoRef = useRef<HTMLDivElement>(null);
@@ -110,6 +114,7 @@ export function ModalConfirmacion({
           <p id="modal-mensaje" className="mt-2 text-sm text-texto-sec">
             {mensaje}
           </p>
+          {children && <div className="mt-4">{children}</div>}
           <div className="mt-6 flex justify-end gap-3">
             <button
               type="button"
