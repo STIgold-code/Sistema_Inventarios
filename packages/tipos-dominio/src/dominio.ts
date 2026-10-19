@@ -56,6 +56,8 @@ export const TIPO_DOCUMENTO_ORIGEN = {
   DEVOLUCION_VENTA: "DEVOLUCION_VENTA",
   DEVOLUCION_PROVEEDOR: "DEVOLUCION_PROVEEDOR",
   TRANSFORMACION: "TRANSFORMACION",
+  // Cierre de una orden de produccion: documentoId es el id de la orden.
+  ORDEN_PRODUCCION: "ORDEN_PRODUCCION",
 } as const;
 export type TipoDocumentoOrigen =
   (typeof TIPO_DOCUMENTO_ORIGEN)[keyof typeof TIPO_DOCUMENTO_ORIGEN];
