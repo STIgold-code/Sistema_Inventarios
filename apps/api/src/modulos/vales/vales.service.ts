@@ -178,18 +178,6 @@ export class ValesService {
     });
     if (!centro) throw new NotFoundException("Centro de costo no encontrado");
 
-    if (dto.ordenTrabajoId !== undefined) {
-      const orden = await this.prisma.ordenTrabajo.findFirst({
-        where: { id: dto.ordenTrabajoId, empresaId: usuario.empresaId },
-      });
-      if (!orden) throw new NotFoundException("Orden de trabajo no encontrada");
-      if (orden.estado !== "ABIERTA") {
-        throw new BadRequestException(
-          "No se puede imputar un vale a una orden de trabajo cerrada",
-        );
-      }
-    }
-
     const skuIds = [...new Set(dto.lineas.map((l) => l.skuId))];
     const skus = await this.prisma.sku.findMany({
       where: { id: { in: skuIds }, empresaId: usuario.empresaId },
@@ -225,6 +213,11 @@ export class ValesService {
         dto.ordenProduccionId,
         dto.ordenTrabajoId,
       );
+      // La OT efectiva (del DTO o heredada de la orden de produccion) debe
+      // seguir abierta: un vale nunca se imputa a una OT cerrada.
+      if (ordenTrabajoId !== null) {
+        await this.validarOrdenTrabajoAbierta(tx, usuario.empresaId, ordenTrabajoId);
+      }
       const correlativo = await this.correlativos.siguiente(
         tx,
         usuario.empresaId,
@@ -303,6 +296,23 @@ export class ValesService {
       );
     }
     return ordenTrabajoId ?? orden.ordenTrabajoId;
+  }
+
+  /** Verifica que la orden de trabajo sea de la empresa y este ABIERTA. */
+  private async validarOrdenTrabajoAbierta(
+    tx: Prisma.TransactionClient,
+    empresaId: bigint,
+    ordenTrabajoId: bigint,
+  ) {
+    const orden = await tx.ordenTrabajo.findFirst({
+      where: { id: ordenTrabajoId, empresaId },
+    });
+    if (!orden) throw new NotFoundException("Orden de trabajo no encontrada");
+    if (orden.estado !== "ABIERTA") {
+      throw new BadRequestException(
+        "No se puede imputar un vale a una orden de trabajo cerrada",
+      );
+    }
   }
 
   /** BORRADOR -> AUTORIZADO. Deja constancia del autorizador (segregacion). */

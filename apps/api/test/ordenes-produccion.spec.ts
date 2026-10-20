@@ -180,6 +180,25 @@ describe("Ordenes de produccion (integracion)", () => {
     ).rejects.toThrow(new BadRequestException("La orden de trabajo no coincide con la de la orden de producción"));
   });
 
+  it("rechaza heredar una orden de trabajo cerrada despues de crear la orden", async () => {
+    const otCerrable = await prisma.ordenTrabajo.create({
+      data: { empresaId, numero: `OT-OP${RUN}-3`, descripcion: "OT que se cierra test", centroCostoId },
+    });
+    const ordenId = await crearOrden();
+    await prisma.ordenProduccion.update({ where: { id: ordenId }, data: { ordenTrabajoId: otCerrable.id } });
+    await prisma.ordenTrabajo.update({ where: { id: otCerrable.id }, data: { estado: "CERRADA" } });
+
+    await expect(
+      vales.crear(usuario, {
+        almacenId,
+        centroCostoId,
+        ordenProduccionId: ordenId,
+        destino: "Planta",
+        lineas: [{ skuId, cantidad: "1" }],
+      }),
+    ).rejects.toThrow(new BadRequestException("No se puede imputar un vale a una orden de trabajo cerrada"));
+  });
+
   it("rechaza con 404 una orden de otra empresa o inexistente", async () => {
     const cuerpo = { almacenId, centroCostoId, destino: "Planta", lineas: [{ skuId, cantidad: "1" }] };
     await expect(vales.crear(usuario, { ...cuerpo, ordenProduccionId: ordenAjenaId })).rejects.toThrow(
