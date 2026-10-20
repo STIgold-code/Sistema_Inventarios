@@ -72,6 +72,7 @@ describe("Entrada por produccion en transaccion (integracion)", () => {
     expect(mov.documentoTipo).toBe("ORDEN_PRODUCCION");
     expect(mov.documentoId).toBe(999999n);
     expect(new Prisma.Decimal(mov.costoUnitario).toNumber()).toBe(3.75);
+    expect(new Prisma.Decimal(mov.costoTotal).toNumber()).toBe(150);
     expect(mov.observaciones).toBe("Ingreso de producción por orden");
 
     const capa = await prisma.capaCosto.findFirstOrThrow({ where: { movimientoEntradaId: res.movimientoId } });
@@ -81,13 +82,30 @@ describe("Entrada por produccion en transaccion (integracion)", () => {
     expect(await disponible()).toBe(antes + 40);
   });
 
-  it("rechaza cantidad cero", async () => {
+  it("conserva el costo total con un costo unitario no exacto", async () => {
+    const res = await prisma.$transaction((tx) =>
+      movimientos.entradaPorProduccionEnTx(usuario, tx, {
+        skuId,
+        almacenId,
+        cantidad: "3",
+        costoTotal: "100",
+        documentoId: 999999n,
+      }),
+    );
+
+    const mov = await prisma.movimientoStock.findUniqueOrThrow({ where: { id: res.movimientoId } });
+    expect(new Prisma.Decimal(mov.costoTotal).toNumber()).toBe(100);
+    const capa = await prisma.capaCosto.findFirstOrThrow({ where: { movimientoEntradaId: res.movimientoId } });
+    expect(capa.costoUnitario.toString()).toBe("33.33333333");
+  });
+
+  it.each(["0", "-5"])("rechaza cantidad %s", async (cantidad) => {
     await expect(
       prisma.$transaction((tx) =>
         movimientos.entradaPorProduccionEnTx(usuario, tx, {
           skuId,
           almacenId,
-          cantidad: "0",
+          cantidad,
           costoTotal: "150",
           documentoId: 999999n,
         }),
