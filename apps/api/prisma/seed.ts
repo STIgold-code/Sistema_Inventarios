@@ -59,6 +59,9 @@ const PERMISOS: ReadonlyArray<{ codigo: string; nombre: string }> = [
   { codigo: "contabilidad.exportar", nombre: "Configurar cuentas y exportar asientos contables" },
   { codigo: "auditoria.ver", nombre: "Ver la bitacora de auditoria" },
   { codigo: "usuario.administrar", nombre: "Administrar usuarios y roles" },
+  { codigo: "formula.gestionar", nombre: "Gestionar fórmulas de producción" },
+  { codigo: "produccion.gestionar", nombre: "Gestionar órdenes de producción" },
+  { codigo: "produccion.cerrar", nombre: "Cerrar órdenes de producción (ingreso valorizado)" },
 ];
 
 // Centros de costo de ejemplo para la empresa BM.

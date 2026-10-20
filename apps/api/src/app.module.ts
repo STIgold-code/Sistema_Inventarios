@@ -40,6 +40,7 @@ import { ExportModule } from "./modulos/comun/export/export.module.js";
 import { DashboardModule } from "./modulos/dashboard/dashboard.module.js";
 import { UsuariosModule } from "./modulos/usuarios/usuarios.module.js";
 import { RolesModule } from "./modulos/roles/roles.module.js";
+import { ProduccionModule } from "./modulos/produccion/produccion.module.js";
 
 @Module({
   imports: [
@@ -94,6 +95,7 @@ import { RolesModule } from "./modulos/roles/roles.module.js";
     DashboardModule,
     UsuariosModule,
     RolesModule,
+    ProduccionModule,
   ],
 })
 export class AppModule {}
