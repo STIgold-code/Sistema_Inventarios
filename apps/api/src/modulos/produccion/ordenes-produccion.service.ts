@@ -200,6 +200,16 @@ export class OrdenesProduccionService {
       await this.validarSkuTerminado(tx, empresaId, formula.skuTerminadoId);
       await this.validarReferencias(tx, empresaId, datos);
 
+      const lineas = formula.lineas.map((l) => ({
+        empresaId,
+        skuInsumoId: l.skuInsumoId,
+        cantidadPlanificada: new D(l.cantidad)
+          .mul(planificada)
+          .div(formula.cantidadBase)
+          .toDecimalPlaces(8),
+      }));
+      await this.validarLineasNoNulas(tx, empresaId, lineas);
+
       const correlativo = await this.correlativos.siguiente(
         tx,
         empresaId,
@@ -218,16 +228,7 @@ export class OrdenesProduccionService {
           ordenTrabajoId: datos.ordenTrabajoId ?? null,
           observaciones: datos.observaciones ?? null,
           usuarioId: usuario.id,
-          lineas: {
-            create: formula.lineas.map((l) => ({
-              empresaId,
-              skuInsumoId: l.skuInsumoId,
-              cantidadPlanificada: new D(l.cantidad)
-                .mul(planificada)
-                .div(formula.cantidadBase)
-                .toDecimalPlaces(8),
-            })),
-          },
+          lineas: { create: lineas },
         },
       });
       await this.auditoria.registrar(
@@ -506,9 +507,31 @@ export class OrdenesProduccionService {
     if (!ot) throw new NotFoundException("Orden de trabajo no encontrada");
     if (ot.estado !== "ABIERTA") {
       throw new BadRequestException(
-        "No se puede imputar un vale a una orden de trabajo cerrada",
+        "No se puede vincular la orden de producción a una orden de trabajo cerrada",
       );
     }
+  }
+
+  /**
+   * Ninguna línea explotada puede quedar en cero tras redondear a 8 decimales
+   * (receta con una proporción demasiado pequeña para la cantidad planificada).
+   */
+  private async validarLineasNoNulas(
+    tx: Prisma.TransactionClient,
+    empresaId: bigint,
+    lineas: Array<{ skuInsumoId: bigint; cantidadPlanificada: Prisma.Decimal }>,
+  ): Promise<void> {
+    const nula = lineas.find((l) => l.cantidadPlanificada.isZero());
+    if (!nula) return;
+    const sku = await tx.sku.findFirst({
+      where: { id: nula.skuInsumoId, empresaId },
+      select: { codigoParlante: true },
+    });
+    throw new BadRequestException(
+      `La cantidad planificada es demasiado pequeña para el insumo ${
+        sku?.codigoParlante ?? nula.skuInsumoId.toString()
+      }`,
+    );
   }
 
   private mapearCabecera(

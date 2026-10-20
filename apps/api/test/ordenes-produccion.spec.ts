@@ -421,7 +421,18 @@ describe("Ordenes de produccion (integracion)", () => {
       });
       await expect(
         ordenes.crear(usuario, { ...datosOrden("1"), ordenTrabajoId: otCerrada.id }),
-      ).rejects.toThrow(new BadRequestException("No se puede imputar un vale a una orden de trabajo cerrada"));
+      ).rejects.toThrow(
+        new BadRequestException("No se puede vincular la orden de producción a una orden de trabajo cerrada"),
+      );
+    });
+
+    it("rechaza una linea que redondea a cero sin crear la orden", async () => {
+      const formulaId = await crearFormula("1000000000", [{ skuInsumoId: insumoA, cantidad: "1" }]);
+      await expect(ordenes.crear(usuario, datosOrden("1", formulaId))).rejects.toThrow(
+        new BadRequestException(`La cantidad planificada es demasiado pequeña para el insumo 4${RUN}0101`),
+      );
+      const creadas = await prisma.ordenProduccion.count({ where: { empresaId, formulaId } });
+      expect(creadas).toBe(0);
     });
 
     it("rechaza con 404 formula, almacen, OT y orden de otra empresa", async () => {
