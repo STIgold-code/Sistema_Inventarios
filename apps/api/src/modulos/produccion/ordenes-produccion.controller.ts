@@ -15,7 +15,10 @@ import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
 import { UsuarioActual } from "../../comun/decoradores/usuario-actual.decorator.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { OrdenesProduccionService } from "./ordenes-produccion.service.js";
-import { CrearOrdenProduccionDto } from "./dto/ordenes-produccion.dto.js";
+import {
+  CerrarOrdenProduccionDto,
+  CrearOrdenProduccionDto,
+} from "./dto/ordenes-produccion.dto.js";
 
 const ESTADOS_ORDEN: readonly string[] = Object.values(EstadoOrdenProduccion);
 
@@ -65,6 +68,21 @@ export class OrdenesProduccionController {
   @Permisos("produccion.gestionar")
   anular(@UsuarioActual() usuario: UsuarioRequest, @Param("id") id: string) {
     return this.ordenes.anular(usuario, BigInt(id));
+  }
+
+  @Post(":id/cerrar")
+  @Permisos("produccion.cerrar")
+  cerrar(
+    @UsuarioActual() usuario: UsuarioRequest,
+    @Param("id") id: string,
+    @Body() dto: CerrarOrdenProduccionDto,
+  ) {
+    return this.ordenes.cerrar(usuario, BigInt(id), {
+      cantidadProducida: dto.cantidadProducida,
+      almacenDestinoId:
+        dto.almacenDestinoId !== undefined ? BigInt(dto.almacenDestinoId) : undefined,
+      observaciones: dto.observaciones,
+    });
   }
 
   /** `estado` es opcional: vacío/omitido -> undefined; fuera del enum -> 400. */

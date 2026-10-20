@@ -13,6 +13,7 @@ import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { AuditoriaService } from "../auditoria/auditoria.service.js";
 import { CorrelativoService } from "../comun/correlativo/correlativo.service.js";
+import { MovimientoService } from "../inventario/movimientos/movimiento.service.js";
 import { ValesService } from "../vales/vales.service.js";
 import { cargarSkuRefs, referenciaSku, type SkuRef } from "./sku-ref.js";
 
@@ -60,7 +61,21 @@ export interface ConsumoOrden {
 export type ConsumoCalculado = ConsumoOrden & {
   idsValesDespachados: bigint[];
   hayValesEnCurso: boolean;
+  /** Suma exacta (sin redondear) del costo de las salidas de los vales despachados. */
+  costoTotalExacto: Prisma.Decimal;
 };
+
+export interface DatosCierreOrden {
+  cantidadProducida: string;
+  almacenDestinoId?: bigint;
+  observaciones?: string;
+}
+
+export interface ResultadoCierreOrden {
+  movimientoId: string;
+  costoTotalInsumos: string;
+  costoUnitarioTerminado: string;
+}
 
 interface OrdenProduccionCabecera {
   id: string;
@@ -115,6 +130,7 @@ export class OrdenesProduccionService {
     private readonly correlativos: CorrelativoService,
     private readonly auditoria: AuditoriaService,
     private readonly vales: ValesService,
+    private readonly movimientos: MovimientoService,
   ) {}
 
   /** Lista las órdenes de la empresa, la más reciente primero. */
@@ -348,6 +364,120 @@ export class OrdenesProduccionService {
   }
 
   /**
+   * EN_PROCESO -> CERRADA con el ingreso valorizado del producto terminado.
+   *
+   * El costo de los insumos es la suma EXACTA del `costoTotal` de las salidas
+   * del ledger de los vales despachados contra la orden (de fórmula y fuera de
+   * fórmula), es decir, el promedio móvil tal como se registró en el kardex y no
+   * un recálculo FIFO: así el valor que sale del inventario es el mismo que
+   * vuelve a entrar con el terminado. Ese total se pasa sin redondear a la
+   * entrada de producción, que fija costo unitario = total / cantidad producida.
+   *
+   * Todo corre en una sola transacción. Orden de bloqueos: primero la fila de la
+   * orden (FOR UPDATE, el mismo que toman el despacho de un vale y la anulación)
+   * y después los bloqueos de stock que toma la entrada; nunca al revés.
+   *
+   * Limitación de esta versión: no se admite un terminado con control de serie
+   * ni con control de lote, porque la entrada de stock no registra lote ni
+   * vencimiento (responde 400 en ambos casos).
+   */
+  async cerrar(
+    usuario: UsuarioRequest,
+    id: bigint,
+    datos: DatosCierreOrden,
+  ): Promise<ResultadoCierreOrden> {
+    const empresaId = usuario.empresaId;
+    const cantidadProducida = new D(datos.cantidadProducida);
+
+    return this.prisma.$transaction(async (tx) => {
+      const bloqueadas = await tx.$queryRaw<Array<{ id: bigint }>>`SELECT id FROM orden_produccion WHERE id = ${id} AND empresa_id = ${empresaId} FOR UPDATE`;
+      if (bloqueadas.length === 0) {
+        throw new NotFoundException("Orden de producción no encontrada");
+      }
+      const orden = await tx.ordenProduccion.findFirst({
+        where: { id, empresaId },
+        select: {
+          id: true,
+          numero: true,
+          estado: true,
+          skuTerminadoId: true,
+          almacenDestinoId: true,
+        },
+      });
+      if (!orden) throw new NotFoundException("Orden de producción no encontrada");
+      if (orden.estado === "PLANIFICADA") {
+        throw new BadRequestException("La orden no tiene consumo registrado");
+      }
+      if (orden.estado !== "EN_PROCESO") {
+        throw new ConflictException("La orden de producción ya está cerrada o anulada");
+      }
+
+      const consumo = await this.calcularConsumo(tx, empresaId, orden.id);
+      if (consumo.hayValesEnCurso) {
+        throw new BadRequestException("Hay vales pendientes de despachar o anular");
+      }
+      const costoTotalInsumos = consumo.costoTotalExacto;
+      if (costoTotalInsumos.isZero()) {
+        throw new BadRequestException("La orden no tiene consumo valorizado");
+      }
+
+      await this.validarSkuTerminadoParaIngreso(tx, empresaId, orden.skuTerminadoId);
+      const almacenId = await this.resolverAlmacenDestino(
+        tx,
+        empresaId,
+        datos.almacenDestinoId,
+        orden.almacenDestinoId,
+      );
+
+      const { movimientoId } = await this.movimientos.entradaPorProduccionEnTx(usuario, tx, {
+        skuId: orden.skuTerminadoId,
+        almacenId,
+        cantidad: datos.cantidadProducida,
+        costoTotal: costoTotalInsumos.toString(),
+        documentoId: orden.id,
+        observaciones: datos.observaciones,
+      });
+      // Mismo valor que guardan el movimiento y la capa (columna de 8 decimales).
+      const costoUnitarioTerminado = costoTotalInsumos
+        .div(cantidadProducida)
+        .toDecimalPlaces(8);
+
+      const actualizadas = await tx.ordenProduccion.updateMany({
+        where: { id: orden.id, empresaId, estado: "EN_PROCESO" },
+        data: {
+          estado: "CERRADA",
+          cantidadProducida,
+          costoTotalInsumos,
+          costoUnitarioTerminado,
+          movimientoEntradaId: movimientoId,
+          fechaCierre: new Date(),
+          almacenDestinoId: almacenId,
+        },
+      });
+      if (actualizadas.count === 0) {
+        throw new ConflictException("La orden de producción ya está cerrada o anulada");
+      }
+      await this.auditoria.registrar(
+        {
+          empresaId,
+          usuarioId: usuario.id,
+          accion: "CERRAR",
+          entidad: ENTIDAD_AUDITORIA,
+          entidadId: orden.id,
+          detalle: `Orden de producción ${orden.numero} cerrada: ${cantidadProducida.toString()} producidas con un costo de insumos de ${costoTotalInsumos.toFixed(2)} (movimiento ${movimientoId.toString()})`,
+        },
+        tx,
+      );
+
+      return {
+        movimientoId: movimientoId.toString(),
+        costoTotalInsumos: costoTotalInsumos.toFixed(2),
+        costoUnitarioTerminado: costoUnitarioTerminado.toString(),
+      };
+    });
+  }
+
+  /**
    * Consumo de la orden leído del ledger. Consumido y costo por SKU salen de
    * las salidas de los vales DESPACHADO (costo tal como se registró en el
    * kardex); en curso es lo pedido en vales BORRADOR/AUTORIZADO; pendiente =
@@ -452,6 +582,7 @@ export class OrdenesProduccionService {
       costoTotalConsumido: costoTotal.toFixed(2),
       idsValesDespachados,
       hayValesEnCurso: idsValesEnCurso.length > 0,
+      costoTotalExacto: costoTotal,
     };
   }
 
@@ -469,6 +600,49 @@ export class OrdenesProduccionService {
     if (!sku.activo) {
       throw new BadRequestException(`El SKU ${sku.codigoParlante} está inactivo`);
     }
+  }
+
+  /**
+   * El terminado debe poder ingresar sin lote ni series: la entrada de stock de
+   * esta versión no registra lote, vencimiento ni números de serie (400 si no).
+   */
+  private async validarSkuTerminadoParaIngreso(
+    tx: Prisma.TransactionClient,
+    empresaId: bigint,
+    skuTerminadoId: bigint,
+  ): Promise<void> {
+    const sku = await tx.sku.findFirst({
+      where: { id: skuTerminadoId, empresaId },
+      select: { controlaSerie: true, controlaLote: true },
+    });
+    if (!sku) throw new NotFoundException("SKU no encontrado");
+    if (sku.controlaSerie) {
+      throw new BadRequestException("No se admite producto terminado con control de serie");
+    }
+    if (sku.controlaLote) {
+      throw new BadRequestException(
+        "No se admite producto terminado con control de lote en esta versión",
+      );
+    }
+  }
+
+  /**
+   * Almacén donde entra el terminado: el del cierre, si se informa y pertenece a
+   * la empresa (404 si no), o el de la orden.
+   */
+  private async resolverAlmacenDestino(
+    tx: Prisma.TransactionClient,
+    empresaId: bigint,
+    almacenDestinoId: bigint | undefined,
+    almacenDeLaOrden: bigint,
+  ): Promise<bigint> {
+    if (almacenDestinoId === undefined) return almacenDeLaOrden;
+    const almacen = await tx.almacen.findFirst({
+      where: { id: almacenDestinoId, empresaId },
+      select: { id: true },
+    });
+    if (!almacen) throw new NotFoundException("Almacén de destino no encontrado");
+    return almacen.id;
   }
 
   /**

@@ -29,3 +29,18 @@ export class CrearOrdenProduccionDto {
   @IsString()
   observaciones?: string;
 }
+
+export class CerrarOrdenProduccionDto {
+  // Cantidad de producto terminado realmente obtenida, en unidad de control.
+  @Matches(REGEX_DECIMAL, { message: "cantidadProducida debe ser decimal positivo" })
+  cantidadProducida!: string;
+
+  // Si se informa, reemplaza al almacén de destino de la orden.
+  @IsOptional()
+  @IsInt()
+  almacenDestinoId?: number;
+
+  @IsOptional()
+  @IsString()
+  observaciones?: string;
+}

@@ -7,7 +7,9 @@ import { AuditoriaService } from "../src/modulos/auditoria/auditoria.service.js"
 import { ValesService } from "../src/modulos/vales/vales.service.js";
 import { FormulasService } from "../src/modulos/produccion/formulas.service.js";
 import { OrdenesProduccionService } from "../src/modulos/produccion/ordenes-produccion.service.js";
+import { CerrarOrdenProduccionDto } from "../src/modulos/produccion/dto/ordenes-produccion.dto.js";
 import type { UsuarioRequest } from "../src/comun/contexto/usuario-request.js";
+import { validarCuerpo } from "./apoyo/validar-cuerpo.js";
 
 /**
  * Integracion de las ordenes de produccion con los vales de salida: un vale se
@@ -315,7 +317,13 @@ describe("Ordenes de produccion (integracion)", () => {
    */
   describe("servicio de ordenes de produccion", () => {
     const formulas = new FormulasService(prisma, new CorrelativoService(), auditoria);
-    const ordenes = new OrdenesProduccionService(prisma, new CorrelativoService(), auditoria, vales);
+    const ordenes = new OrdenesProduccionService(
+      prisma,
+      new CorrelativoService(),
+      auditoria,
+      vales,
+      movimientos,
+    );
 
     let insumoA: bigint;
     let insumoB: bigint;
@@ -449,6 +457,9 @@ describe("Ordenes de produccion (integracion)", () => {
       await expect(ordenes.obtener(empresaId, ordenAjenaId)).rejects.toThrow(NotFoundException);
       await expect(ordenes.generarVale(usuario, ordenAjenaId)).rejects.toThrow(NotFoundException);
       await expect(ordenes.anular(usuario, ordenAjenaId)).rejects.toThrow(NotFoundException);
+      await expect(
+        ordenes.cerrar(usuario, ordenAjenaId, { cantidadProducida: "1" }),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it("generar vale crea un BORRADOR con las lineas pendientes", async () => {
@@ -571,6 +582,190 @@ describe("Ordenes de produccion (integracion)", () => {
       await expect(ordenes.anular(usuario, BigInt(conVale.id))).rejects.toThrow(
         new BadRequestException("La orden tiene vales vinculados"),
       );
+    });
+
+    /**
+     * Cierre: el costo del terminado es la suma de las salidas del ledger de los
+     * vales despachados (promedio movil tal como se registro). Insumos propios
+     * A (200 a 5) y B (200 a 2), terminado propio y una formula base "1" con
+     * A "2" y B "1": una orden de "10" consume A 20 (100) y B 10 (20).
+     */
+    describe("cierre de la orden", () => {
+      let insumoCierreA: bigint;
+      let insumoCierreB: bigint;
+      let terminadoCierre: bigint;
+      let formulaCierreId: bigint;
+
+      async function crearFormulaCierre(
+        skuTerminadoId: bigint,
+        lineas: Array<{ skuInsumoId: bigint; cantidad: string }>,
+      ): Promise<bigint> {
+        const { id } = await formulas.crear(usuario, {
+          nombre: `Formula cierre ${RUN}`,
+          skuTerminadoId,
+          cantidadBase: "1",
+          lineas,
+        });
+        return BigInt(id);
+      }
+
+      /** Autoriza y despacha un vale con un usuario distinto del solicitante. */
+      async function despacharVale(valeId: string): Promise<void> {
+        await vales.autorizar(autorizador, BigInt(valeId));
+        await vales.despachar(autorizador, BigInt(valeId));
+      }
+
+      /** Crea la orden "10", genera su vale y lo despacha: queda EN_PROCESO. */
+      async function ordenConConsumo(formula = formulaCierreId): Promise<bigint> {
+        const { id } = await ordenes.crear(usuario, datosOrden("10", formula));
+        const { valeId } = await ordenes.generarVale(usuario, BigInt(id));
+        await despacharVale(valeId);
+        return BigInt(id);
+      }
+
+      async function entradasDeProduccion(ordenId: bigint): Promise<number> {
+        return prisma.movimientoStock.count({
+          where: { empresaId, tipo: "ENTRADA_PRODUCCION", documentoTipo: "ORDEN_PRODUCCION", documentoId: ordenId },
+        });
+      }
+
+      beforeAll(async () => {
+        insumoCierreA = await crearSkuProduccion("0111", "Insumo A cierre test");
+        insumoCierreB = await crearSkuProduccion("0112", "Insumo B cierre test");
+        terminadoCierre = await crearSkuProduccion("0113", "Terminado cierre test");
+        await movimientos.recibirCompra(usuario, { skuId: insumoCierreA, almacenId, cantidad: "200", costoUnitario: "5" });
+        await movimientos.recibirCompra(usuario, { skuId: insumoCierreB, almacenId, cantidad: "200", costoUnitario: "2" });
+        formulaCierreId = await crearFormulaCierre(terminadoCierre, [
+          { skuInsumoId: insumoCierreA, cantidad: "2" },
+          { skuInsumoId: insumoCierreB, cantidad: "1" },
+        ]);
+      });
+
+      it("cierra con costo = suma del ledger y crea la entrada del terminado", async () => {
+        const ordenId = await ordenConConsumo();
+
+        const res = await ordenes.cerrar(usuario, ordenId, { cantidadProducida: "8" });
+        expect(res.costoTotalInsumos).toBe("120.00");
+        expect(res.costoUnitarioTerminado).toBe("15");
+
+        const mov = await prisma.movimientoStock.findUniqueOrThrow({ where: { id: BigInt(res.movimientoId) } });
+        expect(mov.tipo).toBe("ENTRADA_PRODUCCION");
+        expect(mov.documentoTipo).toBe("ORDEN_PRODUCCION");
+        expect(mov.documentoId).toBe(ordenId);
+        expect(mov.skuId).toBe(terminadoCierre);
+        expect(mov.cantidad.toString()).toBe("8");
+        expect(mov.costoTotal.toString()).toBe("120");
+
+        const capa = await prisma.capaCosto.findFirstOrThrow({ where: { movimientoEntradaId: mov.id } });
+        expect(capa.cantidadInicial.toString()).toBe("8");
+        expect(capa.costoUnitario.toString()).toBe("15");
+
+        const stock = await prisma.itemStock.findFirstOrThrow({ where: { skuId: terminadoCierre, almacenId } });
+        expect(stock.cantidadDisponible.toString()).toBe("8");
+
+        const orden = await prisma.ordenProduccion.findUniqueOrThrow({ where: { id: ordenId } });
+        expect(orden.estado).toBe("CERRADA");
+        expect(orden.cantidadProducida?.toString()).toBe("8");
+        expect(orden.costoTotalInsumos?.toString()).toBe("120");
+        expect(orden.costoUnitarioTerminado?.toString()).toBe("15");
+        expect(orden.movimientoEntradaId).toBe(mov.id);
+        expect(orden.fechaCierre).not.toBeNull();
+
+        const detalle = await ordenes.obtener(empresaId, ordenId);
+        expect(detalle.costoTotalInsumos).toBe("120.00");
+        expect(detalle.movimientoEntradaId).toBe(res.movimientoId);
+
+        const traza = await prisma.registroAuditoria.findFirst({
+          where: { entidad: "ORDEN_PRODUCCION", entidadId: ordenId, accion: "CERRAR" },
+        });
+        expect(traza).not.toBeNull();
+      });
+
+      it("usa el promedio del ledger, no FIFO", async () => {
+        const insumoC = await crearSkuProduccion("0114", "Insumo C cierre test");
+        const terminadoC = await crearSkuProduccion("0116", "Terminado C cierre test");
+        await movimientos.recibirCompra(usuario, { skuId: insumoC, almacenId, cantidad: "50", costoUnitario: "4" });
+        await movimientos.recibirCompra(usuario, { skuId: insumoC, almacenId, cantidad: "50", costoUnitario: "6" });
+        const formulaC = await crearFormulaCierre(terminadoC, [{ skuInsumoId: insumoC, cantidad: "2" }]);
+        const ordenId = await ordenConConsumo(formulaC);
+
+        // La salida de 20 se registro al promedio movil 5 (FIFO daria 80).
+        const detalle = await ordenes.obtener(empresaId, ordenId);
+        expect(lineaDe(detalle.consumo.lineas, insumoC).costoConsumido).toBe("100.00");
+
+        const res = await ordenes.cerrar(usuario, ordenId, { cantidadProducida: "10" });
+        expect(res.costoTotalInsumos).toBe("100.00");
+        expect(res.costoUnitarioTerminado).toBe("10");
+      });
+
+      it("incluye en el costo un vale manual con un SKU fuera de formula", async () => {
+        const insumoD = await crearSkuProduccion("0115", "Insumo D cierre test");
+        await movimientos.recibirCompra(usuario, { skuId: insumoD, almacenId, cantidad: "10", costoUnitario: "3" });
+        const ordenId = await ordenConConsumo();
+
+        const { id: valeManualId } = await vales.crear(usuario, {
+          almacenId,
+          centroCostoId,
+          ordenProduccionId: ordenId,
+          destino: "Planta",
+          lineas: [{ skuId: insumoD, cantidad: "10" }],
+        });
+        await despacharVale(valeManualId);
+
+        const detalle = await ordenes.obtener(empresaId, ordenId);
+        expect(detalle.consumo.fueraDeFormula).toEqual([
+          expect.objectContaining({ cantidadConsumida: "10", costoConsumido: "30.00" }),
+        ]);
+        expect(detalle.consumo.fueraDeFormula[0]!.skuInsumo.id).toBe(insumoD.toString());
+
+        const res = await ordenes.cerrar(usuario, ordenId, { cantidadProducida: "10" });
+        expect(res.costoTotalInsumos).toBe("150.00");
+        expect(res.costoUnitarioTerminado).toBe("15");
+      });
+
+      it("rechaza el cierre con un vale AUTORIZADO pendiente", async () => {
+        const ordenId = await ordenConConsumo();
+        const { id: pendienteId } = await vales.crear(usuario, {
+          almacenId,
+          centroCostoId,
+          ordenProduccionId: ordenId,
+          destino: "Planta",
+          lineas: [{ skuId: insumoCierreA, cantidad: "1" }],
+        });
+        valesSinDespacho.push(BigInt(pendienteId));
+        await vales.autorizar(autorizador, BigInt(pendienteId));
+
+        await expect(ordenes.cerrar(usuario, ordenId, { cantidadProducida: "8" })).rejects.toThrow(
+          new BadRequestException("Hay vales pendientes de despachar o anular"),
+        );
+        expect(await entradasDeProduccion(ordenId)).toBe(0);
+        const orden = await prisma.ordenProduccion.findUniqueOrThrow({ where: { id: ordenId } });
+        expect(orden.estado).toBe("EN_PROCESO");
+      });
+
+      it("rechaza el cierre en PLANIFICADA y repetido en CERRADA", async () => {
+        const { id } = await ordenes.crear(usuario, datosOrden("10", formulaCierreId));
+        const ordenId = BigInt(id);
+        await expect(ordenes.cerrar(usuario, ordenId, { cantidadProducida: "8" })).rejects.toThrow(
+          new BadRequestException("La orden no tiene consumo registrado"),
+        );
+
+        const { valeId } = await ordenes.generarVale(usuario, ordenId);
+        await despacharVale(valeId);
+        await ordenes.cerrar(usuario, ordenId, { cantidadProducida: "8" });
+
+        await expect(ordenes.cerrar(usuario, ordenId, { cantidadProducida: "8" })).rejects.toThrow(
+          new ConflictException("La orden de producción ya está cerrada o anulada"),
+        );
+        expect(await entradasDeProduccion(ordenId)).toBe(1);
+      });
+
+      it("rechaza por DTO cantidadProducida cero", async () => {
+        const resultado = await validarCuerpo(CerrarOrdenProduccionDto, { cantidadProducida: "0" });
+        expect(resultado.valido).toBe(false);
+        const valido = await validarCuerpo(CerrarOrdenProduccionDto, { cantidadProducida: "8", almacenDestinoId: 1 });
+        expect(valido.valido).toBe(true);
+      });
     });
   });
 });
