@@ -431,18 +431,21 @@ export class OrdenesProduccionService {
         orden.almacenDestinoId,
       );
 
-      const { movimientoId } = await this.movimientos.entradaPorProduccionEnTx(usuario, tx, {
-        skuId: orden.skuTerminadoId,
-        almacenId,
-        cantidad: datos.cantidadProducida,
-        costoTotal: costoTotalInsumos.toString(),
-        documentoId: orden.id,
-        observaciones: datos.observaciones,
-      });
-      // Mismo valor que guardan el movimiento y la capa (columna de 8 decimales).
-      const costoUnitarioTerminado = costoTotalInsumos
-        .div(cantidadProducida)
-        .toDecimalPlaces(8);
+      const { movimientoId, costoUnitario } = await this.movimientos.entradaPorProduccionEnTx(
+        usuario,
+        tx,
+        {
+          skuId: orden.skuTerminadoId,
+          almacenId,
+          cantidad: datos.cantidadProducida,
+          costoTotal: costoTotalInsumos.toString(),
+          documentoId: orden.id,
+          observaciones: datos.observaciones,
+        },
+      );
+      // Una sola fuente de verdad: el unitario que fijó la entrada, al mismo
+      // redondeo que guardan el movimiento y la capa (columna de 8 decimales).
+      const costoUnitarioTerminado = costoUnitario.toDecimalPlaces(8);
 
       const actualizadas = await tx.ordenProduccion.updateMany({
         where: { id: orden.id, empresaId, estado: "EN_PROCESO" },
@@ -515,6 +518,7 @@ export class OrdenesProduccionService {
             by: ["skuId"],
             where: {
               empresaId,
+              tipo: "SALIDA_CONSUMO",
               documentoTipo: "VALE_SALIDA",
               documentoId: { in: idsValesDespachados },
             },

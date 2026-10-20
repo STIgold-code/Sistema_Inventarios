@@ -14,6 +14,7 @@ import { PermisosGuard } from "../../auth/permisos.guard.js";
 import { Permisos } from "../../comun/decoradores/permisos.decorator.js";
 import { UsuarioActual } from "../../comun/decoradores/usuario-actual.decorator.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
+import { FormulasService, type FormulaResumen } from "./formulas.service.js";
 import { OrdenesProduccionService } from "./ordenes-produccion.service.js";
 import {
   CerrarOrdenProduccionDto,
@@ -29,12 +30,26 @@ function esEstadoOrden(valor: string): valor is EstadoOrdenProduccion {
 @Controller("ordenes-produccion")
 @UseGuards(JwtGuard, PermisosGuard)
 export class OrdenesProduccionController {
-  constructor(private readonly ordenes: OrdenesProduccionService) {}
+  constructor(
+    private readonly ordenes: OrdenesProduccionService,
+    private readonly formulas: FormulasService,
+  ) {}
 
   @Get()
   @Permisos("produccion.gestionar")
   listar(@UsuarioActual() usuario: UsuarioRequest, @Query("estado") estado?: string) {
     return this.ordenes.listar(usuario.empresaId, { estado: this.parsearEstado(estado) });
+  }
+
+  /**
+   * Catálogo de fórmulas activas para registrar órdenes: solo lectura con el
+   * permiso de producción, sin exigir `formula.gestionar` (derecho de edición).
+   * Va antes de `GET :id`: Nest resuelve las rutas en orden de declaración.
+   */
+  @Get("formulas-disponibles")
+  @Permisos("produccion.gestionar")
+  formulasDisponibles(@UsuarioActual() usuario: UsuarioRequest): Promise<FormulaResumen[]> {
+    return this.formulas.listar(usuario.empresaId, { activo: true });
   }
 
   @Get(":id")

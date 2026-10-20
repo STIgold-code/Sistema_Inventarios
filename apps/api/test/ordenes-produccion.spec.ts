@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
+import { PATH_METADATA } from "@nestjs/common/constants.js";
 import { PrismaService } from "../src/comun/prisma/prisma.service.js";
 import { MovimientoService } from "../src/modulos/inventario/movimientos/movimiento.service.js";
 import { TiposCambioService } from "../src/modulos/tipos-cambio/tipos-cambio.service.js";
@@ -7,6 +8,8 @@ import { AuditoriaService } from "../src/modulos/auditoria/auditoria.service.js"
 import { ValesService } from "../src/modulos/vales/vales.service.js";
 import { FormulasService } from "../src/modulos/produccion/formulas.service.js";
 import { OrdenesProduccionService } from "../src/modulos/produccion/ordenes-produccion.service.js";
+import { OrdenesProduccionController } from "../src/modulos/produccion/ordenes-produccion.controller.js";
+import { CLAVE_PERMISOS } from "../src/comun/decoradores/permisos.decorator.js";
 import {
   CerrarOrdenProduccionDto,
   CrearOrdenProduccionDto,
@@ -472,6 +475,32 @@ describe("Ordenes de produccion (integracion)", () => {
       await expect(ordenes.crear(usuario, datosOrden("1", BigInt(id)))).rejects.toThrow(
         new BadRequestException(`El SKU 4${RUN}0104 está inactivo`),
       );
+    });
+
+    it("formulas disponibles devuelve solo las formulas activas de la empresa", async () => {
+      const controlador = new OrdenesProduccionController(ordenes, formulas);
+      const activaId = await crearFormula("1", [{ skuInsumoId: insumoA, cantidad: "1" }]);
+      const inactivaId = await crearFormula("1", [{ skuInsumoId: insumoB, cantidad: "1" }]);
+      await formulas.darDeBaja(usuario, inactivaId);
+
+      const disponibles = await controlador.formulasDisponibles(usuario);
+      const ids = disponibles.map((f) => f.id);
+      expect(ids).toContain(activaId.toString());
+      expect(ids).not.toContain(inactivaId.toString());
+      expect(ids).not.toContain(formulaAjenaId.toString());
+      expect(disponibles.every((f) => f.activo)).toBe(true);
+      const deOtraEmpresa = await prisma.formula.count({
+        where: { id: { in: ids.map((id) => BigInt(id)) }, empresaId: { not: empresaId } },
+      });
+      expect(deOtraEmpresa).toBe(0);
+
+      // Solo exige el permiso de produccion y se declara antes de GET :id, que
+      // de lo contrario capturaria "formulas-disponibles" como id.
+      const prototipo = OrdenesProduccionController.prototype;
+      expect(Reflect.getMetadata(PATH_METADATA, prototipo.formulasDisponibles)).toBe("formulas-disponibles");
+      expect(Reflect.getMetadata(CLAVE_PERMISOS, prototipo.formulasDisponibles)).toEqual(["produccion.gestionar"]);
+      const metodos = Object.getOwnPropertyNames(prototipo);
+      expect(metodos.indexOf("formulasDisponibles")).toBeLessThan(metodos.indexOf("obtener"));
     });
 
     it("valida el DTO de creacion de la orden", async () => {

@@ -284,6 +284,48 @@ describe("Fórmulas de producción (integración)", () => {
     expect(detalle.lineas[0]!.skuInsumo.id).toBe(insumo1Id.toString());
   });
 
+  it("PATCH con el mismo terminado inactivo y líneas nuevas responde OK", async () => {
+    // El cliente reenvía el terminado guardado (sin cambio) aunque esté inactivo.
+    const terminadoDesechable = await crearSku(empresaA, "0008", "Laca descontinuada");
+    const { id } = await formulas.crear(usuario, {
+      ...datosValidos(),
+      skuTerminadoId: terminadoDesechable,
+    });
+    await prisma.sku.update({ where: { id: terminadoDesechable }, data: { activo: false } });
+
+    await formulas.actualizar(usuario, BigInt(id), {
+      nombre: "Laca renombrada",
+      skuTerminadoId: terminadoDesechable,
+      lineas: [{ skuInsumoId: insumo2Id, cantidad: "4" }],
+    });
+
+    const detalle = await formulas.obtener(empresaA, BigInt(id));
+    expect(detalle.nombre).toBe("Laca renombrada");
+    expect(detalle.skuTerminado.id).toBe(terminadoDesechable.toString());
+    expect(detalle.lineas.map((l) => [l.skuInsumo.id, l.cantidad])).toEqual([
+      [insumo2Id.toString(), "4"],
+    ]);
+  });
+
+  it("reenviar el mismo terminado mantiene la regla insumo distinto del terminado", async () => {
+    const { id } = await formulas.crear(usuario, datosValidos());
+    await expect(
+      formulas.actualizar(usuario, BigInt(id), {
+        skuTerminadoId: terminadoId,
+        lineas: [{ skuInsumoId: terminadoId, cantidad: "1" }],
+      }),
+    ).rejects.toThrow(new BadRequestException("Un insumo no puede ser el mismo producto terminado"));
+  });
+
+  it("guarda null al limpiar las observaciones con una cadena vacía", async () => {
+    const { id } = await formulas.crear(usuario, { ...datosValidos(), observaciones: "Nota" });
+    await formulas.actualizar(usuario, BigInt(id), { observaciones: "" });
+    expect((await formulas.obtener(empresaA, BigInt(id))).observaciones).toBeNull();
+
+    const { id: sinNota } = await formulas.crear(usuario, { ...datosValidos(), observaciones: "" });
+    expect((await formulas.obtener(empresaA, BigInt(sinNota))).observaciones).toBeNull();
+  });
+
   it("actualizar rechaza con 400 un nuevo terminado inactivo", async () => {
     const terminadoInactivo = await crearSku(empresaA, "0007", "Esmalte descontinuado", false);
     const { id } = await formulas.crear(usuario, datosValidos());

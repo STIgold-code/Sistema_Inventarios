@@ -129,7 +129,7 @@ export class FormulasService {
           nombre: datos.nombre,
           skuTerminadoId: datos.skuTerminadoId,
           cantidadBase: new D(datos.cantidadBase),
-          observaciones: datos.observaciones ?? null,
+          observaciones: datos.observaciones === "" ? null : (datos.observaciones ?? null),
           lineas: { create: this.datosLineas(usuario.empresaId, datos.lineas) },
         },
       });
@@ -153,7 +153,8 @@ export class FormulasService {
   /**
    * Actualiza los campos enviados. Pertenencia y estado activo se validan solo
    * para los SKU recibidos en la petición: el terminado guardado no se
-   * revalida (ya se validó al asignarlo), pero sigue siendo el terminado
+   * revalida (ya se validó al asignarlo), tampoco si la petición lo reenvía sin
+   * cambio, pero sigue siendo el terminado
    * efectivo para la regla insumo ≠ terminado. Si llega `lineas`, reemplaza el
    * conjunto completo de insumos; si solo cambia el terminado, se valida contra
    * los insumos guardados. Una fórmula inactiva también se puede editar.
@@ -176,11 +177,16 @@ export class FormulasService {
       });
       if (!actual) throw new NotFoundException("Fórmula no encontrada");
 
-      const terminado = datos.skuTerminadoId ?? actual.skuTerminadoId;
+      // Reenviar el terminado guardado equivale a no cambiarlo: no se revalida,
+      // así una fórmula cuyo terminado se desactivó sigue siendo editable.
+      const terminadoNuevo =
+        datos.skuTerminadoId !== undefined && datos.skuTerminadoId !== actual.skuTerminadoId
+          ? datos.skuTerminadoId
+          : undefined;
+      const terminado = terminadoNuevo ?? actual.skuTerminadoId;
       if (lineas !== undefined) {
         const insumos = lineas.map((l) => l.skuInsumoId);
-        const recibidos =
-          datos.skuTerminadoId !== undefined ? [datos.skuTerminadoId, ...insumos] : insumos;
+        const recibidos = terminadoNuevo !== undefined ? [terminadoNuevo, ...insumos] : insumos;
         await this.validarSkus(tx, usuario.empresaId, recibidos);
         this.validarComposicion(terminado, insumos);
       } else if (terminado !== actual.skuTerminadoId) {
@@ -200,10 +206,11 @@ export class FormulasService {
         where: { id: actual.id },
         data: {
           nombre: datos.nombre,
-          skuTerminadoId: datos.skuTerminadoId,
+          skuTerminadoId: terminadoNuevo,
           cantidadBase:
             datos.cantidadBase !== undefined ? new D(datos.cantidadBase) : undefined,
-          observaciones: datos.observaciones,
+          // Cadena vacía = limpiar las observaciones (se guarda null, como en el alta).
+          observaciones: datos.observaciones === "" ? null : datos.observaciones,
           ...(lineas !== undefined
             ? { lineas: { create: this.datosLineas(usuario.empresaId, lineas) } }
             : {}),
