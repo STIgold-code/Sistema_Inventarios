@@ -20,6 +20,7 @@ import {
   type Sku,
   type SkuRef,
 } from "@/lib/api";
+import { formatearCantidad } from "@/lib/formato";
 
 interface Aviso {
   texto: string;
@@ -59,10 +60,14 @@ interface Confirmacion {
   accion: "baja" | "reactivar";
 }
 
-/** Fórmula en edición: id para el PATCH y código para los mensajes. */
+/**
+ * Fórmula en edición: id para el PATCH, código para los mensajes y terminado
+ * guardado para enviar `skuTerminadoId` solo si cambia.
+ */
 interface FormulaEditada {
   id: string;
   codigo: string;
+  skuTerminadoId: string;
 }
 
 /** Decimal estrictamente mayor a cero (mismo criterio que el API). */
@@ -359,11 +364,21 @@ export default function PaginaFormulas(): React.JSX.Element {
   // Línea recién agregada por el usuario: su buscador recibe el foco al montarse.
   const [claveAEnfocar, setClaveAEnfocar] = useState<number | null>(null);
   const botonAgregar = useRef<HTMLButtonElement>(null);
+  // Número de la última carga de la lista pedida.
+  const solicitudListaRef = useRef<number>(0);
 
   async function refrescar(verBajas: boolean): Promise<void> {
+    // Solo la carga más reciente escribe: descarta respuestas fuera de orden.
+    const solicitud = ++solicitudListaRef.current;
     try {
-      setFormulas(await obtenerFormulas(verBajas ? {} : { activo: true }));
+      const datos = await obtenerFormulas(verBajas ? {} : { activo: true });
+      if (solicitud !== solicitudListaRef.current) return;
+      setFormulas(datos);
+      // Una carga exitosa deja sin efecto un error previo; los avisos de éxito
+      // de guardar o dar de baja se conservan.
+      setAvisoLista((previo) => (previo?.tono === "error" ? null : previo));
     } catch (error) {
+      if (solicitud !== solicitudListaRef.current) return;
       setAvisoLista({
         texto: mensajeError(error, "No se pudieron cargar las fórmulas."),
         tono: "error",
@@ -372,10 +387,13 @@ export default function PaginaFormulas(): React.JSX.Element {
   }
 
   useEffect(() => {
-    void (async (): Promise<void> => {
-      await refrescar(incluirBajas);
-      setCargandoBase(false);
-    })();
+    let ignorar = false;
+    void refrescar(incluirBajas).then(() => {
+      if (!ignorar) setCargandoBase(false);
+    });
+    return () => {
+      ignorar = true;
+    };
     // Recarga cada vez que cambia el filtro de fórmulas dadas de baja.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incluirBajas]);
@@ -398,7 +416,11 @@ export default function PaginaFormulas(): React.JSX.Element {
     setCargandoDetalleId(resumen.id);
     try {
       const formula = await obtenerFormula(resumen.id);
-      abrirPanel(formularioDesde(formula), { id: formula.id, codigo: formula.codigo });
+      abrirPanel(formularioDesde(formula), {
+        id: formula.id,
+        codigo: formula.codigo,
+        skuTerminadoId: formula.skuTerminado.id,
+      });
     } catch (error) {
       setAvisoLista({
         texto: mensajeError(error, "No se pudo cargar la fórmula."),
@@ -460,9 +482,13 @@ export default function PaginaFormulas(): React.JSX.Element {
     setGuardando(true);
     try {
       if (editando) {
-        // En edición se envía el formulario completo; observaciones vacías la limpian.
+        // En edición se envía el formulario completo, salvo el terminado si no
+        // cambió (un terminado ya desactivado no debe impedir editar la fórmula);
+        // observaciones vacías las limpian.
+        const { skuTerminadoId, ...resto } = datos;
         await actualizarFormula(editando.id, {
-          ...datos,
+          ...resto,
+          ...(String(skuTerminadoId) !== editando.skuTerminadoId ? { skuTerminadoId } : {}),
           observaciones: form.observaciones.trim(),
         });
         setAvisoLista({ texto: `Fórmula ${editando.codigo} actualizada.`, tono: "exito" });
@@ -595,7 +621,7 @@ export default function PaginaFormulas(): React.JSX.Element {
                       <span className="text-tinta">{formula.skuTerminado.nombre}</span>
                     </td>
                     <td className="num text-right">
-                      {formula.cantidadBase}{" "}
+                      {formatearCantidad(formula.cantidadBase)}{" "}
                       <span className="text-texto-ter">{formula.skuTerminado.unidad}</span>
                     </td>
                     <td className="num text-right">{formula.cantidadInsumos}</td>

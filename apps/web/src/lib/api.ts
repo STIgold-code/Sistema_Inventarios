@@ -1527,6 +1527,8 @@ export interface ValeSalida {
   autorizadoPor: string | null;
   ordenTrabajoId: string | null;
   ordenTrabajo: string | null;
+  /** Orden de producción a la que se imputa el vale, si la hay. */
+  ordenProduccion: { id: string; numero: string } | null;
   observaciones: string | null;
   /** Numero del comprobante de almacen en papel, p. ej. 001-036488. */
   comprobanteFisico: string | null;
@@ -1891,6 +1893,14 @@ export function obtenerOrdenesProduccion(
   return apiFetch<OrdenProduccionResumen[]>(
     `/ordenes-produccion${cadena ? `?${cadena}` : ""}`,
   );
+}
+
+/**
+ * Fórmulas activas para registrar órdenes. Solo exige `produccion.gestionar`
+ * (a diferencia de `/formulas`, que pide el permiso de edición de recetas).
+ */
+export function obtenerFormulasDisponibles(): Promise<FormulaResumen[]> {
+  return apiFetch<FormulaResumen[]>("/ordenes-produccion/formulas-disponibles");
 }
 
 export function obtenerOrdenProduccion(id: string): Promise<OrdenProduccionDetalle> {

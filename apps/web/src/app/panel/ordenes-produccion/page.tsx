@@ -22,7 +22,7 @@ import {
   generarValeOrdenProduccion,
   obtenerAlmacenes,
   obtenerCentrosCosto,
-  obtenerFormulas,
+  obtenerFormulasDisponibles,
   obtenerOrdenProduccion,
   obtenerOrdenesProduccion,
   obtenerOrdenesTrabajo,
@@ -38,7 +38,7 @@ import {
   type OrdenTrabajo,
   type SkuRef,
 } from "@/lib/api";
-import { formatearFecha, formatearNumero, formatearSoles } from "@/lib/formato";
+import { formatearCantidad, formatearFecha, formatearSoles } from "@/lib/formato";
 import { leerUsuario } from "@/lib/sesion";
 
 interface Aviso {
@@ -146,7 +146,7 @@ function etiquetaSku(sku: SkuRef): string {
 }
 
 function cantidadConUnidad(cantidad: string, unidad: string): string {
-  return `${formatearNumero(cantidad)} ${unidad}`;
+  return `${formatearCantidad(cantidad)} ${unidad}`;
 }
 
 /**
@@ -183,6 +183,19 @@ function validarOrden(form: FormOrden): {
       ...(observaciones ? { observaciones } : {}),
     },
   };
+}
+
+/**
+ * La acción ya se aplicó en el API; si la recarga posterior del detalle falló,
+ * el aviso de éxito lo advierte para que no se lean datos desactualizados.
+ */
+function conAvisoDeRecarga(
+  texto: string,
+  actualizada: OrdenProduccionDetalle | null,
+): string {
+  return actualizada === null
+    ? `${texto} No se pudo actualizar el detalle de la orden; vuelve a cargarlo.`
+    : texto;
 }
 
 function AvisoLinea({ aviso }: { aviso: Aviso }): React.JSX.Element {
@@ -325,9 +338,9 @@ function DetalleOrden({
                     <td className="num text-right">
                       {cantidadConUnidad(linea.cantidadPlanificada, linea.skuInsumo.unidad)}
                     </td>
-                    <td className="num text-right">{formatearNumero(linea.cantidadEnCurso)}</td>
-                    <td className="num text-right">{formatearNumero(linea.cantidadConsumida)}</td>
-                    <td className="num text-right">{formatearNumero(linea.cantidadPendiente)}</td>
+                    <td className="num text-right">{formatearCantidad(linea.cantidadEnCurso)}</td>
+                    <td className="num text-right">{formatearCantidad(linea.cantidadConsumida)}</td>
+                    <td className="num text-right">{formatearCantidad(linea.cantidadPendiente)}</td>
                     <td className="num text-right">{formatearSoles(linea.costoConsumido)}</td>
                   </tr>
                 ))
@@ -398,6 +411,8 @@ export default function PaginaOrdenesProduccion(): React.JSX.Element {
   const [filtroEstado, setFiltroEstado] = useState<EstadoOrdenProduccion | "">("");
   const [cargandoLista, setCargandoLista] = useState<boolean>(true);
   const [avisoLista, setAvisoLista] = useState<Aviso | null>(null);
+  // Número de la última carga de la lista pedida.
+  const solicitudListaRef = useRef<number>(0);
 
   // Catálogos del formulario de alta.
   const [formulas, setFormulas] = useState<FormulaResumen[]>([]);
@@ -405,6 +420,8 @@ export default function PaginaOrdenesProduccion(): React.JSX.Element {
   const [centrosCosto, setCentrosCosto] = useState<CentroCosto[]>([]);
   const [ordenesTrabajo, setOrdenesTrabajo] = useState<OrdenTrabajo[]>([]);
   const [cargandoCatalogos, setCargandoCatalogos] = useState<boolean>(true);
+  // Aviso propio de los catálogos: una carga exitosa de la lista no lo borra.
+  const [avisoCatalogos, setAvisoCatalogos] = useState<Aviso | null>(null);
 
   // Permisos que ocultan acciones (el API los vuelve a validar).
   const [puedeCerrar, setPuedeCerrar] = useState<boolean>(false);
@@ -439,9 +456,15 @@ export default function PaginaOrdenesProduccion(): React.JSX.Element {
   const campoCantidadCierre = useRef<HTMLInputElement>(null);
 
   async function refrescarLista(estado: EstadoOrdenProduccion | ""): Promise<void> {
+    // Solo la carga más reciente escribe: descarta respuestas fuera de orden.
+    const solicitud = ++solicitudListaRef.current;
     try {
-      setOrdenes(await obtenerOrdenesProduccion(estado ? { estado } : {}));
+      const datos = await obtenerOrdenesProduccion(estado ? { estado } : {});
+      if (solicitud !== solicitudListaRef.current) return;
+      setOrdenes(datos);
+      setAvisoLista(null);
     } catch (error) {
+      if (solicitud !== solicitudListaRef.current) return;
       setAvisoLista({
         texto: mensajeError(error, "No se pudieron cargar las órdenes de producción."),
         tono: "error",
@@ -450,11 +473,14 @@ export default function PaginaOrdenesProduccion(): React.JSX.Element {
   }
 
   useEffect(() => {
-    void (async (): Promise<void> => {
-      setCargandoLista(true);
-      await refrescarLista(filtroEstado);
-      setCargandoLista(false);
-    })();
+    let ignorar = false;
+    setCargandoLista(true);
+    void refrescarLista(filtroEstado).then(() => {
+      if (!ignorar) setCargandoLista(false);
+    });
+    return () => {
+      ignorar = true;
+    };
     // Recarga cada vez que cambia el filtro de estado.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtroEstado]);
@@ -468,7 +494,7 @@ export default function PaginaOrdenesProduccion(): React.JSX.Element {
       // Cada catálogo se carga por separado: la falta de uno (p. ej. sin acceso
       // a órdenes de trabajo) no debe impedir registrar la orden.
       const [frm, alm, cc, ot] = await Promise.allSettled([
-        obtenerFormulas({ activo: true }),
+        obtenerFormulasDisponibles(),
         obtenerAlmacenes(),
         obtenerCentrosCosto(),
         obtenerOrdenesTrabajo(),
@@ -480,7 +506,7 @@ export default function PaginaOrdenesProduccion(): React.JSX.Element {
         setOrdenesTrabajo(ot.value.filter((o) => o.estado === "ABIERTA"));
       }
       if (frm.status === "rejected" || alm.status === "rejected" || cc.status === "rejected") {
-        setAvisoLista({
+        setAvisoCatalogos({
           texto: "No se pudieron cargar los datos para registrar órdenes de producción.",
           tono: "error",
         });
@@ -619,7 +645,10 @@ export default function PaginaOrdenesProduccion(): React.JSX.Element {
     const actualizada = await cargarDetalle(orden.id);
     const numero = actualizada?.vales.find((v) => v.id === valeId)?.numero;
     return {
-      texto: `Se generó el vale de salida ${numero ?? `#${valeId}`} en borrador con los insumos pendientes.`,
+      texto: conAvisoDeRecarga(
+        `Se generó el vale de salida ${numero ?? `#${valeId}`} en borrador con los insumos pendientes.`,
+        actualizada,
+      ),
       tono: "exito",
     };
   }
@@ -634,21 +663,25 @@ export default function PaginaOrdenesProduccion(): React.JSX.Element {
       ...(observaciones ? { observaciones } : {}),
     };
     const resultado = await cerrarOrdenProduccion(orden.id, datos);
-    await cargarDetalle(orden.id);
+    const actualizada = await cargarDetalle(orden.id);
+    // Mismo criterio que la métrica: soles redondeados y el valor exacto con la unidad.
     return {
-      texto: `Orden ${orden.numero} cerrada. Costo de insumos: ${formatearSoles(
-        resultado.costoTotalInsumos,
-      )}. Costo unitario del terminado: ${resultado.costoUnitarioTerminado} por ${
-        orden.skuTerminado.unidad
-      }.`,
+      texto: conAvisoDeRecarga(
+        `Orden ${orden.numero} cerrada. Costo de insumos: ${formatearSoles(
+          resultado.costoTotalInsumos,
+        )}. Costo unitario del terminado: ${formatearSoles(
+          resultado.costoUnitarioTerminado,
+        )} (${resultado.costoUnitarioTerminado} por ${orden.skuTerminado.unidad}).`,
+        actualizada,
+      ),
       tono: "exito",
     };
   }
 
   async function ejecutarAnulacion(orden: OrdenProduccionDetalle): Promise<Aviso> {
     await anularOrdenProduccion(orden.id);
-    await cargarDetalle(orden.id);
-    return { texto: `Orden ${orden.numero} anulada.`, tono: "exito" };
+    const actualizada = await cargarDetalle(orden.id);
+    return { texto: conAvisoDeRecarga(`Orden ${orden.numero} anulada.`, actualizada), tono: "exito" };
   }
 
   async function confirmarAccion(): Promise<void> {
@@ -723,6 +756,13 @@ export default function PaginaOrdenesProduccion(): React.JSX.Element {
     detalle?.consumo.lineas.some((l) => Number(l.cantidadPendiente) > 0) ?? false;
   const admiteVale =
     detalle !== null && (detalle.estado === "PLANIFICADA" || detalle.estado === "EN_PROCESO");
+  // Mismas reglas que el API: el cierre exige que ningún vale siga en curso
+  // (borrador o autorizado) y la anulación, que no haya vales sin anular.
+  const hayValesEnCurso =
+    detalle?.vales.some((v) => v.estado === "BORRADOR" || v.estado === "AUTORIZADO") ?? false;
+  const hayValesVinculados = detalle?.vales.some((v) => v.estado !== "ANULADO") ?? false;
+  const cierreBloqueado = detalle?.estado === "EN_PROCESO" && puedeCerrar && hayValesEnCurso;
+  const anulacionBloqueada = detalle?.estado === "PLANIFICADA" && hayValesVinculados;
 
   const accionesDetalle = detalle && (
     <div className="flex flex-wrap items-center gap-2">
@@ -741,7 +781,8 @@ export default function PaginaOrdenesProduccion(): React.JSX.Element {
         <button
           type="button"
           onClick={() => iniciarAccion("cerrar")}
-          disabled={cargandoDetalle}
+          disabled={hayValesEnCurso || cargandoDetalle}
+          aria-describedby={hayValesEnCurso ? "op-cierre-bloqueado" : undefined}
           className="btn btn-primario"
         >
           Cerrar orden
@@ -751,7 +792,8 @@ export default function PaginaOrdenesProduccion(): React.JSX.Element {
         <button
           type="button"
           onClick={() => iniciarAccion("anular")}
-          disabled={cargandoDetalle}
+          disabled={hayValesVinculados || cargandoDetalle}
+          aria-describedby={hayValesVinculados ? "op-anular-bloqueado" : undefined}
           className="btn btn-peligro"
         >
           Anular
@@ -770,6 +812,16 @@ export default function PaginaOrdenesProduccion(): React.JSX.Element {
           No hay insumos pendientes de entregar.
         </p>
       )}
+      {cierreBloqueado && (
+        <p id="op-cierre-bloqueado" className="w-full text-xs text-texto-ter">
+          Hay vales pendientes de despachar o anular.
+        </p>
+      )}
+      {anulacionBloqueada && (
+        <p id="op-anular-bloqueado" className="w-full text-xs text-texto-ter">
+          La orden tiene vales vinculados: anúlalos antes de anular la orden.
+        </p>
+      )}
     </div>
   );
 
@@ -780,6 +832,11 @@ export default function PaginaOrdenesProduccion(): React.JSX.Element {
         descripcion="Planifica la producción a partir de una fórmula, entrega los insumos con vales de salida y cierra la orden para ingresar el producto terminado con su costo."
       />
 
+      {avisoCatalogos && (
+        <div className="mt-4">
+          <AvisoLinea aviso={avisoCatalogos} />
+        </div>
+      )}
       {avisoLista && (
         <div className="mt-4">
           <AvisoLinea aviso={avisoLista} />
@@ -994,6 +1051,8 @@ export default function PaginaOrdenesProduccion(): React.JSX.Element {
                 id="op-almacen-insumos"
                 valor={form.almacenInsumosId}
                 onCambio={(v) => actualizarCampo("almacenInsumosId", v)}
+                describedBy={errores.almacenInsumosId ? "op-almacen-insumos-error" : undefined}
+                invalido={Boolean(errores.almacenInsumosId)}
                 disabled={cargandoCatalogos}
                 requerido
                 placeholder={cargandoCatalogos ? "Cargando…" : "Selecciona…"}
@@ -1009,6 +1068,8 @@ export default function PaginaOrdenesProduccion(): React.JSX.Element {
                 id="op-almacen-destino"
                 valor={form.almacenDestinoId}
                 onCambio={(v) => actualizarCampo("almacenDestinoId", v)}
+                describedBy={errores.almacenDestinoId ? "op-almacen-destino-error" : undefined}
+                invalido={Boolean(errores.almacenDestinoId)}
                 disabled={cargandoCatalogos}
                 requerido
                 placeholder={cargandoCatalogos ? "Cargando…" : "Selecciona…"}
@@ -1026,6 +1087,8 @@ export default function PaginaOrdenesProduccion(): React.JSX.Element {
               id="op-centro-costo"
               valor={form.centroCostoId}
               onCambio={(v) => actualizarCampo("centroCostoId", v)}
+              describedBy={errores.centroCostoId ? "op-centro-costo-error" : undefined}
+              invalido={Boolean(errores.centroCostoId)}
               disabled={cargandoCatalogos}
               requerido
               placeholder={cargandoCatalogos ? "Cargando…" : "Selecciona…"}
@@ -1089,8 +1152,23 @@ export default function PaginaOrdenesProduccion(): React.JSX.Element {
           {avisoDetalle && <AvisoLinea aviso={avisoDetalle} />}
           {detalle ? (
             <DetalleOrden orden={detalle} acciones={accionesDetalle} />
+          ) : cargandoDetalle ? (
+            <p className="text-sm text-texto-ter">Cargando…</p>
           ) : (
-            cargandoDetalle && <p className="text-sm text-texto-ter">Cargando…</p>
+            avisoDetalle?.tono === "error" && (
+              <button
+                type="button"
+                onClick={() => {
+                  const id = detalleIdRef.current;
+                  if (id === null) return;
+                  setAvisoDetalle(null);
+                  void cargarDetalle(id);
+                }}
+                className="btn btn-contorno"
+              >
+                Volver a cargar
+              </button>
+            )
           )}
         </div>
       </PanelLateral>

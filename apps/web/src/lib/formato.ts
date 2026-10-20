@@ -24,6 +24,18 @@ export function formatearNumero(valor: string | number): string {
   return new Intl.NumberFormat("es-PE").format(Number.isFinite(n) ? n : 0);
 }
 
+/**
+ * Formatea una cantidad (string o number) con separadores de miles y hasta 8
+ * decimales, sin ceros a la derecha: la precisión con que se guardan las
+ * cantidades de fórmulas y órdenes de producción.
+ */
+export function formatearCantidad(valor: string | number): string {
+  const n = typeof valor === "string" ? Number(valor) : valor;
+  return new Intl.NumberFormat("es-PE", { maximumFractionDigits: 8 }).format(
+    Number.isFinite(n) ? n : 0,
+  );
+}
+
 /** Formatea una fecha ISO como "20/06/2026". Cadena vacia si la fecha es invalida. */
 export function formatearFecha(valor: string): string {
   const fecha = new Date(valor);

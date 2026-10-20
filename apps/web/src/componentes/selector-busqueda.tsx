@@ -18,6 +18,10 @@ interface Props {
   requerido?: boolean;
   id?: string;
   ariaLabel?: string;
+  /** Id del texto de ayuda o error asociado (aria-describedby). */
+  describedBy?: string;
+  /** Marca el campo como inválido (aria-invalid). */
+  invalido?: boolean;
 }
 
 const MAX_VISIBLES = 50;
@@ -37,6 +41,8 @@ export function SelectorBusqueda({
   requerido,
   id,
   ariaLabel,
+  describedBy,
+  invalido,
 }: Props): React.JSX.Element {
   const [texto, setTexto] = useState<string>("");
   const [abierto, setAbierto] = useState<boolean>(false);
@@ -108,6 +114,9 @@ export function SelectorBusqueda({
       const sel = visibles[resaltado];
       if (sel) elegir(sel);
     } else if (e.key === "Escape") {
+      // Con la lista abierta, Escape solo la cierra: se marca como consumido
+      // para que un PanelLateral o modal contenedor no se cierre también.
+      if (abierto) e.preventDefault();
       setAbierto(false);
     }
   }
@@ -131,6 +140,8 @@ export function SelectorBusqueda({
           aria-autocomplete="list"
           aria-activedescendant={opcionActivaId}
           aria-required={requerido}
+          aria-describedby={describedBy}
+          aria-invalid={invalido || undefined}
           disabled={disabled}
           value={abierto ? texto : etiquetaSel}
           placeholder={placeholder}

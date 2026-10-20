@@ -698,6 +698,12 @@ export default function PaginaVales(): React.JSX.Element {
                           Orden de trabajo: {vale.ordenTrabajo}
                         </p>
                       )}
+                      {vale.ordenProduccion && (
+                        <p className="text-xs text-texto-ter">
+                          Orden de producción:{" "}
+                          <span className="font-mono">{vale.ordenProduccion.numero}</span>
+                        </p>
+                      )}
                       {vale.autorizadoPor && (
                         <p className="text-xs text-texto-ter">
                           Autorizado por {vale.autorizadoPor}
