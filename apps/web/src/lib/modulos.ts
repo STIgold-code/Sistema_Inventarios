@@ -75,6 +75,14 @@ export const MODULOS: readonly ModuloNav[] = [
     ],
   },
   {
+    titulo: "Producción",
+    color: "movimientos",
+    enlaces: [
+      { href: "/panel/formulas", etiqueta: "Fórmulas" },
+      { href: "/panel/ordenes-produccion", etiqueta: "Órdenes de producción" },
+    ],
+  },
+  {
     titulo: "Consultas y reportes",
     color: "consultas",
     enlaces: [

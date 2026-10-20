@@ -1676,6 +1676,114 @@ export function cerrarOrdenTrabajo(
   );
 }
 
+// ── Producción: tipos compartidos ───────────────────────────────────────────
+
+/** Referencia mínima a un SKU, tal como la devuelven fórmulas y órdenes de producción. */
+export interface SkuRef {
+  id: string;
+  codigoParlante: string;
+  nombre: string;
+  /** Código de la unidad de control (Tabla 6 SUNAT). */
+  unidad: string;
+}
+
+// ── Fórmulas de producción: tipos ───────────────────────────────────────────
+
+export interface FormulaLinea {
+  id: string;
+  /** Cantidad del insumo por `cantidadBase` del terminado, en unidad de control. */
+  cantidad: string;
+  skuInsumo: SkuRef;
+}
+
+export interface FormulaResumen {
+  id: string;
+  codigo: string;
+  nombre: string;
+  cantidadBase: string;
+  activo: boolean;
+  observaciones: string | null;
+  skuTerminado: SkuRef;
+  cantidadInsumos: number;
+}
+
+/** Detalle de una fórmula con sus líneas de insumo. */
+export interface Formula {
+  id: string;
+  codigo: string;
+  nombre: string;
+  cantidadBase: string;
+  activo: boolean;
+  observaciones: string | null;
+  skuTerminado: SkuRef;
+  lineas: FormulaLinea[];
+}
+
+export interface FiltroFormulas {
+  /** Omitido = todas (activas y dadas de baja). */
+  activo?: boolean;
+  skuTerminadoId?: string;
+}
+
+export interface CrearFormulaInput {
+  nombre: string;
+  skuTerminadoId: number;
+  /** Decimal positivo como cadena. */
+  cantidadBase: string;
+  observaciones?: string;
+  lineas: Array<{ skuInsumoId: number; cantidad: string }>;
+}
+
+/** Todos los campos son opcionales; `lineas` reemplaza el conjunto completo. */
+export interface ActualizarFormulaInput {
+  nombre?: string;
+  skuTerminadoId?: number;
+  cantidadBase?: string;
+  observaciones?: string;
+  lineas?: Array<{ skuInsumoId: number; cantidad: string }>;
+}
+
+// ── Fórmulas de producción: funciones de dominio ────────────────────────────
+
+export function obtenerFormulas(filtro: FiltroFormulas = {}): Promise<FormulaResumen[]> {
+  const params = new URLSearchParams();
+  if (filtro.activo !== undefined) params.set("activo", String(filtro.activo));
+  if (filtro.skuTerminadoId) params.set("skuTerminadoId", filtro.skuTerminadoId);
+  const cadena = params.toString();
+  return apiFetch<FormulaResumen[]>(`/formulas${cadena ? `?${cadena}` : ""}`);
+}
+
+export function obtenerFormula(id: string): Promise<Formula> {
+  return apiFetch<Formula>(`/formulas/${id}`);
+}
+
+export function crearFormula(
+  datos: CrearFormulaInput,
+): Promise<{ id: string; codigo: string }> {
+  return apiFetch<{ id: string; codigo: string }>("/formulas", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function actualizarFormula(
+  id: string,
+  datos: ActualizarFormulaInput,
+): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>(`/formulas/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function darDeBajaFormula(id: string): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>(`/formulas/${id}/baja`, { method: "POST" });
+}
+
+export function reactivarFormula(id: string): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>(`/formulas/${id}/reactivar`, { method: "POST" });
+}
+
 // ── Clientes: tipos ─────────────────────────────────────────────────────────
 
 export interface Cliente {
