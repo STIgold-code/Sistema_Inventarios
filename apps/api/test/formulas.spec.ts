@@ -32,7 +32,8 @@ describe("Fórmulas de producción (integración)", () => {
   async function crearEmpresa(secuencia: number): Promise<bigint> {
     const empresa = await prisma.empresa.create({
       data: {
-        ruc: `8${RUN.slice(-8)}${String(secuencia).padStart(2, "0")}`,
+        // Prefijo propio: usuarios.spec usa `8…` con el mismo patrón y `ruc` es único.
+        ruc: `5${RUN.slice(-8)}${String(secuencia).padStart(2, "0")}`,
         razonSocial: `Empresa fórmulas ${RUN}-${secuencia}`,
         nombre: `Fórmulas ${secuencia}`,
       },

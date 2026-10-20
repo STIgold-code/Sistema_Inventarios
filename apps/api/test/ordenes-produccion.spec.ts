@@ -848,6 +848,77 @@ describe("Ordenes de produccion (integracion)", () => {
         expect(await entradasDeProduccion(ordenId)).toBe(1);
       });
 
+      it("rechaza el cierre sin consumo valorizado y no crea la entrada", async () => {
+        // Insumo recibido a costo 0: la salida del vale queda valorizada en 0.
+        const insumoSinCosto = await crearSkuProduccion("0117", "Insumo sin costo cierre test");
+        await movimientos.recibirCompra(usuario, { skuId: insumoSinCosto, almacenId, cantidad: "50", costoUnitario: "0" });
+        const formulaSinCosto = await crearFormulaCierre(terminadoCierre, [
+          { skuInsumoId: insumoSinCosto, cantidad: "1" },
+        ]);
+        const ordenId = await ordenConConsumo(formulaSinCosto);
+
+        const detalle = await ordenes.obtener(empresaId, ordenId);
+        expect(lineaDe(detalle.consumo.lineas, insumoSinCosto).cantidadConsumida).toBe("10");
+        expect(detalle.consumo.costoTotalConsumido).toBe("0.00");
+
+        await expect(ordenes.cerrar(usuario, ordenId, { cantidadProducida: "10" })).rejects.toThrow(
+          new BadRequestException("La orden no tiene consumo valorizado"),
+        );
+        expect(await entradasDeProduccion(ordenId)).toBe(0);
+        const orden = await prisma.ordenProduccion.findUniqueOrThrow({ where: { id: ordenId } });
+        expect(orden.estado).toBe("EN_PROCESO");
+      });
+
+      it("rechaza el cierre de un terminado con control de lote", async () => {
+        const terminadoConLote = await crearSkuProduccion("0118", "Terminado con lote cierre test");
+        await prisma.sku.update({ where: { id: terminadoConLote }, data: { controlaLote: true } });
+        const formulaConLote = await crearFormulaCierre(terminadoConLote, [
+          { skuInsumoId: insumoCierreA, cantidad: "1" },
+        ]);
+        const ordenId = await ordenConConsumo(formulaConLote);
+
+        await expect(ordenes.cerrar(usuario, ordenId, { cantidadProducida: "10" })).rejects.toThrow(
+          new BadRequestException("No se admite producto terminado con control de lote en esta versión"),
+        );
+        expect(await entradasDeProduccion(ordenId)).toBe(0);
+        const orden = await prisma.ordenProduccion.findUniqueOrThrow({ where: { id: ordenId } });
+        expect(orden.estado).toBe("EN_PROCESO");
+      });
+
+      it("cierra en otro almacen propio y rechaza con 404 un almacen ajeno", async () => {
+        const principal = await prisma.almacen.findUniqueOrThrow({ where: { id: almacenId } });
+        // Almacen fijo e idempotente: no se acumula uno nuevo por corrida.
+        const otroAlmacen = await prisma.almacen.upsert({
+          where: { empresaId_codigo: { empresaId, codigo: "TEST-OP-DESTINO" } },
+          update: {},
+          create: {
+            empresaId,
+            sucursalId: principal.sucursalId,
+            codigo: "TEST-OP-DESTINO",
+            nombre: "Destino alternativo produccion test",
+          },
+        });
+        const ordenId = await ordenConConsumo();
+
+        await expect(
+          ordenes.cerrar(usuario, ordenId, { cantidadProducida: "10", almacenDestinoId: almacenAjenoId }),
+        ).rejects.toThrow(new NotFoundException("Almacén de destino no encontrado"));
+        expect(await entradasDeProduccion(ordenId)).toBe(0);
+        const sinCerrar = await prisma.ordenProduccion.findUniqueOrThrow({ where: { id: ordenId } });
+        expect(sinCerrar.estado).toBe("EN_PROCESO");
+        expect(sinCerrar.almacenDestinoId).toBe(almacenId);
+
+        const res = await ordenes.cerrar(usuario, ordenId, {
+          cantidadProducida: "10",
+          almacenDestinoId: otroAlmacen.id,
+        });
+        const mov = await prisma.movimientoStock.findUniqueOrThrow({ where: { id: BigInt(res.movimientoId) } });
+        expect(mov.almacenId).toBe(otroAlmacen.id);
+        const cerrada = await prisma.ordenProduccion.findUniqueOrThrow({ where: { id: ordenId } });
+        expect(cerrada.estado).toBe("CERRADA");
+        expect(cerrada.almacenDestinoId).toBe(otroAlmacen.id);
+      });
+
       it("rechaza por DTO cantidadProducida cero", async () => {
         const resultado = await validarCuerpo(CerrarOrdenProduccionDto, { cantidadProducida: "0" });
         expect(resultado.valido).toBe(false);
