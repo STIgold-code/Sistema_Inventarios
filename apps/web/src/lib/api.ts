@@ -1784,6 +1784,148 @@ export function reactivarFormula(id: string): Promise<{ id: string }> {
   return apiFetch<{ id: string }>(`/formulas/${id}/reactivar`, { method: "POST" });
 }
 
+// ── Órdenes de producción: tipos ────────────────────────────────────────────
+
+export type EstadoOrdenProduccion = "PLANIFICADA" | "EN_PROCESO" | "CERRADA" | "ANULADA";
+
+/** Referencia mínima por id y nombre (almacén, centro de costo). */
+export interface ReferenciaNombre {
+  id: string;
+  nombre: string;
+}
+
+/** Cabecera común del listado y del detalle de una orden de producción. */
+interface OrdenProduccionCabecera {
+  id: string;
+  numero: string;
+  estado: EstadoOrdenProduccion;
+  formula: { id: string; codigo: string; nombre: string };
+  skuTerminado: SkuRef;
+  /** Cantidad de terminado a producir, en unidad de control. */
+  cantidadPlanificada: string;
+  cantidadProducida: string | null;
+  almacenInsumos: ReferenciaNombre;
+  almacenDestino: ReferenciaNombre;
+  centroCosto: ReferenciaNombre;
+  ordenTrabajo: { id: string; numero: string } | null;
+  /** Monto con 2 decimales; null hasta el cierre. */
+  costoTotalInsumos: string | null;
+  /** Costo unitario del terminado (hasta 8 decimales); null hasta el cierre. */
+  costoUnitarioTerminado: string | null;
+  movimientoEntradaId: string | null;
+  fechaEmision: string;
+  fechaCierre: string | null;
+  observaciones: string | null;
+}
+
+export interface OrdenProduccionResumen extends OrdenProduccionCabecera {
+  cantidadLineas: number;
+}
+
+/** Línea de insumo de la orden con su consumo leído del ledger. */
+export interface ConsumoLineaOrdenProduccion {
+  skuInsumo: SkuRef;
+  cantidadPlanificada: string;
+  /** Pedido en vales BORRADOR/AUTORIZADO, todavía sin salida de stock. */
+  cantidadEnCurso: string;
+  /** Despachado en vales DESPACHADO. */
+  cantidadConsumida: string;
+  cantidadPendiente: string;
+  costoConsumido: string;
+}
+
+/** Insumo despachado contra la orden que no figura en su fórmula. */
+export interface ConsumoFueraDeFormula {
+  skuInsumo: SkuRef;
+  cantidadConsumida: string;
+  costoConsumido: string;
+}
+
+export interface OrdenProduccionDetalle extends OrdenProduccionCabecera {
+  consumo: {
+    lineas: ConsumoLineaOrdenProduccion[];
+    fueraDeFormula: ConsumoFueraDeFormula[];
+    costoTotalConsumido: string;
+  };
+  vales: Array<{ id: string; numero: string; estado: EstadoValeSalida }>;
+}
+
+export interface FiltroOrdenesProduccion {
+  /** Omitido = todos los estados. */
+  estado?: EstadoOrdenProduccion;
+}
+
+export interface CrearOrdenProduccionInput {
+  formulaId: number;
+  /** Decimal positivo como cadena, en unidad de control del terminado. */
+  cantidadPlanificada: string;
+  almacenInsumosId: number;
+  almacenDestinoId: number;
+  centroCostoId: number;
+  ordenTrabajoId?: number;
+  observaciones?: string;
+}
+
+export interface CerrarOrdenProduccionInput {
+  /** Decimal positivo como cadena, en unidad de control del terminado. */
+  cantidadProducida: string;
+  /** Si se informa, reemplaza al almacén destino de la orden. */
+  almacenDestinoId?: number;
+  observaciones?: string;
+}
+
+export interface ResultadoCierreOrdenProduccion {
+  movimientoId: string;
+  costoTotalInsumos: string;
+  costoUnitarioTerminado: string;
+}
+
+// ── Órdenes de producción: funciones de dominio ─────────────────────────────
+
+export function obtenerOrdenesProduccion(
+  filtro: FiltroOrdenesProduccion = {},
+): Promise<OrdenProduccionResumen[]> {
+  const params = new URLSearchParams();
+  if (filtro.estado) params.set("estado", filtro.estado);
+  const cadena = params.toString();
+  return apiFetch<OrdenProduccionResumen[]>(
+    `/ordenes-produccion${cadena ? `?${cadena}` : ""}`,
+  );
+}
+
+export function obtenerOrdenProduccion(id: string): Promise<OrdenProduccionDetalle> {
+  return apiFetch<OrdenProduccionDetalle>(`/ordenes-produccion/${id}`);
+}
+
+export function crearOrdenProduccion(
+  datos: CrearOrdenProduccionInput,
+): Promise<{ id: string; numero: string }> {
+  return apiFetch<{ id: string; numero: string }>("/ordenes-produccion", {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function generarValeOrdenProduccion(id: string): Promise<{ valeId: string }> {
+  return apiFetch<{ valeId: string }>(`/ordenes-produccion/${id}/generar-vale`, {
+    method: "POST",
+  });
+}
+
+export function cerrarOrdenProduccion(
+  id: string,
+  datos: CerrarOrdenProduccionInput,
+): Promise<ResultadoCierreOrdenProduccion> {
+  return apiFetch<ResultadoCierreOrdenProduccion>(`/ordenes-produccion/${id}/cerrar`, {
+    method: "POST",
+    body: JSON.stringify(datos),
+  });
+}
+
+export function anularOrdenProduccion(id: string): Promise<{ id: string }> {
+  return apiFetch<{ id: string }>(`/ordenes-produccion/${id}/anular`, { method: "POST" });
+}
+
 // ── Clientes: tipos ─────────────────────────────────────────────────────────
 
 export interface Cliente {
