@@ -5,6 +5,8 @@ import { TiposCambioService } from "../src/modulos/tipos-cambio/tipos-cambio.ser
 import { CorrelativoService } from "../src/modulos/comun/correlativo/correlativo.service.js";
 import { AuditoriaService } from "../src/modulos/auditoria/auditoria.service.js";
 import { ValesService } from "../src/modulos/vales/vales.service.js";
+import { FormulasService } from "../src/modulos/produccion/formulas.service.js";
+import { OrdenesProduccionService } from "../src/modulos/produccion/ordenes-produccion.service.js";
 import type { UsuarioRequest } from "../src/comun/contexto/usuario-request.js";
 
 /**
@@ -28,6 +30,9 @@ describe("Ordenes de produccion (integracion)", () => {
   let formulaId: bigint;
   let ordenTrabajoId: bigint;
   let ordenAjenaId: bigint;
+  let formulaAjenaId: bigint;
+  let almacenAjenoId: bigint;
+  let ordenTrabajoAjenaId: bigint;
   const RUN = Date.now().toString().slice(-9);
   let secuenciaOrden = 0;
   // Vales que NO llegan al ledger: se pueden borrar al final.
@@ -114,23 +119,46 @@ describe("Ordenes de produccion (integracion)", () => {
     const centroB = await prisma.centroCosto.create({
       data: { empresaId: empresaB.id, codigo: `CCB${RUN}`, nombre: "Centro ajeno" },
     });
+    // Producto, SKU y usuario propios de la empresa ajena: sus fixtures no
+    // referencian datos de la empresa principal.
+    const familiaB = await prisma.familia.create({
+      data: { empresaId: empresaB.id, codigo: `FOP${RUN.slice(-4)}`, nombre: "Familia ajena" },
+    });
+    const unidadB = await prisma.unidad.create({
+      data: { empresaId: empresaB.id, codigo: "NIU", nombre: "Unidad" },
+    });
+    const productoB = await prisma.producto.create({
+      data: { empresaId: empresaB.id, familiaId: familiaB.id, nombre: "Terminado ajeno test" },
+    });
+    const skuB = await prisma.sku.create({
+      data: { empresaId: empresaB.id, productoId: productoB.id, codigoParlante: `4${RUN}0201`, unidadId: unidadB.id },
+    });
+    const usuarioB = await prisma.usuario.create({
+      data: { empresaId: empresaB.id, email: `ajeno-op${RUN}@test.com`, hashClave: "x", nombre: "Usuario ajeno OP test" },
+    });
     const formulaB = await prisma.formula.create({
-      data: { empresaId: empresaB.id, codigo: `FOR-B${RUN}`, nombre: "Formula ajena", skuTerminadoId: skuId, cantidadBase: "1" },
+      data: { empresaId: empresaB.id, codigo: `FOR-B${RUN}`, nombre: "Formula ajena", skuTerminadoId: skuB.id, cantidadBase: "1" },
     });
     const ordenB = await prisma.ordenProduccion.create({
       data: {
         empresaId: empresaB.id,
         numero: `OP-B${RUN}`,
         formulaId: formulaB.id,
-        skuTerminadoId: skuId,
+        skuTerminadoId: skuB.id,
         cantidadPlanificada: "1",
         almacenInsumosId: almacenB.id,
         almacenDestinoId: almacenB.id,
         centroCostoId: centroB.id,
-        usuarioId: usuario.id,
+        usuarioId: usuarioB.id,
       },
     });
+    const otB = await prisma.ordenTrabajo.create({
+      data: { empresaId: empresaB.id, numero: `OT-B${RUN}`, descripcion: "OT ajena test", centroCostoId: centroB.id },
+    });
     ordenAjenaId = ordenB.id;
+    formulaAjenaId = formulaB.id;
+    almacenAjenoId = almacenB.id;
+    ordenTrabajoAjenaId = otB.id;
   });
 
   afterAll(async () => {
@@ -161,6 +189,23 @@ describe("Ordenes de produccion (integracion)", () => {
     expect(detalle.ordenTrabajoId).toBe(ordenTrabajoId.toString());
     const enLista = (await vales.listar(empresaId)).find((v) => v.id === id)!;
     expect(enLista.ordenProduccion?.id).toBe(ordenId.toString());
+  });
+
+  it("orden sin OT y DTO con OT: el vale toma la OT del DTO", async () => {
+    const ordenId = await crearOrden(false);
+    const { id } = await vales.crear(usuario, {
+      almacenId,
+      centroCostoId,
+      ordenProduccionId: ordenId,
+      ordenTrabajoId,
+      destino: "Planta",
+      lineas: [{ skuId, cantidad: "1" }],
+    });
+    valesSinDespacho.push(BigInt(id));
+
+    const guardado = await prisma.valeSalida.findUniqueOrThrow({ where: { id: BigInt(id) } });
+    expect(guardado.ordenProduccionId).toBe(ordenId);
+    expect(guardado.ordenTrabajoId).toBe(ordenTrabajoId);
   });
 
   it("rechaza una orden de trabajo distinta a la de la orden de produccion", async () => {
@@ -260,5 +305,261 @@ describe("Ordenes de produccion (integracion)", () => {
     const vale = await prisma.valeSalida.findUniqueOrThrow({ where: { id: BigInt(id) }, include: { lineas: true } });
     expect(vale.estado).toBe("AUTORIZADO");
     expect(vale.lineas[0]!.movimientoStockId).toBeNull();
+  });
+
+  /**
+   * Servicio de ordenes de produccion: crea la orden explotando y congelando la
+   * formula, consulta el consumo desde el ledger, genera el vale de los insumos
+   * pendientes y anula. Insumos A (100 a 5) y B (100 a 2), terminado T y una
+   * formula base "10" con A "25" y B "10".
+   */
+  describe("servicio de ordenes de produccion", () => {
+    const formulas = new FormulasService(prisma, new CorrelativoService(), auditoria);
+    const ordenes = new OrdenesProduccionService(prisma, new CorrelativoService(), auditoria, vales);
+
+    let insumoA: bigint;
+    let insumoB: bigint;
+    let terminadoT: bigint;
+    let formulaBaseId: bigint;
+
+    async function crearSkuProduccion(sufijo: string, nombre: string): Promise<bigint> {
+      const familia = await prisma.familia.findFirstOrThrow({ where: { empresaId } });
+      const unidad = await prisma.unidad.findFirstOrThrow({ where: { empresaId } });
+      const producto = await prisma.producto.create({
+        data: { empresaId, familiaId: familia.id, nombre },
+      });
+      const sku = await prisma.sku.create({
+        data: { empresaId, productoId: producto.id, codigoParlante: `4${RUN}${sufijo}`, unidadId: unidad.id },
+      });
+      return sku.id;
+    }
+
+    async function crearFormula(
+      cantidadBase: string,
+      lineas: Array<{ skuInsumoId: bigint; cantidad: string }>,
+    ): Promise<bigint> {
+      const { id } = await formulas.crear(usuario, {
+        nombre: `Formula OP ${RUN}`,
+        skuTerminadoId: terminadoT,
+        cantidadBase,
+        lineas,
+      });
+      return BigInt(id);
+    }
+
+    function datosOrden(cantidadPlanificada: string, formulaId = formulaBaseId) {
+      return {
+        formulaId,
+        cantidadPlanificada,
+        almacenInsumosId: almacenId,
+        almacenDestinoId: almacenId,
+        centroCostoId,
+      };
+    }
+
+    function lineaDe<T extends { skuInsumo: { id: string } }>(lineas: T[], id: bigint): T {
+      const linea = lineas.find((l) => l.skuInsumo.id === id.toString());
+      if (!linea) throw new Error(`Linea del SKU ${id} no encontrada`);
+      return linea;
+    }
+
+    beforeAll(async () => {
+      insumoA = await crearSkuProduccion("0101", "Insumo A produccion test");
+      insumoB = await crearSkuProduccion("0102", "Insumo B produccion test");
+      terminadoT = await crearSkuProduccion("0103", "Terminado T produccion test");
+      await movimientos.recibirCompra(usuario, { skuId: insumoA, almacenId, cantidad: "100", costoUnitario: "5" });
+      await movimientos.recibirCompra(usuario, { skuId: insumoB, almacenId, cantidad: "100", costoUnitario: "2" });
+      formulaBaseId = await crearFormula("10", [
+        { skuInsumoId: insumoA, cantidad: "25" },
+        { skuInsumoId: insumoB, cantidad: "10" },
+      ]);
+    });
+
+    it("explota la formula y congela las lineas", async () => {
+      const { id, numero } = await ordenes.crear(usuario, datosOrden("4"));
+
+      const detalle = await ordenes.obtener(empresaId, BigInt(id));
+      expect(detalle.numero).toBe(numero);
+      expect(detalle.estado).toBe("PLANIFICADA");
+      expect(detalle.skuTerminado.id).toBe(terminadoT.toString());
+      expect(detalle.cantidadPlanificada).toBe("4");
+      expect(detalle.consumo.lineas).toHaveLength(2);
+      expect(lineaDe(detalle.consumo.lineas, insumoA).cantidadPlanificada).toBe("10");
+      expect(lineaDe(detalle.consumo.lineas, insumoB).cantidadPlanificada).toBe("4");
+      expect(lineaDe(detalle.consumo.lineas, insumoA).cantidadPendiente).toBe("10");
+      expect(detalle.consumo.costoTotalConsumido).toBe("0.00");
+      expect(detalle.vales).toEqual([]);
+
+      const guardadas = await prisma.ordenProduccionLinea.findMany({ where: { ordenProduccionId: BigInt(id) } });
+      expect(guardadas.every((l) => l.empresaId === empresaId)).toBe(true);
+
+      const enLista = (await ordenes.listar(empresaId, { estado: "PLANIFICADA" })).find((o) => o.id === id);
+      expect(enLista?.cantidadLineas).toBe(2);
+      const traza = await prisma.registroAuditoria.findFirst({
+        where: { entidad: "ORDEN_PRODUCCION", entidadId: BigInt(id), accion: "CREAR" },
+      });
+      expect(traza).not.toBeNull();
+    });
+
+    it("redondea a 8 decimales un periodico", async () => {
+      const formulaId = await crearFormula("3", [{ skuInsumoId: insumoA, cantidad: "1" }]);
+      const { id } = await ordenes.crear(usuario, datosOrden("1", formulaId));
+
+      const detalle = await ordenes.obtener(empresaId, BigInt(id));
+      expect(lineaDe(detalle.consumo.lineas, insumoA).cantidadPlanificada).toBe("0.33333333");
+    });
+
+    it("rechaza formula inactiva y OT cerrada con 400", async () => {
+      const formulaId = await crearFormula("1", [{ skuInsumoId: insumoA, cantidad: "1" }]);
+      await formulas.darDeBaja(usuario, formulaId);
+      await expect(ordenes.crear(usuario, datosOrden("1", formulaId))).rejects.toThrow(
+        new BadRequestException("La fórmula está dada de baja"),
+      );
+
+      const otCerrada = await prisma.ordenTrabajo.create({
+        data: { empresaId, numero: `OT-OP${RUN}-4`, descripcion: "OT cerrada test", centroCostoId, estado: "CERRADA" },
+      });
+      await expect(
+        ordenes.crear(usuario, { ...datosOrden("1"), ordenTrabajoId: otCerrada.id }),
+      ).rejects.toThrow(new BadRequestException("No se puede imputar un vale a una orden de trabajo cerrada"));
+    });
+
+    it("rechaza con 404 formula, almacen, OT y orden de otra empresa", async () => {
+      await expect(ordenes.crear(usuario, datosOrden("1", formulaAjenaId))).rejects.toThrow(NotFoundException);
+      await expect(
+        ordenes.crear(usuario, { ...datosOrden("1"), almacenInsumosId: almacenAjenoId }),
+      ).rejects.toThrow(NotFoundException);
+      await expect(
+        ordenes.crear(usuario, { ...datosOrden("1"), almacenDestinoId: almacenAjenoId }),
+      ).rejects.toThrow(NotFoundException);
+      await expect(
+        ordenes.crear(usuario, { ...datosOrden("1"), ordenTrabajoId: ordenTrabajoAjenaId }),
+      ).rejects.toThrow(NotFoundException);
+      await expect(ordenes.obtener(empresaId, ordenAjenaId)).rejects.toThrow(NotFoundException);
+      await expect(ordenes.generarVale(usuario, ordenAjenaId)).rejects.toThrow(NotFoundException);
+      await expect(ordenes.anular(usuario, ordenAjenaId)).rejects.toThrow(NotFoundException);
+    });
+
+    it("generar vale crea un BORRADOR con las lineas pendientes", async () => {
+      const { id, numero } = await ordenes.crear(usuario, datosOrden("4"));
+      const { valeId } = await ordenes.generarVale(usuario, BigInt(id));
+      valesSinDespacho.push(BigInt(valeId));
+
+      const vale = await prisma.valeSalida.findUniqueOrThrow({
+        where: { id: BigInt(valeId) },
+        include: { lineas: true },
+      });
+      expect(vale.estado).toBe("BORRADOR");
+      expect(vale.ordenProduccionId).toBe(BigInt(id));
+      expect(vale.destino).toBe(`Orden de producción ${numero}`);
+      expect(vale.lineas).toHaveLength(2);
+      const cantidades = new Map(vale.lineas.map((l) => [l.skuId.toString(), l.cantidad.toString()]));
+      expect(cantidades.get(insumoA.toString())).toBe("10");
+      expect(cantidades.get(insumoB.toString())).toBe("4");
+
+      const traza = await prisma.registroAuditoria.findFirst({
+        where: { entidad: "ORDEN_PRODUCCION", entidadId: BigInt(id), accion: "GENERAR_VALE" },
+      });
+      expect(traza).not.toBeNull();
+    });
+
+    it("un segundo generar vale sin pendiente responde 400", async () => {
+      const { id } = await ordenes.crear(usuario, datosOrden("4"));
+      const { valeId } = await ordenes.generarVale(usuario, BigInt(id));
+      valesSinDespacho.push(BigInt(valeId));
+
+      const detalle = await ordenes.obtener(empresaId, BigInt(id));
+      expect(lineaDe(detalle.consumo.lineas, insumoA).cantidadEnCurso).toBe("10");
+      expect(lineaDe(detalle.consumo.lineas, insumoA).cantidadPendiente).toBe("0");
+
+      await expect(ordenes.generarVale(usuario, BigInt(id))).rejects.toThrow(
+        new BadRequestException("No hay insumos pendientes de entregar"),
+      );
+    });
+
+    it("tras despachar, obtener muestra consumido, costo y EN_PROCESO", async () => {
+      const { id } = await ordenes.crear(usuario, datosOrden("4"));
+      const { valeId } = await ordenes.generarVale(usuario, BigInt(id));
+      await vales.autorizar(autorizador, BigInt(valeId));
+      await vales.despachar(autorizador, BigInt(valeId));
+
+      const detalle = await ordenes.obtener(empresaId, BigInt(id));
+      expect(detalle.estado).toBe("EN_PROCESO");
+      const lineaA = lineaDe(detalle.consumo.lineas, insumoA);
+      expect(lineaA.cantidadConsumida).toBe("10");
+      expect(lineaA.costoConsumido).toBe("50.00");
+      expect(lineaA.cantidadEnCurso).toBe("0");
+      expect(lineaA.cantidadPendiente).toBe("0");
+      const lineaB = lineaDe(detalle.consumo.lineas, insumoB);
+      expect(lineaB.cantidadConsumida).toBe("4");
+      expect(lineaB.costoConsumido).toBe("8.00");
+      expect(detalle.consumo.fueraDeFormula).toEqual([]);
+      expect(detalle.consumo.costoTotalConsumido).toBe("58.00");
+      expect(detalle.vales).toEqual([expect.objectContaining({ id: valeId, estado: "DESPACHADO" })]);
+
+      // Un insumo fuera de la formula despachado contra la orden se informa aparte
+      // y suma al costo total consumido.
+      const { id: valeExtraId } = await vales.crear(usuario, {
+        almacenId,
+        centroCostoId,
+        ordenProduccionId: BigInt(id),
+        destino: "Planta",
+        lineas: [{ skuId, cantidad: "1" }],
+      });
+      await vales.autorizar(autorizador, BigInt(valeExtraId));
+      await vales.despachar(autorizador, BigInt(valeExtraId));
+
+      const conExtra = await ordenes.obtener(empresaId, BigInt(id));
+      expect(conExtra.consumo.fueraDeFormula).toEqual([
+        expect.objectContaining({ cantidadConsumida: "1", costoConsumido: "5.00" }),
+      ]);
+      expect(conExtra.consumo.fueraDeFormula[0]!.skuInsumo.id).toBe(skuId.toString());
+      expect(conExtra.consumo.costoTotalConsumido).toBe("63.00");
+    });
+
+    it("editar la formula no cambia las lineas de la orden", async () => {
+      const formulaId = await crearFormula("10", [
+        { skuInsumoId: insumoA, cantidad: "25" },
+        { skuInsumoId: insumoB, cantidad: "10" },
+      ]);
+      const { id } = await ordenes.crear(usuario, datosOrden("4", formulaId));
+      await formulas.actualizar(usuario, formulaId, {
+        cantidadBase: "1",
+        lineas: [{ skuInsumoId: insumoA, cantidad: "7" }],
+      });
+
+      const detalle = await ordenes.obtener(empresaId, BigInt(id));
+      expect(detalle.consumo.lineas).toHaveLength(2);
+      expect(lineaDe(detalle.consumo.lineas, insumoA).cantidadPlanificada).toBe("10");
+      expect(lineaDe(detalle.consumo.lineas, insumoB).cantidadPlanificada).toBe("4");
+    });
+
+    it("anular solo desde PLANIFICADA sin vales", async () => {
+      const libre = await ordenes.crear(usuario, datosOrden("1"));
+      await expect(ordenes.anular(usuario, BigInt(libre.id))).resolves.toEqual({ id: libre.id });
+      const anulada = await prisma.ordenProduccion.findUniqueOrThrow({ where: { id: BigInt(libre.id) } });
+      expect(anulada.estado).toBe("ANULADA");
+      const traza = await prisma.registroAuditoria.findFirst({
+        where: { entidad: "ORDEN_PRODUCCION", entidadId: BigInt(libre.id), accion: "ANULAR" },
+      });
+      expect(traza).not.toBeNull();
+      await expect(ordenes.anular(usuario, BigInt(libre.id))).rejects.toThrow(ConflictException);
+      await expect(ordenes.generarVale(usuario, BigInt(libre.id))).rejects.toThrow(
+        new BadRequestException("La orden de producción no admite nuevos vales"),
+      );
+
+      const enProceso = await ordenes.crear(usuario, datosOrden("1"));
+      await prisma.ordenProduccion.update({ where: { id: BigInt(enProceso.id) }, data: { estado: "EN_PROCESO" } });
+      await expect(ordenes.anular(usuario, BigInt(enProceso.id))).rejects.toThrow(
+        new ConflictException("Solo se puede anular una orden planificada"),
+      );
+
+      const conVale = await ordenes.crear(usuario, datosOrden("1"));
+      const { valeId } = await ordenes.generarVale(usuario, BigInt(conVale.id));
+      valesSinDespacho.push(BigInt(valeId));
+      await expect(ordenes.anular(usuario, BigInt(conVale.id))).rejects.toThrow(
+        new BadRequestException("La orden tiene vales vinculados"),
+      );
+    });
   });
 });

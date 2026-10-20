@@ -9,6 +9,9 @@ import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { AuditoriaService } from "../auditoria/auditoria.service.js";
 import { CorrelativoService } from "../comun/correlativo/correlativo.service.js";
+import { cargarSkuRefs, referenciaSku, type SkuRef } from "./sku-ref.js";
+
+export type { SkuRef } from "./sku-ref.js";
 
 const D = Prisma.Decimal;
 
@@ -20,15 +23,6 @@ export interface NuevaFormula {
   cantidadBase: string;
   observaciones?: string;
   lineas: Array<{ skuInsumoId: bigint; cantidad: string }>;
-}
-
-/** Referencia a un SKU en las respuestas de la API. */
-export interface SkuRef {
-  id: string;
-  codigoParlante: string;
-  nombre: string;
-  /** Código de la unidad de control (Tabla 6 SUNAT). */
-  unidad: string;
 }
 
 interface FormulaCabecera {
@@ -75,7 +69,8 @@ export class FormulasService {
       include: { _count: { select: { lineas: true } } },
       orderBy: { codigo: "asc" },
     });
-    const skus = await this.cargarSkus(
+    const skus = await cargarSkuRefs(
+      this.prisma,
       empresaId,
       filas.map((f) => f.skuTerminadoId),
     );
@@ -92,7 +87,7 @@ export class FormulasService {
       include: { lineas: { orderBy: { id: "asc" } } },
     });
     if (!formula) throw new NotFoundException("Fórmula no encontrada");
-    const skus = await this.cargarSkus(empresaId, [
+    const skus = await cargarSkuRefs(this.prisma, empresaId, [
       formula.skuTerminadoId,
       ...formula.lineas.map((l) => l.skuInsumoId),
     ]);
@@ -101,7 +96,7 @@ export class FormulasService {
       lineas: formula.lineas.map((l) => ({
         id: l.id.toString(),
         cantidad: l.cantidad.toString(),
-        skuInsumo: this.referenciaSku(l.skuInsumoId, skus),
+        skuInsumo: referenciaSku(l.skuInsumoId, skus),
       })),
     };
   }
@@ -347,42 +342,7 @@ export class FormulasService {
       cantidadBase: f.cantidadBase.toString(),
       activo: f.activo,
       observaciones: f.observaciones,
-      skuTerminado: this.referenciaSku(f.skuTerminadoId, skus),
+      skuTerminado: referenciaSku(f.skuTerminadoId, skus),
     };
-  }
-
-  /** Mismo criterio de respaldo que `mapearVale` si el SKU no se encuentra. */
-  private referenciaSku(skuId: bigint, skus: Map<string, SkuRef>): SkuRef {
-    return (
-      skus.get(skuId.toString()) ?? {
-        id: skuId.toString(),
-        codigoParlante: "",
-        nombre: `SKU ${skuId}`,
-        unidad: "",
-      }
-    );
-  }
-
-  /** Mapa skuId -> SkuRef para enriquecer cabeceras y líneas (patrón de vales). */
-  private async cargarSkus(
-    empresaId: bigint,
-    ids: bigint[],
-  ): Promise<Map<string, SkuRef>> {
-    if (ids.length === 0) return new Map();
-    const skus = await this.prisma.sku.findMany({
-      where: { empresaId, id: { in: [...new Set(ids)] } },
-      include: { producto: true, unidad: true },
-    });
-    return new Map(
-      skus.map((s) => [
-        s.id.toString(),
-        {
-          id: s.id.toString(),
-          codigoParlante: s.codigoParlante,
-          nombre: s.nombre ?? s.producto.nombre,
-          unidad: s.unidad.codigo,
-        },
-      ]),
-    );
   }
 }
