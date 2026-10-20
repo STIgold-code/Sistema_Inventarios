@@ -14,18 +14,15 @@ import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { AuditoriaService } from "../auditoria/auditoria.service.js";
 import { CorrelativoService } from "../comun/correlativo/correlativo.service.js";
 import { MovimientoService } from "../inventario/movimientos/movimiento.service.js";
-import { ValesService } from "../vales/vales.service.js";
+import {
+  ESTADOS_ORDEN_PRODUCCION_ACTIVOS,
+  ValesService,
+} from "../vales/vales.service.js";
 import { cargarSkuRefs, referenciaSku, type SkuRef } from "./sku-ref.js";
 
 const D = Prisma.Decimal;
 
 const ENTIDAD_AUDITORIA = "ORDEN_PRODUCCION";
-
-/** Estados de la orden que admiten nuevos vales (misma regla que vales.service). */
-const ESTADOS_ADMITEN_VALES: readonly EstadoOrdenProduccion[] = [
-  "PLANIFICADA",
-  "EN_PROCESO",
-];
 
 /** Estados de vale cuya cantidad todavía no llegó al ledger. */
 const ESTADOS_VALE_EN_CURSO: readonly EstadoValeSalida[] = ["BORRADOR", "AUTORIZADO"];
@@ -268,6 +265,11 @@ export class OrdenesProduccionService {
    * Genera un vale de salida en BORRADOR con los insumos pendientes de
    * entregar. No va dentro de una transacción externa: `ValesService.crear`
    * abre la suya y revalida la orden dentro de ella.
+   *
+   * Limitación aceptada: dos llamadas concurrentes pueden crear cada una un
+   * BORRADOR con la misma cantidad pendiente, porque el pendiente se calcula
+   * fuera de la transacción del vale. Lo contiene la autorización obligatoria
+   * por otra persona, que revisa el vale antes de que llegue al ledger.
    */
   async generarVale(usuario: UsuarioRequest, id: bigint): Promise<{ valeId: string }> {
     const empresaId = usuario.empresaId;
@@ -275,7 +277,7 @@ export class OrdenesProduccionService {
       where: { id, empresaId },
     });
     if (!orden) throw new NotFoundException("Orden de producción no encontrada");
-    if (!ESTADOS_ADMITEN_VALES.includes(orden.estado)) {
+    if (!ESTADOS_ORDEN_PRODUCCION_ACTIVOS.includes(orden.estado)) {
       throw new BadRequestException("La orden de producción no admite nuevos vales");
     }
 

@@ -14,7 +14,7 @@ import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { aUnidadDeControl } from "../comun/conversion/conversion-unidad.js";
 
 /** Estados de una orden de produccion que aceptan nuevos vales y despachos. */
-const ESTADOS_ORDEN_PRODUCCION_ACTIVOS: readonly EstadoOrdenProduccion[] = [
+export const ESTADOS_ORDEN_PRODUCCION_ACTIVOS: readonly EstadoOrdenProduccion[] = [
   "PLANIFICADA",
   "EN_PROCESO",
 ];
@@ -271,6 +271,11 @@ export class ValesService {
    * Valida la orden de produccion del vale (si se informa) dentro de la
    * transaccion de creacion y resuelve la orden de trabajo a imputar: la del
    * DTO o, si no viene, la heredada de la orden de produccion.
+   *
+   * Toma la fila de la orden FOR SHARE: es incompatible con el FOR UPDATE del
+   * despacho, la anulacion y el cierre, asi que ningun vale BORRADOR puede
+   * quedar sobre una orden que se cierra o anula en paralelo; y no serializa
+   * entre si las creaciones de vales de la misma orden.
    */
   private async validarOrdenProduccion(
     tx: Prisma.TransactionClient,
@@ -279,6 +284,7 @@ export class ValesService {
     ordenTrabajoId: bigint | undefined,
   ): Promise<bigint | null> {
     if (ordenProduccionId === undefined) return ordenTrabajoId ?? null;
+    await tx.$queryRaw`SELECT id FROM orden_produccion WHERE id = ${ordenProduccionId} AND empresa_id = ${empresaId} FOR SHARE`;
     const orden = await tx.ordenProduccion.findFirst({
       where: { id: ordenProduccionId, empresaId },
     });

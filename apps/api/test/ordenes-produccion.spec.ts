@@ -288,6 +288,28 @@ describe("Ordenes de produccion (integracion)", () => {
     expect(vale.estado).toBe("DESPACHADO");
   });
 
+  it("un segundo vale despachado sobre una orden EN_PROCESO se completa y la orden sigue EN_PROCESO", async () => {
+    const ordenId = await crearOrden();
+    const valeIds: bigint[] = [];
+    for (const cantidad of ["1", "2"]) {
+      const { id } = await vales.crear(usuario, {
+        almacenId,
+        centroCostoId,
+        ordenProduccionId: ordenId,
+        destino: "Planta",
+        lineas: [{ skuId, cantidad }],
+      });
+      await vales.autorizar(autorizador, BigInt(id));
+      await vales.despachar(autorizador, BigInt(id));
+      valeIds.push(BigInt(id));
+    }
+
+    const orden = await prisma.ordenProduccion.findUniqueOrThrow({ where: { id: ordenId } });
+    expect(orden.estado).toBe("EN_PROCESO");
+    const despachados = await prisma.valeSalida.findMany({ where: { id: { in: valeIds } } });
+    expect(despachados.map((v) => v.estado)).toEqual(["DESPACHADO", "DESPACHADO"]);
+  });
+
   it("despachar contra una orden CERRADA lanza Conflict", async () => {
     const ordenId = await crearOrden();
     const { id } = await vales.crear(usuario, {
