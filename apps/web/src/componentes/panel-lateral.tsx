@@ -59,6 +59,8 @@ export function PanelLateral({
 
     function alPresionarTecla(evento: KeyboardEvent): void {
       if (evento.key === "Escape") {
+        // Un control interno (p. ej. un combobox abierto) ya consumió el Escape.
+        if (evento.defaultPrevented) return;
         onCerrarRef.current();
         return;
       }

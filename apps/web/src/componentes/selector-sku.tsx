@@ -9,6 +9,12 @@ interface Props {
   onSeleccionar: (sku: Sku | null) => void;
   placeholder?: string;
   autoFocus?: boolean;
+  /** Id del input, para asociarlo a un `<label htmlFor>`. */
+  id?: string;
+  ariaLabel?: string;
+  /** Id(s) de los textos de ayuda o error que describen el campo. */
+  ariaDescribedBy?: string;
+  ariaInvalid?: boolean;
 }
 
 /**
@@ -21,6 +27,10 @@ export function SelectorSku({
   onSeleccionar,
   placeholder = "Busca por código o nombre…",
   autoFocus,
+  id,
+  ariaLabel,
+  ariaDescribedBy,
+  ariaInvalid,
 }: Props): React.JSX.Element {
   const [texto, setTexto] = useState<string>("");
   const [resultados, setResultados] = useState<Sku[]>([]);
@@ -91,6 +101,9 @@ export function SelectorSku({
       const sel = resultados[resaltado];
       if (sel) elegir(sel);
     } else if (e.key === "Escape") {
+      // Con la lista abierta, Escape solo la cierra: se marca como consumido
+      // para que un PanelLateral o modal contenedor no se cierre también.
+      if (abierto) e.preventDefault();
       setAbierto(false);
     }
   }
@@ -106,8 +119,12 @@ export function SelectorSku({
           <IconoLupa />
         </span>
         <input
+          id={id}
           type="text"
           role="combobox"
+          aria-label={ariaLabel}
+          aria-describedby={ariaDescribedBy}
+          aria-invalid={ariaInvalid ? "true" : undefined}
           aria-expanded={abierto}
           aria-controls={listaId}
           aria-autocomplete="list"

@@ -595,6 +595,7 @@ export default function PaginaVales(): React.JSX.Element {
                       SKU
                     </label>
                     <SelectorSku
+                      id={`vale-sku-${indice}`}
                       valor={linea.sku}
                       onSeleccionar={(sku) => cambiarSkuLinea(indice, sku)}
                       placeholder="Busca por código o nombre…"

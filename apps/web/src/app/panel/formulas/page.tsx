@@ -226,6 +226,9 @@ interface CampoSkuProps {
  * lectura y un botón "Cambiar". Así un SKU que llega del API como `SkuRef`
  * se representa sin reconstruir un `Sku` completo. Tras elegir o cambiar, el
  * foco pasa al control que se acaba de montar.
+ *
+ * "Cambiar" conserva el SKU anterior: mientras no se elija otro, "Cancelar",
+ * Escape o salir del campo con Tab lo restauran.
  */
 function CampoSku({
   id,
@@ -238,24 +241,63 @@ function CampoSku({
 }: CampoSkuProps): React.JSX.Element {
   // Solo se enfoca al montar si el usuario ya interactuó (no al abrir el panel).
   const [interactuado, setInteractuado] = useState<boolean>(enfocarAlMontar);
+  // SKU vigente antes de presionar "Cambiar"; null si no hay un cambio en curso.
+  const [previo, setPrevio] = useState<SkuRef | null>(null);
   const idError = `${id}-error`;
+
+  function restaurar(enfocar: boolean): void {
+    if (!previo) return;
+    setInteractuado(enfocar);
+    onCambio(previo);
+    setPrevio(null);
+  }
 
   if (!valor) {
     return (
-      <div>
-        {/* `SelectorSku` no expone `id`: la etiqueta envolvente lo asocia a su input. */}
-        <label className="block">
-          <span className="etiqueta-campo block">{etiqueta}</span>
-          <SelectorSku
-            valor={null}
-            autoFocus={interactuado}
-            onSeleccionar={(sku) => {
-              if (!sku) return;
-              setInteractuado(true);
-              onCambio(aSkuRef(sku));
-            }}
-          />
+      <div
+        onKeyDown={(e) => {
+          if (e.key !== "Escape" || !previo) return;
+          // Escape cancela el cambio; no debe cerrar el PanelLateral.
+          e.preventDefault();
+          restaurar(true);
+        }}
+        onBlur={(e) => {
+          const destino = e.relatedTarget;
+          if (destino instanceof Node && !e.currentTarget.contains(destino)) {
+            restaurar(false);
+          }
+        }}
+      >
+        <label htmlFor={id} className="etiqueta-campo">
+          {etiqueta}
         </label>
+        <div className="flex gap-2">
+          <div className="min-w-0 flex-1">
+            <SelectorSku
+              id={id}
+              valor={null}
+              autoFocus={interactuado}
+              ariaInvalid={error !== undefined}
+              ariaDescribedBy={error ? idError : undefined}
+              onSeleccionar={(sku) => {
+                if (!sku) return;
+                setInteractuado(true);
+                setPrevio(null);
+                onCambio(aSkuRef(sku));
+              }}
+            />
+          </div>
+          {previo && (
+            <button
+              type="button"
+              onClick={() => restaurar(true)}
+              aria-label={`Cancelar cambio de ${etiqueta.toLowerCase()}`}
+              className="btn btn-contorno whitespace-nowrap"
+            >
+              Cancelar
+            </button>
+          )}
+        </div>
         <MensajeCampo id={idError} texto={error} />
       </div>
     );
@@ -280,6 +322,7 @@ function CampoSku({
           type="button"
           onClick={() => {
             setInteractuado(true);
+            setPrevio(valor);
             onCambio(null);
           }}
           aria-label={etiquetaCambiar}
@@ -448,7 +491,6 @@ export default function PaginaFormulas(): React.JSX.Element {
     try {
       if (accion === "baja") {
         await darDeBajaFormula(formula.id);
-        if (editando?.id === formula.id) cerrarPanel();
         setAvisoLista({ texto: `Fórmula ${formula.codigo} dada de baja.`, tono: "exito" });
       } else {
         await reactivarFormula(formula.id);
@@ -772,7 +814,11 @@ export default function PaginaFormulas(): React.JSX.Element {
 
           <div className="flex gap-3 pt-2">
             <button type="submit" disabled={guardando} className="btn btn-primario">
-              {guardando ? "Guardando…" : "Guardar"}
+              {guardando
+                ? "Guardando…"
+                : editando
+                  ? "Guardar cambios"
+                  : "Registrar fórmula"}
             </button>
             <button type="button" onClick={cerrarPanel} className="btn btn-contorno">
               Cancelar
