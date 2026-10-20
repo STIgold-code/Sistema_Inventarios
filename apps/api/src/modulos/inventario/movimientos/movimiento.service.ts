@@ -1052,9 +1052,10 @@ export class MovimientoService {
    * capa nueva con costoUnitario = costoTotal / cantidad, donde costoTotal es el
    * costo real de los insumos consumidos por la orden. Op SUNAT 10 (produccion).
    * Opera DENTRO de la transaccion del cierre. Devuelve el costo unitario usado.
-   * El costo unitario devuelto no se redondea (asi cantidad × costoUnitario
-   * conserva costoTotal); una vez guardado en una columna Decimal(20,8) coincide
-   * con el de la capa.
+   * El costo unitario devuelto conserva la precisión de Decimal (20 dígitos
+   * significativos), de modo que cantidad × costoUnitario, redondeado a los 2
+   * decimales de costo_total, reproduce costoTotal; guardado en Decimal(20,8)
+   * coincide con el de la capa.
    */
   async entradaPorProduccionEnTx(
     usuario: UsuarioRequest,

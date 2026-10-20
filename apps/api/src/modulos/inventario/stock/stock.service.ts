@@ -233,6 +233,8 @@ export class StockService {
         return `Ajuste ${ref}`.trim();
       case "CONTEO_FISICO":
         return `Conteo físico ${ref}`.trim();
+      case "ORDEN_PRODUCCION":
+        return `Orden de producción ${ref}`.trim();
       case "INICIAL":
         return "Saldo inicial";
       default:

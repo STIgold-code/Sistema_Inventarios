@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, NotFoundException } from "@nest
 import { PATH_METADATA } from "@nestjs/common/constants.js";
 import { PrismaService } from "../src/comun/prisma/prisma.service.js";
 import { MovimientoService } from "../src/modulos/inventario/movimientos/movimiento.service.js";
+import { StockService } from "../src/modulos/inventario/stock/stock.service.js";
 import { TiposCambioService } from "../src/modulos/tipos-cambio/tipos-cambio.service.js";
 import { CorrelativoService } from "../src/modulos/comun/correlativo/correlativo.service.js";
 import { AuditoriaService } from "../src/modulos/auditoria/auditoria.service.js";
@@ -737,6 +738,11 @@ describe("Ordenes de produccion (integracion)", () => {
         expect(mov.skuId).toBe(terminadoCierre);
         expect(mov.cantidad.toString()).toBe("8");
         expect(mov.costoTotal.toString()).toBe("120");
+
+        // El kardex rotula el origen con la orden de producción.
+        const kardex = await new StockService(prisma).kardex(empresaId, terminadoCierre, almacenId);
+        const entradaKardex = kardex.filter((l) => l.tipo === "ENTRADA_PRODUCCION");
+        expect(entradaKardex.map((l) => l.referencia)).toContain(`Orden de producción N° ${ordenId.toString()}`);
 
         const capa = await prisma.capaCosto.findFirstOrThrow({ where: { movimientoEntradaId: mov.id } });
         expect(capa.cantidadInicial.toString()).toBe("8");
