@@ -7,7 +7,10 @@ import { AuditoriaService } from "../src/modulos/auditoria/auditoria.service.js"
 import { ValesService } from "../src/modulos/vales/vales.service.js";
 import { FormulasService } from "../src/modulos/produccion/formulas.service.js";
 import { OrdenesProduccionService } from "../src/modulos/produccion/ordenes-produccion.service.js";
-import { CerrarOrdenProduccionDto } from "../src/modulos/produccion/dto/ordenes-produccion.dto.js";
+import {
+  CerrarOrdenProduccionDto,
+  CrearOrdenProduccionDto,
+} from "../src/modulos/produccion/dto/ordenes-produccion.dto.js";
 import type { UsuarioRequest } from "../src/comun/contexto/usuario-request.js";
 import { validarCuerpo } from "./apoyo/validar-cuerpo.js";
 
@@ -454,6 +457,34 @@ describe("Ordenes de produccion (integracion)", () => {
       ).rejects.toThrow(
         new BadRequestException("No se puede vincular la orden de producción a una orden de trabajo cerrada"),
       );
+    });
+
+    it("rechaza con 400 una formula cuyo SKU terminado esta inactivo", async () => {
+      const terminadoInactivo = await crearSkuProduccion("0104", "Terminado inactivo test");
+      const { id } = await formulas.crear(usuario, {
+        nombre: `Formula terminado inactivo ${RUN}`,
+        skuTerminadoId: terminadoInactivo,
+        cantidadBase: "1",
+        lineas: [{ skuInsumoId: insumoA, cantidad: "1" }],
+      });
+      await prisma.sku.update({ where: { id: terminadoInactivo }, data: { activo: false } });
+
+      await expect(ordenes.crear(usuario, datosOrden("1", BigInt(id)))).rejects.toThrow(
+        new BadRequestException(`El SKU 4${RUN}0104 está inactivo`),
+      );
+    });
+
+    it("valida el DTO de creacion de la orden", async () => {
+      const base = {
+        formulaId: 1,
+        cantidadPlanificada: "10",
+        almacenInsumosId: 1,
+        almacenDestinoId: 1,
+        centroCostoId: 1,
+      };
+      expect((await validarCuerpo(CrearOrdenProduccionDto, { ...base, cantidadPlanificada: "0" })).valido).toBe(false);
+      expect((await validarCuerpo(CrearOrdenProduccionDto, { ...base, formulaId: "abc" })).valido).toBe(false);
+      expect((await validarCuerpo(CrearOrdenProduccionDto, base)).valido).toBe(true);
     });
 
     it("rechaza una linea que redondea a cero sin crear la orden", async () => {
