@@ -107,19 +107,21 @@ export class FormulasService {
   }
 
   /**
-   * Crea la fórmula con sus insumos. Toda la validación ocurre ANTES de tomar
-   * el correlativo, para que una petición rechazada no consuma un número.
-   * Correlativo, fórmula y auditoría van en una sola transacción.
+   * Crea la fórmula con sus insumos. Validación, correlativo, fórmula y
+   * auditoría van en una sola transacción: la validación corre dentro de ella
+   * (sin ventana entre validar y escribir) y ANTES de tomar el correlativo; si
+   * falla, el rollback revierte todo y no se consume ningún número.
    */
   async crear(
     usuario: UsuarioRequest,
     datos: NuevaFormula,
   ): Promise<{ id: string; codigo: string }> {
     const insumos = datos.lineas.map((l) => l.skuInsumoId);
-    await this.validarSkus(usuario.empresaId, [datos.skuTerminadoId, ...insumos]);
-    this.validarComposicion(datos.skuTerminadoId, insumos);
 
     const formula = await this.prisma.$transaction(async (tx) => {
+      await this.validarSkus(tx, usuario.empresaId, [datos.skuTerminadoId, ...insumos]);
+      this.validarComposicion(datos.skuTerminadoId, insumos);
+
       const correlativo = await this.correlativos.siguiente(
         tx,
         usuario.empresaId,
@@ -154,37 +156,46 @@ export class FormulasService {
   }
 
   /**
-   * Actualiza los campos enviados. Si llega `lineas`, reemplaza el conjunto
-   * completo de insumos y se valida contra el terminado efectivo (el nuevo si
-   * se envía, si no el guardado). Si solo cambia el terminado, se valida contra
+   * Actualiza los campos enviados. Pertenencia y estado activo se validan solo
+   * para los SKU recibidos en la petición: el terminado guardado no se
+   * revalida (ya se validó al asignarlo), pero sigue siendo el terminado
+   * efectivo para la regla insumo ≠ terminado. Si llega `lineas`, reemplaza el
+   * conjunto completo de insumos; si solo cambia el terminado, se valida contra
    * los insumos guardados. Una fórmula inactiva también se puede editar.
+   * Validación y escritura van en la misma transacción.
    */
   async actualizar(
     usuario: UsuarioRequest,
     id: bigint,
     datos: Partial<NuevaFormula>,
   ): Promise<{ id: string }> {
-    const actual = await this.prisma.formula.findFirst({
-      where: { id, empresaId: usuario.empresaId },
-      include: { lineas: true },
-    });
-    if (!actual) throw new NotFoundException("Fórmula no encontrada");
-
-    const terminado = datos.skuTerminadoId ?? actual.skuTerminadoId;
-    if (datos.lineas !== undefined) {
-      const insumos = datos.lineas.map((l) => l.skuInsumoId);
-      await this.validarSkus(usuario.empresaId, [terminado, ...insumos]);
-      this.validarComposicion(terminado, insumos);
-    } else if (terminado !== actual.skuTerminadoId) {
-      await this.validarSkus(usuario.empresaId, [terminado]);
-      this.validarComposicion(
-        terminado,
-        actual.lineas.map((l) => l.skuInsumoId),
-      );
+    if (Object.values(datos).every((valor) => valor === undefined)) {
+      throw new BadRequestException("No hay cambios que aplicar");
     }
 
     const lineas = datos.lineas;
     await this.prisma.$transaction(async (tx) => {
+      const actual = await tx.formula.findFirst({
+        where: { id, empresaId: usuario.empresaId },
+        include: { lineas: true },
+      });
+      if (!actual) throw new NotFoundException("Fórmula no encontrada");
+
+      const terminado = datos.skuTerminadoId ?? actual.skuTerminadoId;
+      if (lineas !== undefined) {
+        const insumos = lineas.map((l) => l.skuInsumoId);
+        const recibidos =
+          datos.skuTerminadoId !== undefined ? [datos.skuTerminadoId, ...insumos] : insumos;
+        await this.validarSkus(tx, usuario.empresaId, recibidos);
+        this.validarComposicion(terminado, insumos);
+      } else if (terminado !== actual.skuTerminadoId) {
+        await this.validarSkus(tx, usuario.empresaId, [terminado]);
+        this.validarComposicion(
+          terminado,
+          actual.lineas.map((l) => l.skuInsumoId),
+        );
+      }
+
       if (lineas !== undefined) {
         await tx.formulaLinea.deleteMany({
           where: { formulaId: actual.id, empresaId: usuario.empresaId },
@@ -274,9 +285,13 @@ export class FormulasService {
    * Todos los SKU deben pertenecer a la empresa (anti-IDOR: 404 si alguno no)
    * y estar activos (400).
    */
-  private async validarSkus(empresaId: bigint, ids: bigint[]): Promise<void> {
+  private async validarSkus(
+    tx: Prisma.TransactionClient,
+    empresaId: bigint,
+    ids: bigint[],
+  ): Promise<void> {
     const unicos = [...new Set(ids)];
-    const skus = await this.prisma.sku.findMany({
+    const skus = await tx.sku.findMany({
       where: { id: { in: unicos }, empresaId },
       select: { id: true, codigoParlante: true, activo: true },
     });

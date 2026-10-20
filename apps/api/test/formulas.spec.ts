@@ -266,6 +266,56 @@ describe("Fórmulas de producción (integración)", () => {
     });
   });
 
+  it("actualizar reemplaza las líneas aunque el terminado guardado se haya desactivado", async () => {
+    // Terminado desechable para no afectar a los demás casos.
+    const terminadoDesechable = await crearSku(empresaA, "0006", "Barniz descontinuado");
+    const { id } = await formulas.crear(usuario, {
+      ...datosValidos(),
+      skuTerminadoId: terminadoDesechable,
+    });
+    await prisma.sku.update({ where: { id: terminadoDesechable }, data: { activo: false } });
+
+    await formulas.actualizar(usuario, BigInt(id), {
+      lineas: [{ skuInsumoId: insumo1Id, cantidad: "5" }],
+    });
+
+    const detalle = await formulas.obtener(empresaA, BigInt(id));
+    expect(detalle.lineas).toHaveLength(1);
+    expect(detalle.lineas[0]!.skuInsumo.id).toBe(insumo1Id.toString());
+  });
+
+  it("actualizar rechaza con 400 un nuevo terminado inactivo", async () => {
+    const terminadoInactivo = await crearSku(empresaA, "0007", "Esmalte descontinuado", false);
+    const { id } = await formulas.crear(usuario, datosValidos());
+
+    await expect(
+      formulas.actualizar(usuario, BigInt(id), { skuTerminadoId: terminadoInactivo }),
+    ).rejects.toThrow(new BadRequestException(`El SKU 8${RUN}0007 está inactivo`));
+    await expect(
+      formulas.actualizar(usuario, BigInt(id), {
+        skuTerminadoId: terminadoInactivo,
+        lineas: [{ skuInsumoId: insumo1Id, cantidad: "1" }],
+      }),
+    ).rejects.toThrow(new BadRequestException(`El SKU 8${RUN}0007 está inactivo`));
+    expect((await formulas.obtener(empresaA, BigInt(id))).skuTerminado.id).toBe(terminadoId.toString());
+  });
+
+  it("actualizar sin cambios responde 400 y no registra auditoría", async () => {
+    const { id } = await formulas.crear(usuario, datosValidos());
+
+    await expect(formulas.actualizar(usuario, BigInt(id), {})).rejects.toThrow(
+      new BadRequestException("No hay cambios que aplicar"),
+    );
+    await expect(
+      formulas.actualizar(usuario, BigInt(id), { nombre: undefined, lineas: undefined }),
+    ).rejects.toThrow(new BadRequestException("No hay cambios que aplicar"));
+    expect(
+      await prisma.registroAuditoria.count({
+        where: { entidad: "FORMULA", entidadId: BigInt(id), accion: "ACTUALIZAR" },
+      }),
+    ).toBe(0);
+  });
+
   it("dar de baja y reactivar cambian activo", async () => {
     const { id } = await formulas.crear(usuario, datosValidos());
     const formulaId = BigInt(id);
