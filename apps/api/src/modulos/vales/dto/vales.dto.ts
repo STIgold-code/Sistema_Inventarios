@@ -79,6 +79,11 @@ export class CrearValeSalidaDto {
   @IsInt()
   ordenTrabajoId?: number;
 
+  // Orden de produccion para la que se consumen los insumos (opcional).
+  @IsOptional()
+  @IsInt()
+  ordenProduccionId?: number;
+
   @IsString()
   @MinLength(1, { message: "destino es obligatorio" })
   destino!: string;

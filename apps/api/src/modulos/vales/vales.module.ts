@@ -10,5 +10,6 @@ import { ValesService } from "./vales.service.js";
   imports: [AuthModule, AuditoriaModule, CorrelativoModule, InventarioModule],
   controllers: [ValesController],
   providers: [ValesService],
+  exports: [ValesService],
 })
 export class ValesModule {}

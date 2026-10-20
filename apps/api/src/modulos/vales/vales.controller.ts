@@ -35,6 +35,8 @@ export class ValesController {
       centroCostoId: BigInt(dto.centroCostoId),
       ordenTrabajoId:
         dto.ordenTrabajoId !== undefined ? BigInt(dto.ordenTrabajoId) : undefined,
+      ordenProduccionId:
+        dto.ordenProduccionId !== undefined ? BigInt(dto.ordenProduccionId) : undefined,
       destino: dto.destino,
       observaciones: dto.observaciones,
       comprobanteFisico: dto.comprobanteFisico,

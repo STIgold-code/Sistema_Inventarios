@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { EstadoOrdenProduccion, Prisma } from "@prisma/client";
 import { PrismaService } from "../../comun/prisma/prisma.service.js";
 import { AuditoriaService } from "../auditoria/auditoria.service.js";
 import { CorrelativoService } from "../comun/correlativo/correlativo.service.js";
@@ -13,10 +13,17 @@ import { MovimientoService } from "../inventario/movimientos/movimiento.service.
 import type { UsuarioRequest } from "../../comun/contexto/usuario-request.js";
 import { aUnidadDeControl } from "../comun/conversion/conversion-unidad.js";
 
-interface NuevoValeSalida {
+/** Estados de una orden de produccion que aceptan nuevos vales y despachos. */
+const ESTADOS_ORDEN_PRODUCCION_ACTIVOS: readonly EstadoOrdenProduccion[] = [
+  "PLANIFICADA",
+  "EN_PROCESO",
+];
+
+export interface NuevoValeSalida {
   almacenId: bigint;
   centroCostoId: bigint;
   ordenTrabajoId?: bigint;
+  ordenProduccionId?: bigint;
   destino: string;
   observaciones?: string;
   comprobanteFisico?: string;
@@ -45,6 +52,7 @@ export class ValesService {
         centroCosto: true,
         almacen: true,
         ordenTrabajo: true,
+        ordenProduccion: { select: { id: true, numero: true } },
         solicitante: true,
         autorizadoPor: true,
         lineas: true,
@@ -66,6 +74,7 @@ export class ValesService {
         centroCosto: true,
         almacen: true,
         ordenTrabajo: true,
+        ordenProduccion: { select: { id: true, numero: true } },
         solicitante: true,
         autorizadoPor: true,
         lineas: true,
@@ -86,6 +95,7 @@ export class ValesService {
         centroCosto: true;
         almacen: true;
         ordenTrabajo: true;
+        ordenProduccion: { select: { id: true; numero: true } };
         solicitante: true;
         autorizadoPor: true;
         lineas: true;
@@ -104,6 +114,9 @@ export class ValesService {
       centroCosto: v.centroCosto.nombre,
       ordenTrabajoId: v.ordenTrabajoId ? v.ordenTrabajoId.toString() : null,
       ordenTrabajo: v.ordenTrabajo ? v.ordenTrabajo.numero : null,
+      ordenProduccion: v.ordenProduccion
+        ? { id: v.ordenProduccion.id.toString(), numero: v.ordenProduccion.numero }
+        : null,
       destino: v.destino,
       solicitanteId: v.solicitanteId.toString(),
       solicitante: v.solicitante.nombre,
@@ -206,6 +219,12 @@ export class ValesService {
     });
 
     const id = await this.prisma.$transaction(async (tx) => {
+      const ordenTrabajoId = await this.validarOrdenProduccion(
+        tx,
+        usuario.empresaId,
+        dto.ordenProduccionId,
+        dto.ordenTrabajoId,
+      );
       const correlativo = await this.correlativos.siguiente(
         tx,
         usuario.empresaId,
@@ -217,7 +236,8 @@ export class ValesService {
           numero: correlativo.formateado,
           almacenId: dto.almacenId,
           centroCostoId: dto.centroCostoId,
-          ordenTrabajoId: dto.ordenTrabajoId ?? null,
+          ordenTrabajoId,
+          ordenProduccionId: dto.ordenProduccionId ?? null,
           solicitanteId: usuario.id,
           destino: dto.destino,
           estado: "BORRADOR",
@@ -252,6 +272,37 @@ export class ValesService {
     });
 
     return { id: id.toString() };
+  }
+
+  /**
+   * Valida la orden de produccion del vale (si se informa) dentro de la
+   * transaccion de creacion y resuelve la orden de trabajo a imputar: la del
+   * DTO o, si no viene, la heredada de la orden de produccion.
+   */
+  private async validarOrdenProduccion(
+    tx: Prisma.TransactionClient,
+    empresaId: bigint,
+    ordenProduccionId: bigint | undefined,
+    ordenTrabajoId: bigint | undefined,
+  ): Promise<bigint | null> {
+    if (ordenProduccionId === undefined) return ordenTrabajoId ?? null;
+    const orden = await tx.ordenProduccion.findFirst({
+      where: { id: ordenProduccionId, empresaId },
+    });
+    if (!orden) throw new NotFoundException("Orden de producción no encontrada");
+    if (!ESTADOS_ORDEN_PRODUCCION_ACTIVOS.includes(orden.estado)) {
+      throw new BadRequestException("La orden de producción no admite nuevos vales");
+    }
+    if (
+      ordenTrabajoId !== undefined &&
+      orden.ordenTrabajoId !== null &&
+      orden.ordenTrabajoId !== ordenTrabajoId
+    ) {
+      throw new BadRequestException(
+        "La orden de trabajo no coincide con la de la orden de producción",
+      );
+    }
+    return ordenTrabajoId ?? orden.ordenTrabajoId;
   }
 
   /** BORRADOR -> AUTORIZADO. Deja constancia del autorizador (segregacion). */
@@ -319,6 +370,12 @@ export class ValesService {
 
     const receptor = entregadoA || vale.entregadoA;
     await this.prisma.$transaction(async (tx) => {
+      // Si el vale consume para una orden de produccion, bloquea la orden antes
+      // de mover stock: un cierre o anulacion concurrente espera a este despacho
+      // (o este despacho ve el nuevo estado y aborta).
+      if (vale.ordenProduccionId !== null) {
+        await this.bloquearOrdenProduccion(tx, vale.ordenProduccionId);
+      }
       // CAS sobre el estado al inicio de la transaccion: marca DESPACHADO solo si
       // SIGUE AUTORIZADO. Si otra peticion despacho/anulo el vale entre el read y
       // esta transaccion, afecta 0 filas -> conflicto y se revierte (sin doble
@@ -345,6 +402,14 @@ export class ValesService {
           data: { cantidadDespachada: linea.cantidad, movimientoStockId: movimientoId },
         });
       }
+      // El primer despacho inicia la produccion. Si la orden ya estaba EN_PROCESO
+      // no afecta filas, y es correcto (no es un conflicto).
+      if (vale.ordenProduccionId !== null) {
+        await tx.ordenProduccion.updateMany({
+          where: { id: vale.ordenProduccionId, estado: "PLANIFICADA" },
+          data: { estado: "EN_PROCESO" },
+        });
+      }
       // El estado DESPACHADO ya quedo fijado por el CAS al inicio de la transaccion.
       await this.auditoria.registrar(
         {
@@ -362,6 +427,21 @@ export class ValesService {
     });
 
     return { id: id.toString(), estado: "DESPACHADO" };
+  }
+
+  /**
+   * Toma un bloqueo de fila sobre la orden de produccion y verifica, ya con el
+   * bloqueo, que siga admitiendo despachos.
+   */
+  private async bloquearOrdenProduccion(tx: Prisma.TransactionClient, id: bigint) {
+    await tx.$queryRaw`SELECT id FROM orden_produccion WHERE id = ${id} FOR UPDATE`;
+    const orden = await tx.ordenProduccion.findUnique({
+      where: { id },
+      select: { estado: true },
+    });
+    if (!orden || !ESTADOS_ORDEN_PRODUCCION_ACTIVOS.includes(orden.estado)) {
+      throw new ConflictException("La orden de producción ya no admite despachos");
+    }
   }
 
   /** BORRADOR o AUTORIZADO -> ANULADO. No se puede anular un vale despachado. */
