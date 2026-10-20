@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
   METODO_VALUACION,
@@ -1045,6 +1045,37 @@ export class MovimientoService {
       observaciones: dto.observaciones ?? "Transformacion de codigo (entrada)",
     });
     return { movimientoId: mov.id };
+  }
+
+  /**
+   * Entrada del producto terminado al cerrar una orden de produccion. Crea una
+   * capa nueva con costoUnitario = costoTotal / cantidad, donde costoTotal es el
+   * costo real de los insumos consumidos por la orden. Op SUNAT 10 (produccion).
+   * Opera DENTRO de la transaccion del cierre. Devuelve el costo unitario usado.
+   */
+  async entradaPorProduccionEnTx(
+    usuario: UsuarioRequest,
+    tx: Tx,
+    dto: { skuId: bigint; almacenId: bigint; cantidad: string; costoTotal: string; documentoId: bigint; observaciones?: string },
+  ): Promise<{ movimientoId: bigint; costoUnitario: Prisma.Decimal }> {
+    const cantidad = new D(dto.cantidad);
+    if (cantidad.lessThanOrEqualTo(0)) {
+      throw new BadRequestException("La cantidad producida debe ser mayor que cero");
+    }
+    const costoTotal = new D(dto.costoTotal);
+    const costoUnitario = costoTotal.div(cantidad);
+    await this.bloquear(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const item = await this.obtenerOcrearItem(tx, usuario.empresaId, dto.skuId, dto.almacenId);
+    const mov = await this.aplicarEntrada(tx, usuario, item, {
+      cantidad,
+      costoUnitario,
+      tipo: TIPO_MOVIMIENTO.ENTRADA_PRODUCCION,
+      documentoTipo: "ORDEN_PRODUCCION",
+      documentoId: dto.documentoId,
+      tipoOperacionSunat: TIPO_OPERACION.SALIDA_PRODUCCION,
+      observaciones: dto.observaciones ?? "Ingreso de producción por orden",
+    });
+    return { movimientoId: mov.id, costoUnitario };
   }
 
   /**
